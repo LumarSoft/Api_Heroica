@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes';
 import sucursalesRoutes from './routes/sucursalesRoutes';
+import movimientosRoutes from './routes/movimientosRoutes';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -19,6 +20,7 @@ app.use(express.urlencoded({ extended: true })); // Parsear URL-encoded
 // Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/sucursales', sucursalesRoutes);
+app.use('/api/movimientos', movimientosRoutes);
 
 // Ruta de prueba
 app.get('/', (req: Request, res: Response) => {
@@ -34,6 +36,12 @@ app.get('/', (req: Request, res: Response) => {
         getAll: '/api/sucursales',
         getById: '/api/sucursales/:id',
         create: '/api/sucursales'
+      },
+      movimientos: {
+        getBySucursal: '/api/movimientos/:sucursalId',
+        update: '/api/movimientos/:id',
+        updateEstado: '/api/movimientos/:id/estado',
+        delete: '/api/movimientos/:id'
       }
     }
   });
