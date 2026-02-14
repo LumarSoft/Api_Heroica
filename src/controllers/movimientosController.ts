@@ -1,5 +1,5 @@
-import { Request, Response } from 'express';
-import { query } from '../config/database';
+import { Request, Response } from "express";
+import { query } from "../config/database";
 
 // GET /api/movimientos/:sucursalId
 export const getMovimientosBySucursal = async (req: Request, res: Response) => {
@@ -12,25 +12,26 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
        FROM movimientos_caja_efectivo 
        WHERE sucursal_id = ? 
        ORDER BY fecha DESC`,
-      [sucursalId]
+      [sucursalId],
     );
 
     // Agrupar por tipo de movimiento
     const movimientos = {
-      saldo_real: result.filter((m: any) => m.tipo_movimiento === 'saldo_real'),
-      saldo_necesario: result.filter((m: any) => m.tipo_movimiento === 'saldo_necesario'),
+      saldo_real: result.filter((m: any) => m.tipo_movimiento === "saldo_real"),
+      saldo_necesario: result.filter(
+        (m: any) => m.tipo_movimiento === "saldo_necesario",
+      ),
     };
 
     res.json({
       success: true,
-      data: movimientos
+      data: movimientos,
     });
-
   } catch (error) {
-    console.error('Error al obtener movimientos:', error);
+    console.error("Error al obtener movimientos:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener movimientos'
+      message: "Error al obtener movimientos",
     });
   }
 };
@@ -45,20 +46,20 @@ export const updateMovimiento = async (req: Request, res: Response) => {
     if (!fecha || !concepto || monto === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Fecha, concepto y monto son requeridos'
+        message: "Fecha, concepto y monto son requeridos",
       });
     }
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      'SELECT id FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
+      "SELECT id FROM movimientos_caja_efectivo WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
@@ -67,26 +68,25 @@ export const updateMovimiento = async (req: Request, res: Response) => {
       `UPDATE movimientos_caja_efectivo 
        SET fecha = ?, concepto = ?, monto = ?, descripcion = ?, prioridad = ? 
        WHERE id = ?`,
-      [fecha, concepto, monto, descripcion || null, prioridad || 'media', id]
+      [fecha, concepto, monto, descripcion || null, prioridad || "media", id],
     );
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
-      'SELECT * FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos_caja_efectivo WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Movimiento actualizado exitosamente',
-      data: updatedResult[0]
+      message: "Movimiento actualizado exitosamente",
+      data: updatedResult[0],
     });
-
   } catch (error) {
-    console.error('Error al actualizar movimiento:', error);
+    console.error("Error al actualizar movimiento:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al actualizar movimiento'
+      message: "Error al actualizar movimiento",
     });
   }
 };
@@ -98,33 +98,29 @@ export const deleteMovimiento = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      'SELECT id FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
+      "SELECT id FROM movimientos_caja_efectivo WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
     // Eliminar movimiento (hard delete)
-    await query(
-      'DELETE FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
-    );
+    await query("DELETE FROM movimientos_caja_efectivo WHERE id = ?", [id]);
 
     res.json({
       success: true,
-      message: 'Movimiento eliminado exitosamente'
+      message: "Movimiento eliminado exitosamente",
     });
-
   } catch (error) {
-    console.error('Error al eliminar movimiento:', error);
+    console.error("Error al eliminar movimiento:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al eliminar movimiento'
+      message: "Error al eliminar movimiento",
     });
   }
 };
@@ -136,50 +132,50 @@ export const updateEstadoMovimiento = async (req: Request, res: Response) => {
     const { estado } = req.body;
 
     // Validación
-    const estadosValidos = ['pendiente', 'aprobado', 'rechazado', 'completado'];
+    const estadosValidos = ["pendiente", "aprobado", "rechazado", "completado"];
     if (!estado || !estadosValidos.includes(estado)) {
       return res.status(400).json({
         success: false,
-        message: 'Estado inválido. Debe ser: pendiente, aprobado, rechazado o completado'
+        message:
+          "Estado inválido. Debe ser: pendiente, aprobado, rechazado o completado",
       });
     }
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      'SELECT id FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
+      "SELECT id FROM movimientos_caja_efectivo WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
     // Actualizar estado
     await query(
-      'UPDATE movimientos_caja_efectivo SET estado = ? WHERE id = ?',
-      [estado, id]
+      "UPDATE movimientos_caja_efectivo SET estado = ? WHERE id = ?",
+      [estado, id],
     );
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
-      'SELECT * FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos_caja_efectivo WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Estado actualizado exitosamente',
-      data: updatedResult[0]
+      message: "Estado actualizado exitosamente",
+      data: updatedResult[0],
     });
-
   } catch (error) {
-    console.error('Error al actualizar estado:', error);
+    console.error("Error al actualizar estado:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al actualizar estado'
+      message: "Error al actualizar estado",
     });
   }
 };
@@ -193,43 +189,60 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       concepto,
       descripcion,
       monto,
-      tipo_movimiento,
-      prioridad
+      prioridad,
+      estado,
     } = req.body;
 
     // Validación
-    if (!sucursal_id || !fecha || !concepto || monto === undefined || !tipo_movimiento) {
+    if (!sucursal_id || !fecha || !concepto || monto === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos requeridos'
+        message:
+          "Faltan campos requeridos: sucursal_id, fecha, concepto, monto",
       });
     }
+
+    // Determinar tipo_movimiento basado en el estado
+    // completado -> saldo_real
+    // aprobado -> saldo_necesario
+    // pendiente, rechazado -> saldo_necesario (por defecto)
+    const estadoFinal = estado || "aprobado";
+    const tipo_movimiento =
+      estadoFinal === "completado" ? "saldo_real" : "saldo_necesario";
 
     // Crear movimiento
     const result: any = await query(
       `INSERT INTO movimientos_caja_efectivo 
        (sucursal_id, fecha, concepto, descripcion, monto, tipo_movimiento, prioridad, estado) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'completado')`,
-      [sucursal_id, fecha, concepto, descripcion || null, monto, tipo_movimiento, prioridad || 'media']
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sucursal_id,
+        fecha,
+        concepto,
+        descripcion || null,
+        monto,
+        tipo_movimiento,
+        prioridad || "media",
+        estadoFinal,
+      ],
     );
 
     // Obtener el movimiento creado
     const createdMovimiento: any = await query(
-      'SELECT * FROM movimientos_caja_efectivo WHERE id = ?',
-      [result.insertId]
+      "SELECT * FROM movimientos_caja_efectivo WHERE id = ?",
+      [result.insertId],
     );
 
     res.status(201).json({
       success: true,
-      message: 'Movimiento creado exitosamente',
-      data: createdMovimiento[0]
+      message: "Movimiento creado exitosamente",
+      data: createdMovimiento[0],
     });
-
   } catch (error) {
-    console.error('Error al crear movimiento:', error);
+    console.error("Error al crear movimiento:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al crear movimiento'
+      message: "Error al crear movimiento",
     });
   }
 };
@@ -241,21 +254,21 @@ export const moverAReal = async (req: Request, res: Response) => {
 
     // Verificar que existe y está en saldo_necesario
     const movResult: any = await query(
-      'SELECT * FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos_caja_efectivo WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(movResult) || movResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
-    if (movResult[0].tipo_movimiento !== 'saldo_necesario') {
+    if (movResult[0].tipo_movimiento !== "saldo_necesario") {
       return res.status(400).json({
         success: false,
-        message: 'El movimiento no está en saldo necesario'
+        message: "El movimiento no está en saldo necesario",
       });
     }
 
@@ -264,26 +277,25 @@ export const moverAReal = async (req: Request, res: Response) => {
       `UPDATE movimientos_caja_efectivo 
        SET tipo_movimiento = 'saldo_real', estado = 'completado' 
        WHERE id = ?`,
-      [id]
+      [id],
     );
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
-      'SELECT * FROM movimientos_caja_efectivo WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos_caja_efectivo WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Movimiento movido a saldo real exitosamente',
-      data: updatedResult[0]
+      message: "Movimiento movido a saldo real exitosamente",
+      data: updatedResult[0],
     });
-
   } catch (error) {
-    console.error('Error al mover movimiento:', error);
+    console.error("Error al mover movimiento:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al mover movimiento'
+      message: "Error al mover movimiento",
     });
   }
 };
@@ -299,22 +311,21 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
         SUM(CASE WHEN tipo_movimiento = 'saldo_necesario' THEN monto ELSE 0 END) as total_necesario
        FROM movimientos_caja_efectivo 
        WHERE sucursal_id = ?`,
-      [sucursalId]
+      [sucursalId],
     );
 
     res.json({
       success: true,
       data: {
         total_real: result[0]?.total_real || 0,
-        total_necesario: result[0]?.total_necesario || 0
-      }
+        total_necesario: result[0]?.total_necesario || 0,
+      },
     });
-
   } catch (error) {
-    console.error('Error al obtener totales:', error);
+    console.error("Error al obtener totales:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener totales'
+      message: "Error al obtener totales",
     });
   }
 };

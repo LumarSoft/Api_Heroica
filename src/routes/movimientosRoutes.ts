@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from "express";
 import {
   getMovimientosBySucursal,
   updateMovimiento,
@@ -6,31 +6,32 @@ import {
   updateEstadoMovimiento,
   createMovimientoEfectivo,
   moverAReal,
-  getTotalesEfectivo
-} from '../controllers/movimientosController';
+  getTotalesEfectivo,
+} from "../controllers/movimientosController";
 
 const router = Router();
 
+// IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros dinámicos
+
+// Crear movimiento efectivo (debe ir antes de /:sucursalId)
+router.post("/efectivo", createMovimientoEfectivo);
+
+// Mover movimiento a saldo real (debe ir antes de /:id)
+router.put("/efectivo/:id/mover-a-real", moverAReal);
+
+// Obtener totales de una sucursal (debe ir antes de /:sucursalId)
+router.get("/:sucursalId/totales", getTotalesEfectivo);
+
 // Obtener todos los movimientos de una sucursal
-router.get('/:sucursalId', getMovimientosBySucursal);
-
-// Obtener totales de una sucursal
-router.get('/:sucursalId/totales', getTotalesEfectivo);
-
-// Crear movimiento efectivo
-router.post('/efectivo', createMovimientoEfectivo);
-
-// Actualizar movimiento
-router.put('/:id', updateMovimiento);
-
-// Mover movimiento a saldo real
-router.put('/efectivo/:id/mover-a-real', moverAReal);
+router.get("/:sucursalId", getMovimientosBySucursal);
 
 // Actualizar estado de movimiento
-router.put('/:id/estado', updateEstadoMovimiento);
+router.put("/:id/estado", updateEstadoMovimiento);
+
+// Actualizar movimiento
+router.put("/:id", updateMovimiento);
 
 // Eliminar movimiento
-router.delete('/:id', deleteMovimiento);
+router.delete("/:id", deleteMovimiento);
 
 export default router;
-
