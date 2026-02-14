@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes';
 import sucursalesRoutes from './routes/sucursalesRoutes';
 import movimientosRoutes from './routes/movimientosRoutes';
+import pagosPendientesRoutes from './routes/pagosPendientesRoutes';
+import cajaBancoRoutes from './routes/cajaBancoRoutes';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -21,6 +23,8 @@ app.use(express.urlencoded({ extended: true })); // Parsear URL-encoded
 app.use('/api/auth', authRoutes);
 app.use('/api/sucursales', sucursalesRoutes);
 app.use('/api/movimientos', movimientosRoutes);
+app.use('/api/pagos-pendientes', pagosPendientesRoutes);
+app.use('/api/caja-banco', cajaBancoRoutes);
 
 // Ruta de prueba
 app.get('/', (req: Request, res: Response) => {
@@ -39,9 +43,28 @@ app.get('/', (req: Request, res: Response) => {
       },
       movimientos: {
         getBySucursal: '/api/movimientos/:sucursalId',
+        getTotales: '/api/movimientos/:sucursalId/totales',
+        create: '/api/movimientos/efectivo',
         update: '/api/movimientos/:id',
+        moverAReal: '/api/movimientos/efectivo/:id/mover-a-real',
         updateEstado: '/api/movimientos/:id/estado',
         delete: '/api/movimientos/:id'
+      },
+      pagosPendientes: {
+        getBySucursal: '/api/pagos-pendientes/:sucursalId',
+        create: '/api/pagos-pendientes',
+        aprobar: '/api/pagos-pendientes/:id/aprobar',
+        rechazar: '/api/pagos-pendientes/:id/rechazar',
+        delete: '/api/pagos-pendientes/:id'
+      },
+      cajaBanco: {
+        getBySucursal: '/api/caja-banco/:sucursalId',
+        getTotales: '/api/caja-banco/:sucursalId/totales',
+        create: '/api/caja-banco',
+        update: '/api/caja-banco/:id',
+        moverAReal: '/api/caja-banco/:id/mover-a-real',
+        updateEstado: '/api/caja-banco/:id/estado',
+        delete: '/api/caja-banco/:id'
       }
     }
   });
