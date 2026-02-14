@@ -87,7 +87,7 @@ export const createSucursal = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error al crear sucursal:', error);
-    
+
     // Error de CUIT duplicado
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
@@ -107,7 +107,7 @@ export const createSucursal = async (req: Request, res: Response) => {
 export const updateSucursal = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { nombre, razon_social, cuit, direccion } = req.body;
+    const { nombre, razon_social, cuit, direccion, email_correspondencia } = req.body;
 
     // Validación
     if (!nombre || !razon_social || !cuit || !direccion) {
@@ -132,8 +132,8 @@ export const updateSucursal = async (req: Request, res: Response) => {
 
     // Actualizar sucursal
     await query(
-      'UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ? WHERE id = ?',
-      [nombre, razon_social, cuit, direccion, id]
+      'UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ?, email_correspondencia = ? WHERE id = ?',
+      [nombre, razon_social, cuit, direccion, email_correspondencia || null, id]
     );
 
     res.json({
@@ -144,13 +144,14 @@ export const updateSucursal = async (req: Request, res: Response) => {
         nombre,
         razon_social,
         cuit,
-        direccion
+        direccion,
+        email_correspondencia
       }
     });
 
   } catch (error: any) {
     console.error('Error al actualizar sucursal:', error);
-    
+
     // Error de CUIT duplicado
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
