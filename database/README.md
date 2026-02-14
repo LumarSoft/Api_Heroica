@@ -1,71 +1,74 @@
-# 📋 Instrucciones para crear la tabla de usuarios
+# Migraciones de Base de Datos - Heroica
 
-## Opción 1: Usando MySQL Workbench o phpMyAdmin
+Este directorio contiene las migraciones SQL para la base de datos del sistema Heroica.
 
-1. Abre MySQL Workbench o phpMyAdmin
-2. Conéctate a tu servidor MySQL con las credenciales:
-   - Host: `200.58.106.236`
-   - Puerto: `3306`
-   - Usuario: `Lumar`
-   - Contraseña: `lumar123`
-   - Base de datos: `heroica`
+## 📋 Orden de Ejecución
 
-3. Abre el archivo `crear_tabla_usuarios.sql`
-4. Ejecuta el script completo
+Ejecutar las migraciones en el siguiente orden:
 
-## Opción 2: Usando línea de comandos
+### 1. `01_crear_tablas.sql`
 
-```bash
-mysql -h 200.58.106.236 -P 3306 -u Lumar -plumar123 heroica < database/crear_tabla_usuarios.sql
-```
+Crea la base de datos `heroica3` y todas las tablas necesarias:
 
-## 📊 Estructura de la tabla
+- **usuarios**: Usuarios del sistema (admin, empleado, contador)
+- **sucursales**: Sucursales de la empresa
+- **categorias**: Categorías para clasificar movimientos
+- **subcategorias**: Subcategorías relacionadas con categorías
+- **bancos**: Catálogo de bancos
+- **movimientos_caja_efectivo**: Movimientos de caja en efectivo
+- **movimientos_caja_banco**: Movimientos bancarios
+- **pagos_pendientes**: Pagos pendientes de aprobación
 
-La tabla `usuarios` contiene los siguientes campos:
+### 2. `02_insertar_datos.sql`
 
-- **id**: INT AUTO_INCREMENT PRIMARY KEY
-- **email**: VARCHAR(255) UNIQUE NOT NULL
-- **password**: VARCHAR(255) NOT NULL (hasheado con bcrypt)
-- **nombre**: VARCHAR(255) NOT NULL
-- **rol**: ENUM('admin', 'empleado', 'contador') DEFAULT 'empleado'
-- **activo**: BOOLEAN DEFAULT TRUE
-- **created_at**: TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-- **updated_at**: TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+Inserta datos de ejemplo en todas las tablas para comenzar a trabajar.
 
-## 👤 Usuario de prueba
+## 🚀 Cómo ejecutar
 
-Después de ejecutar el script, tendrás un usuario administrador:
-
-- **Email**: admin@heroica.com
-- **Password**: admin123
-- **Rol**: admin
-
-## ✅ Verificar que funcionó
-
-Ejecuta esta query para verificar:
-
-```sql
-SELECT id, email, nombre, rol, activo FROM usuarios;
-```
-
-Deberías ver el usuario administrador creado.
-
-## 🔐 Generar hash para nuevos usuarios
-
-Si necesitas crear más usuarios, genera el hash de la contraseña con:
+### Opción 1: Desde MySQL CLI
 
 ```bash
-pnpm run hash <contraseña>
+mysql -u root -p < 01_crear_tablas.sql
+mysql -u root -p < 02_insertar_datos.sql
 ```
 
-Ejemplo:
-```bash
-pnpm run hash micontraseña123
-```
+### Opción 2: Desde MySQL Workbench o phpMyAdmin
 
-Luego usa el hash generado en tu INSERT:
+1. Abrir el archivo `01_crear_tablas.sql`
+2. Ejecutar todo el contenido
+3. Abrir el archivo `02_insertar_datos.sql`
+4. Ejecutar todo el contenido
 
-```sql
-INSERT INTO usuarios (email, password, nombre, rol) 
-VALUES ('nuevo@heroica.com', '$2a$10$...hash...', 'Nombre Usuario', 'empleado');
-```
+## 📊 Estructura Unificada
+
+Las tres tablas de movimientos (`movimientos_caja_efectivo`, `movimientos_caja_banco`, `pagos_pendientes`) comparten la misma estructura base:
+
+- `sucursal_id`: Referencia a la sucursal
+- `user_id`: Usuario que creó el movimiento
+- `fecha`: Fecha del movimiento
+- `concepto`: Concepto del movimiento
+- `monto`: Monto (positivo para ingresos, negativo para egresos)
+- `descripcion`: Descripción detallada
+- `prioridad`: baja | media | alta
+- `tipo_movimiento`: saldo_real | saldo_necesario
+- `estado`: pendiente | aprobado | rechazado | completado
+
+### Campos Específicos
+
+**`pagos_pendientes`** incluye además:
+
+- `motivo_rechazo`: Razón del rechazo (si aplica)
+- `usuario_revisor_id`: Usuario que revisó el pago
+
+**`movimientos_caja_banco`** incluye además:
+
+- `numero_cheque`, `banco`, `cuenta`, `cbu`, `tipo_operacion`
+- `pago_pendiente_id`: Relación con pago pendiente
+
+## 🔐 Usuarios de Ejemplo
+
+- **Admin**: admin@heroica.com
+- **Empleado**: empleado@heroica.com
+- **Contador**: contador@heroica.com
+
+(Password: hasheado de ejemplo)
