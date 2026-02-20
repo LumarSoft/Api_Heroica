@@ -5,7 +5,7 @@ import {
     aprobarPagoPendiente,
     rechazarPagoPendiente,
     deletePagoPendiente
-} from '../controllers/pagosPendientesController';
+} from '../controllers/movimientosController';
 
 const router = Router();
 

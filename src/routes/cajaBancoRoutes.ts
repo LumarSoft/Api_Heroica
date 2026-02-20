@@ -4,10 +4,10 @@ import {
     createMovimientoBanco,
     updateMovimientoBanco,
     deleteMovimientoBanco,
-    moverAReal,
+    moverARealBanco as moverAReal,
     getTotalesBanco,
     updateEstadoMovimientoBanco
-} from '../controllers/cajaBancoController';
+} from '../controllers/movimientosController';
 
 const router = Router();
 
