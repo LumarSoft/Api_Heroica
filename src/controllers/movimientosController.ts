@@ -373,12 +373,19 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
     const { sucursalId } = req.params;
 
     const result: any = await query(
-      `SELECT id, sucursal_id, fecha, concepto, monto, descripcion, prioridad, 
-              saldo as tipo_movimiento, estado, numero_cheque, banco, cuenta, cbu, 
-              tipo_operacion, tipo, created_at, updated_at 
-       FROM movimientos 
-       WHERE sucursal_id = ? AND tipo_movimiento = 'banco'
-       ORDER BY fecha DESC`,
+      `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.comprobante, m.monto, m.descripcion, m.prioridad, 
+              m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu, 
+              m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.banco_id, m.medio_pago_id,
+              c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
+              b.nombre as banco_nombre, mp.nombre as medio_pago_nombre,
+              m.created_at, m.updated_at 
+       FROM movimientos m
+       LEFT JOIN categorias c ON m.categoria_id = c.id
+       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+       LEFT JOIN bancos b ON m.banco_id = b.id
+       LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco'
+       ORDER BY m.fecha DESC`,
       [sucursalId]
     );
 
@@ -410,10 +417,15 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       user_id,
       fecha,
       concepto,
+      comprobante,
       descripcion,
       monto,
-      tipo_movimiento,
       prioridad,
+      estado,
+      categoria_id,
+      subcategoria_id,
+      banco_id,
+      medio_pago_id,
       numero_cheque,
       banco,
       cuenta,
@@ -423,24 +435,28 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
     } = req.body;
 
     // Validación
-    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined || !tipo_movimiento) {
+    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto, tipo_movimiento'
+        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto'
       });
     }
+
+    // Determinar saldo basado en el estado
+    const estadoFinal = estado || "aprobado";
+    const saldo = estadoFinal === "completado" ? "saldo_real" : "saldo_necesario";
 
     // Crear movimiento
     const adjustedMonto = tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
     const result: any = await query(
       `INSERT INTO movimientos 
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, prioridad,
-        numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, tipo) 
-       VALUES (?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, 'completado', ?)`,
-      [sucursal_id, user_id, fecha, concepto, descripcion || null, adjustedMonto, tipo_movimiento,
+       (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
+        numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sucursal_id, user_id, fecha, concepto, comprobante || null, descripcion || null, adjustedMonto, saldo,
         prioridad || 'media', numero_cheque || null, banco || null, cuenta || null,
-        cbu || null, tipo_operacion || null, tipo || 'ingreso']
+        cbu || null, tipo_operacion || null, estadoFinal, categoria_id || null, subcategoria_id || null, banco_id || null, medio_pago_id || null, tipo || 'ingreso']
     );
 
     // Obtener el movimiento creado
@@ -471,9 +487,14 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
     const {
       fecha,
       concepto,
+      comprobante,
       monto,
       descripcion,
       prioridad,
+      categoria_id,
+      subcategoria_id,
+      banco_id,
+      medio_pago_id,
       numero_cheque,
       banco,
       cuenta,
@@ -508,12 +529,13 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
 
     await query(
       `UPDATE movimientos 
-       SET fecha = ?, concepto = ?, monto = ?, descripcion = ?, prioridad = ?,
-           numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?, tipo = ?
+       SET fecha = ?, concepto = ?, comprobante = ?, monto = ?, descripcion = ?, prioridad = ?,
+           numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?, tipo = ?,
+           categoria_id = ?, subcategoria_id = ?, banco_id = ?, medio_pago_id = ?
        WHERE id = ? AND tipo_movimiento = 'banco'`,
-      [fecha, concepto, adjustedMonto, descripcion || null, prioridad || 'media',
+      [fecha, concepto, comprobante || null, adjustedMonto, descripcion || null, prioridad || 'media',
         numero_cheque || null, banco || null, cuenta || null, cbu || null,
-        tipo_operacion || null, tipo || 'ingreso', id]
+        tipo_operacion || null, tipo || 'ingreso', categoria_id || null, subcategoria_id || null, banco_id || null, medio_pago_id || null, id]
     );
 
     // Obtener el movimiento actualizado
@@ -633,10 +655,23 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `SELECT 
-        SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN estado = 'aprobado' THEN monto ELSE 0 END) as total_necesario
+        SUM(CASE WHEN saldo = 'saldo_real' THEN monto ELSE 0 END) as total_real,
+        SUM(CASE WHEN saldo = 'saldo_necesario' THEN monto ELSE 0 END) as total_necesario
        FROM movimientos 
        WHERE sucursal_id = ? AND tipo_movimiento = 'banco'`,
+      [sucursalId]
+    );
+
+    const parcialesResult: any = await query(
+      `SELECT 
+        b.id as banco_id,
+        b.nombre as banco_nombre,
+        SUM(CASE WHEN m.saldo = 'saldo_real' THEN m.monto ELSE 0 END) as total_real,
+        SUM(CASE WHEN m.saldo = 'saldo_necesario' THEN m.monto ELSE 0 END) as total_necesario
+       FROM movimientos m
+       LEFT JOIN bancos b ON m.banco_id = b.id
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco'
+       GROUP BY b.id, b.nombre`,
       [sucursalId]
     );
 
@@ -644,7 +679,8 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
       success: true,
       data: {
         total_real: result[0]?.total_real || 0,
-        total_necesario: result[0]?.total_necesario || 0
+        total_necesario: result[0]?.total_necesario || 0,
+        parciales: parcialesResult || []
       }
     });
 
