@@ -342,7 +342,8 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
     const result: any = await query(
       `SELECT 
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN estado = 'aprobado' THEN monto ELSE 0 END) as total_necesario
+        SUM(CASE WHEN estado = 'aprobado' THEN monto ELSE 0 END) as total_necesario,
+        MAX(updated_at) as ultima_actualizacion
        FROM movimientos 
        WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo'`,
       [sucursalId],
@@ -353,6 +354,7 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
       data: {
         total_real: result[0]?.total_real || 0,
         total_necesario: result[0]?.total_necesario || 0,
+        ultima_actualizacion: result[0]?.ultima_actualizacion || null,
       },
     });
   } catch (error) {
@@ -726,6 +728,48 @@ export const updateEstadoMovimientoBanco = async (req: Request, res: Response) =
   }
 };
 
+
+// GET /api/pagos-pendientes/all
+export const getAllPagosPendientes = async (req: Request, res: Response) => {
+  try {
+    const { estado } = req.query; // Filtro opcional por estado
+
+    let sql = `
+      SELECT 
+        pp.*,
+        pp.tipo,
+        uc.nombre as usuario_creador_nombre,
+        ur.nombre as usuario_revisor_nombre
+      FROM movimientos pp
+      LEFT JOIN usuarios uc ON pp.user_id = uc.id
+      LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
+      WHERE pp.tipo_movimiento = 'pendiente'
+    `;
+
+    const params: any[] = [];
+
+    if (estado) {
+      sql += ' AND pp.estado = ?';
+      params.push(estado);
+    }
+
+    sql += ' ORDER BY pp.fecha DESC';
+
+    const result: any = await query(sql, params);
+
+    res.json({
+      success: true,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error al obtener todos los pagos pendientes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener todos los pagos pendientes'
+    });
+  }
+};
 
 // GET /api/pagos-pendientes/:sucursalId
 export const getPagosPendientesBySucursal = async (req: Request, res: Response) => {

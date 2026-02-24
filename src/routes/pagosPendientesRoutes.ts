@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
     getPagosPendientesBySucursal,
+    getAllPagosPendientes,
     createPagoPendiente,
     aprobarPagoPendiente,
     rechazarPagoPendiente,
@@ -8,6 +9,9 @@ import {
 } from '../controllers/movimientosController';
 
 const router = Router();
+
+// Obtener todos los pagos pendientes
+router.get('/all', getAllPagosPendientes);
 
 // Obtener pagos pendientes de una sucursal
 router.get('/:sucursalId', getPagosPendientesBySucursal);
