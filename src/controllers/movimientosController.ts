@@ -341,8 +341,8 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `SELECT 
-        SUM(CASE WHEN saldo = 'saldo_real' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN saldo = 'saldo_necesario' THEN monto ELSE 0 END) as total_necesario
+        SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
+        SUM(CASE WHEN estado = 'aprobado' THEN monto ELSE 0 END) as total_necesario
        FROM movimientos 
        WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo'`,
       [sucursalId],
@@ -631,8 +631,8 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `SELECT 
-        SUM(CASE WHEN saldo = 'saldo_real' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN saldo = 'saldo_necesario' THEN monto ELSE 0 END) as total_necesario
+        SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
+        SUM(CASE WHEN estado = 'aprobado' THEN monto ELSE 0 END) as total_necesario
        FROM movimientos 
        WHERE sucursal_id = ? AND tipo_movimiento = 'banco'`,
       [sucursalId]
