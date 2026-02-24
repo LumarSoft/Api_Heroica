@@ -46,7 +46,16 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
 export const updateMovimiento = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { fecha, concepto, monto, descripcion, prioridad, categoria_id, subcategoria_id, tipo } = req.body;
+    const {
+      fecha,
+      concepto,
+      monto,
+      descripcion,
+      prioridad,
+      categoria_id,
+      subcategoria_id,
+      tipo,
+    } = req.body;
 
     // Validación
     if (!fecha || !concepto || monto === undefined) {
@@ -70,13 +79,24 @@ export const updateMovimiento = async (req: Request, res: Response) => {
     }
 
     // Actualizar movimiento
-    const adjustedMonto = tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
+    const adjustedMonto =
+      tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
     await query(
       `UPDATE movimientos 
        SET fecha = ?, concepto = ?, monto = ?, descripcion = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, tipo = ? 
        WHERE id = ? AND tipo_movimiento = 'efectivo'`,
-      [fecha, concepto, adjustedMonto, descripcion || null, prioridad || "media", categoria_id || null, subcategoria_id || null, tipo || "ingreso", id],
+      [
+        fecha,
+        concepto,
+        adjustedMonto,
+        descripcion || null,
+        prioridad || "media",
+        categoria_id || null,
+        subcategoria_id || null,
+        tipo || "ingreso",
+        id,
+      ],
     );
 
     // Obtener el movimiento actualizado
@@ -168,25 +188,22 @@ export const updateEstadoMovimiento = async (req: Request, res: Response) => {
 
     const mov = existingResult[0];
 
-    // Si cambia a pendiente y no lo era, lo enviamos a pagos pendientes
+    // Si cambia a pendiente
     if (mov.estado !== "pendiente" && estado === "pendiente") {
       await query(
-        `UPDATE movimientos SET tipo_movimiento = 'pendiente', estado = 'pendiente', saldo = NULL WHERE id = ?`,
-        [id]
+        `UPDATE movimientos SET estado = 'pendiente', saldo = 'saldo_necesario' WHERE id = ?`,
+        [id],
       );
 
       return res.json({
         success: true,
-        message: "Movimiento transferido a pagos pendientes exitosamente",
-        data: { ...mov, estado: "pendiente", tipo_movimiento: "pendiente" },
+        message: "Movimiento marcado como pendiente exitosamente",
+        data: { ...mov, estado: "pendiente" },
       });
     }
 
     // Actualizar estado normalmente
-    await query(
-      "UPDATE movimientos SET estado = ? WHERE id = ?",
-      [estado, id],
-    );
+    await query("UPDATE movimientos SET estado = ? WHERE id = ?", [estado, id]);
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
@@ -222,11 +239,17 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       estado,
       categoria_id,
       subcategoria_id,
-      tipo
+      tipo,
     } = req.body;
 
     // Validación
-    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined) {
+    if (
+      !sucursal_id ||
+      !user_id ||
+      !fecha ||
+      !concepto ||
+      monto === undefined
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -236,10 +259,12 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
 
     // Determinar saldo basado en el estado
     const estadoFinal = estado || "aprobado";
-    const saldo = estadoFinal === "completado" ? "saldo_real" : "saldo_necesario";
+    const saldo =
+      estadoFinal === "completado" ? "saldo_real" : "saldo_necesario";
 
     // Crear movimiento
-    const adjustedMonto = tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
+    const adjustedMonto =
+      tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
     const result: any = await query(
       `INSERT INTO movimientos
@@ -257,7 +282,7 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
         estadoFinal,
         categoria_id || null,
         subcategoria_id || null,
-        tipo || "ingreso"
+        tipo || "ingreso",
       ],
     );
 
@@ -366,9 +391,11 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
   }
 };
 
-
 // GET /api/caja-banco/:sucursalId
-export const getMovimientosBancoBySucursal = async (req: Request, res: Response) => {
+export const getMovimientosBancoBySucursal = async (
+  req: Request,
+  res: Response,
+) => {
   try {
     const { sucursalId } = req.params;
 
@@ -386,25 +413,26 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco'
        ORDER BY m.fecha DESC`,
-      [sucursalId]
+      [sucursalId],
     );
 
     // Agrupar por tipo de movimiento (saldo real/necesario)
     const movimientos = {
-      saldo_real: result.filter((m: any) => m.tipo_movimiento === 'saldo_real'),
-      saldo_necesario: result.filter((m: any) => m.tipo_movimiento === 'saldo_necesario'),
+      saldo_real: result.filter((m: any) => m.tipo_movimiento === "saldo_real"),
+      saldo_necesario: result.filter(
+        (m: any) => m.tipo_movimiento === "saldo_necesario",
+      ),
     };
 
     res.json({
       success: true,
-      data: movimientos
+      data: movimientos,
     });
-
   } catch (error) {
-    console.error('Error al obtener movimientos banco:', error);
+    console.error("Error al obtener movimientos banco:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener movimientos banco'
+      message: "Error al obtener movimientos banco",
     });
   }
 };
@@ -431,51 +459,78 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       cuenta,
       cbu,
       tipo_operacion,
-      tipo
+      tipo,
     } = req.body;
 
     // Validación
-    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined) {
+    if (
+      !sucursal_id ||
+      !user_id ||
+      !fecha ||
+      !concepto ||
+      monto === undefined
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto'
+        message:
+          "Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto",
       });
     }
 
     // Determinar saldo basado en el estado
     const estadoFinal = estado || "aprobado";
-    const saldo = estadoFinal === "completado" ? "saldo_real" : "saldo_necesario";
+    const saldo =
+      estadoFinal === "completado" ? "saldo_real" : "saldo_necesario";
 
     // Crear movimiento
-    const adjustedMonto = tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
+    const adjustedMonto =
+      tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
     const result: any = await query(
       `INSERT INTO movimientos 
        (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
         numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo) 
        VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [sucursal_id, user_id, fecha, concepto, comprobante || null, descripcion || null, adjustedMonto, saldo,
-        prioridad || 'media', numero_cheque || null, banco || null, cuenta || null,
-        cbu || null, tipo_operacion || null, estadoFinal, categoria_id || null, subcategoria_id || null, banco_id || null, medio_pago_id || null, tipo || 'ingreso']
+      [
+        sucursal_id,
+        user_id,
+        fecha,
+        concepto,
+        comprobante || null,
+        descripcion || null,
+        adjustedMonto,
+        saldo,
+        prioridad || "media",
+        numero_cheque || null,
+        banco || null,
+        cuenta || null,
+        cbu || null,
+        tipo_operacion || null,
+        estadoFinal,
+        categoria_id || null,
+        subcategoria_id || null,
+        banco_id || null,
+        medio_pago_id || null,
+        tipo || "ingreso",
+      ],
     );
 
     // Obtener el movimiento creado
     const createdMovimiento: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [result.insertId]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [result.insertId],
     );
 
     res.status(201).json({
       success: true,
-      message: 'Movimiento creado exitosamente',
-      data: createdMovimiento[0]
+      message: "Movimiento creado exitosamente",
+      data: createdMovimiento[0],
     });
-
   } catch (error) {
-    console.error('Error al crear movimiento banco:', error);
+    console.error("Error al crear movimiento banco:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al crear movimiento banco'
+      message: "Error al crear movimiento banco",
     });
   }
 };
@@ -500,32 +555,33 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
       cuenta,
       cbu,
       tipo_operacion,
-      tipo
+      tipo,
     } = req.body;
 
     // Validación
     if (!fecha || !concepto || monto === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Fecha, concepto y monto son requeridos'
+        message: "Fecha, concepto y monto son requeridos",
       });
     }
 
     // Verificar que existe
     const existingResult: any = await query(
       "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
-      [id]
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
     // Actualizar
-    const adjustedMonto = tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
+    const adjustedMonto =
+      tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
     await query(
       `UPDATE movimientos 
@@ -533,28 +589,43 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
            numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?, tipo = ?,
            categoria_id = ?, subcategoria_id = ?, banco_id = ?, medio_pago_id = ?
        WHERE id = ? AND tipo_movimiento = 'banco'`,
-      [fecha, concepto, comprobante || null, adjustedMonto, descripcion || null, prioridad || 'media',
-        numero_cheque || null, banco || null, cuenta || null, cbu || null,
-        tipo_operacion || null, tipo || 'ingreso', categoria_id || null, subcategoria_id || null, banco_id || null, medio_pago_id || null, id]
+      [
+        fecha,
+        concepto,
+        comprobante || null,
+        adjustedMonto,
+        descripcion || null,
+        prioridad || "media",
+        numero_cheque || null,
+        banco || null,
+        cuenta || null,
+        cbu || null,
+        tipo_operacion || null,
+        tipo || "ingreso",
+        categoria_id || null,
+        subcategoria_id || null,
+        banco_id || null,
+        medio_pago_id || null,
+        id,
+      ],
     );
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Movimiento actualizado exitosamente',
-      data: updatedResult[0]
+      message: "Movimiento actualizado exitosamente",
+      data: updatedResult[0],
     });
-
   } catch (error) {
-    console.error('Error al actualizar movimiento banco:', error);
+    console.error("Error al actualizar movimiento banco:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al actualizar movimiento banco'
+      message: "Error al actualizar movimiento banco",
     });
   }
 };
@@ -567,29 +638,31 @@ export const deleteMovimientoBanco = async (req: Request, res: Response) => {
     // Verificar que existe
     const existingResult: any = await query(
       "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
-      [id]
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
     // Eliminar
-    await query("DELETE FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'", [id]);
+    await query(
+      "DELETE FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      [id],
+    );
 
     res.json({
       success: true,
-      message: 'Movimiento eliminado exitosamente'
+      message: "Movimiento eliminado exitosamente",
     });
-
   } catch (error) {
-    console.error('Error al eliminar movimiento banco:', error);
+    console.error("Error al eliminar movimiento banco:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al eliminar movimiento banco'
+      message: "Error al eliminar movimiento banco",
     });
   }
 };
@@ -602,20 +675,20 @@ export const moverARealBanco = async (req: Request, res: Response) => {
     // Verificar que existe y está en saldo_necesario
     const movResult: any = await query(
       "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
-      [id]
+      [id],
     );
 
     if (!Array.isArray(movResult) || movResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
-    if (movResult[0].tipo_movimiento !== 'saldo_necesario') {
+    if (movResult[0].tipo_movimiento !== "saldo_necesario") {
       return res.status(400).json({
         success: false,
-        message: 'El movimiento no está en saldo necesario'
+        message: "El movimiento no está en saldo necesario",
       });
     }
 
@@ -624,26 +697,25 @@ export const moverARealBanco = async (req: Request, res: Response) => {
       `UPDATE movimientos 
        SET saldo = 'saldo_real', estado = 'completado' 
        WHERE id = ? AND tipo_movimiento = 'banco'`,
-      [id]
+      [id],
     );
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Movimiento movido a saldo real exitosamente',
-      data: updatedResult[0]
+      message: "Movimiento movido a saldo real exitosamente",
+      data: updatedResult[0],
     });
-
   } catch (error) {
-    console.error('Error al mover movimiento:', error);
+    console.error("Error al mover movimiento:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al mover movimiento'
+      message: "Error al mover movimiento",
     });
   }
 };
@@ -659,7 +731,7 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
         SUM(CASE WHEN saldo = 'saldo_necesario' THEN monto ELSE 0 END) as total_necesario
        FROM movimientos 
        WHERE sucursal_id = ? AND tipo_movimiento = 'banco'`,
-      [sucursalId]
+      [sucursalId],
     );
 
     const parcialesResult: any = await query(
@@ -672,7 +744,7 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
        LEFT JOIN bancos b ON m.banco_id = b.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco'
        GROUP BY b.id, b.nombre`,
-      [sucursalId]
+      [sucursalId],
     );
 
     res.json({
@@ -680,90 +752,90 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
       data: {
         total_real: result[0]?.total_real || 0,
         total_necesario: result[0]?.total_necesario || 0,
-        parciales: parcialesResult || []
-      }
+        parciales: parcialesResult || [],
+      },
     });
-
   } catch (error) {
-    console.error('Error al obtener totales banco:', error);
+    console.error("Error al obtener totales banco:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener totales banco'
+      message: "Error al obtener totales banco",
     });
   }
 };
 
 // PUT /api/caja-banco/:id/estado
-export const updateEstadoMovimientoBanco = async (req: Request, res: Response) => {
+export const updateEstadoMovimientoBanco = async (
+  req: Request,
+  res: Response,
+) => {
   try {
     const { id } = req.params;
     const { estado } = req.body;
 
     // Validación
-    const estadosValidos = ['pendiente', 'aprobado', 'rechazado', 'completado'];
+    const estadosValidos = ["pendiente", "aprobado", "rechazado", "completado"];
     if (!estado || !estadosValidos.includes(estado)) {
       return res.status(400).json({
         success: false,
-        message: 'Estado inválido'
+        message: "Estado inválido",
       });
     }
 
     // Verificar que existe
     const existingResult: any = await query(
       "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
-      [id]
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Movimiento no encontrado'
+        message: "Movimiento no encontrado",
       });
     }
 
     const mov = existingResult[0];
 
-    // Si cambia a pendiente y no lo era, se envía a pagos pendientes
-    if (mov.estado !== 'pendiente' && estado === 'pendiente') {
+    // Si cambia a pendiente
+    if (mov.estado !== "pendiente" && estado === "pendiente") {
       await query(
-        `UPDATE movimientos SET tipo_movimiento = 'pendiente', estado = 'pendiente', saldo = NULL WHERE id = ?`,
-        [id]
+        `UPDATE movimientos SET estado = 'pendiente', saldo = 'saldo_necesario' WHERE id = ? AND tipo_movimiento = 'banco'`,
+        [id],
       );
 
       return res.json({
         success: true,
-        message: 'Movimiento transferido a pagos pendientes exitosamente',
-        data: { ...mov, estado: 'pendiente', tipo_movimiento: 'pendiente' }
+        message: "Movimiento marcado como pendiente exitosamente",
+        data: { ...mov, estado: "pendiente" },
       });
     }
 
     // Actualizar estado
     await query(
       "UPDATE movimientos SET estado = ? WHERE id = ? AND tipo_movimiento = 'banco'",
-      [estado, id]
+      [estado, id],
     );
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Estado actualizado exitosamente',
-      data: updatedResult[0]
+      message: "Estado actualizado exitosamente",
+      data: updatedResult[0],
     });
-
   } catch (error) {
-    console.error('Error al actualizar estado:', error);
+    console.error("Error al actualizar estado:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al actualizar estado'
+      message: "Error al actualizar estado",
     });
   }
 };
-
 
 // GET /api/pagos-pendientes/all
 export const getAllPagosPendientes = async (req: Request, res: Response) => {
@@ -779,36 +851,42 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.tipo_movimiento = 'pendiente'
+      WHERE pp.estado = 'pendiente'
     `;
 
     const params: any[] = [];
 
+    /**
+     * Comentado porque ahora la query ya trae SOLO los que tienen pp.estado = 'pendiente'
+     * Si necesitas filtrar por OTRO estado en el futuro, habría que reestructurarlo.
     if (estado) {
-      sql += ' AND pp.estado = ?';
+      sql += " AND pp.estado = ?";
       params.push(estado);
     }
+    */
 
-    sql += ' ORDER BY pp.fecha DESC';
+    sql += " ORDER BY pp.fecha DESC";
 
     const result: any = await query(sql, params);
 
     res.json({
       success: true,
-      data: result
+      data: result,
     });
-
   } catch (error) {
-    console.error('Error al obtener todos los pagos pendientes:', error);
+    console.error("Error al obtener todos los pagos pendientes:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener todos los pagos pendientes'
+      message: "Error al obtener todos los pagos pendientes",
     });
   }
 };
 
 // GET /api/pagos-pendientes/:sucursalId
-export const getPagosPendientesBySucursal = async (req: Request, res: Response) => {
+export const getPagosPendientesBySucursal = async (
+  req: Request,
+  res: Response,
+) => {
   try {
     const { sucursalId } = req.params;
     const { estado } = req.query; // Filtro opcional por estado
@@ -822,30 +900,32 @@ export const getPagosPendientesBySucursal = async (req: Request, res: Response) 
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.sucursal_id = ? AND pp.tipo_movimiento = 'pendiente'
+      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente'
     `;
 
     const params: any[] = [sucursalId];
 
+    /**
+     * Comentado porque la base de la query ya trae los que son estado='pendiente'
     if (estado) {
-      sql += ' AND pp.estado = ?';
+      sql += " AND pp.estado = ?";
       params.push(estado);
     }
+    */
 
-    sql += ' ORDER BY pp.fecha DESC';
+    sql += " ORDER BY pp.fecha DESC";
 
     const result: any = await query(sql, params);
 
     res.json({
       success: true,
-      data: result
+      data: result,
     });
-
   } catch (error) {
-    console.error('Error al obtener pagos pendientes:', error);
+    console.error("Error al obtener pagos pendientes:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener pagos pendientes'
+      message: "Error al obtener pagos pendientes",
     });
   }
 };
@@ -862,44 +942,63 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
       monto,
       tipo_movimiento,
       prioridad,
-      tipo
+      tipo,
     } = req.body;
 
     // Validación
-    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined || !tipo_movimiento) {
+    if (
+      !sucursal_id ||
+      !user_id ||
+      !fecha ||
+      !concepto ||
+      monto === undefined ||
+      !tipo_movimiento
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos requeridos'
+        message: "Faltan campos requeridos",
       });
     }
 
-    // Crear pago pendiente
-    const adjustedMonto = tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
+    const destinoCaja = tipo_movimiento === "banco" ? "banco" : "efectivo";
+
+    // Crear pago pendiente (usando el estado 'pendiente' y el tipo de caja)
+    const adjustedMonto =
+      tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
     const result: any = await query(
       `INSERT INTO movimientos 
-             (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, prioridad, estado, tipo) 
-             VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, 'pendiente', ?)`,
-      [sucursal_id, user_id, fecha, concepto, descripcion || null, adjustedMonto, prioridad || 'media', tipo || 'egreso']
+             (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, prioridad, estado, tipo) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?)`,
+      [
+        sucursal_id,
+        user_id,
+        fecha,
+        concepto,
+        descripcion || null,
+        adjustedMonto,
+        destinoCaja,
+        prioridad || "media",
+        tipo || "egreso",
+      ],
     );
 
     // Obtener el pago creado
     const createdPago: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'pendiente'",
-      [result.insertId]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [result.insertId],
     );
 
     res.status(201).json({
       success: true,
-      message: 'Pago pendiente creado exitosamente',
-      data: createdPago[0]
+      message: "Pago pendiente creado exitosamente",
+      data: createdPago[0],
     });
-
   } catch (error) {
-    console.error('Error al crear pago pendiente:', error);
+    console.error("Error al crear pago pendiente:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al crear pago pendiente'
+      message: "Error al crear pago pendiente",
     });
   }
 };
@@ -914,62 +1013,64 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     if (!usuario_revisor_id) {
       return res.status(400).json({
         success: false,
-        message: 'ID de usuario revisor es requerido'
+        message: "ID de usuario revisor es requerido",
       });
     }
 
     // Obtener el pago pendiente
     const pagoResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'pendiente'",
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Pago pendiente no encontrado'
+        message: "Pago pendiente no encontrado",
       });
     }
 
     const pago = pagoResult[0];
 
     // Verificar que esté pendiente
-    if (pago.estado !== 'pendiente') {
+    if (pago.estado !== "pendiente") {
       return res.status(400).json({
         success: false,
-        message: 'El pago ya fue procesado'
+        message: "El pago ya fue procesado",
       });
     }
 
-    // Determinar destino
+    // Determinar destino (se asume que si el body mandó tipo_caja, se prioriza)
     const { tipo_caja } = req.body;
-    const newTipoMovimiento = (tipo_caja === 'efectivo' || !tipo_caja) ? 'efectivo' : 'banco';
+    let newTipoMovimiento = pago.tipo_movimiento;
+    if (tipo_caja) {
+      newTipoMovimiento = tipo_caja === "efectivo" ? "efectivo" : "banco";
+    }
 
-    // Actualizar estado del pago pendiente: lo pasamos a la caja respectiva
+    // Actualizar estado del pago pendiente: lo pasamos a aprobado y confirmamos la caja
     await query(
       `UPDATE movimientos 
              SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario'
              WHERE id = ?`,
-      [usuario_revisor_id, newTipoMovimiento, id]
+      [usuario_revisor_id, newTipoMovimiento, id],
     );
 
     // Obtener el pago actualizado
     const updatedPago: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Pago aprobado y programado exitosamente',
-      data: updatedPago[0]
+      message: "Pago aprobado y programado exitosamente",
+      data: updatedPago[0],
     });
-
   } catch (error) {
-    console.error('Error al aprobar pago:', error);
+    console.error("Error al aprobar pago:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al aprobar pago'
+      message: "Error al aprobar pago",
     });
   }
 };
@@ -984,27 +1085,27 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
     if (!usuario_revisor_id || !motivo_rechazo) {
       return res.status(400).json({
         success: false,
-        message: 'Usuario revisor y motivo de rechazo son requeridos'
+        message: "Usuario revisor y motivo de rechazo son requeridos",
       });
     }
 
     // Verificar que el pago existe y está pendiente
     const pagoResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'pendiente'",
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Pago pendiente no encontrado'
+        message: "Pago pendiente no encontrado",
       });
     }
 
-    if (pagoResult[0].estado !== 'pendiente') {
+    if (pagoResult[0].estado !== "pendiente") {
       return res.status(400).json({
         success: false,
-        message: 'El pago ya fue procesado'
+        message: "El pago ya fue procesado",
       });
     }
 
@@ -1012,27 +1113,26 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
     await query(
       `UPDATE movimientos 
        SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?
-       WHERE id = ? AND tipo_movimiento = 'pendiente'`,
-      [usuario_revisor_id, motivo_rechazo, id]
+       WHERE id = ?`,
+      [usuario_revisor_id, motivo_rechazo, id],
     );
 
     // Obtener el pago actualizado
     const updatedPago: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'pendiente'",
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Pago rechazado exitosamente',
-      data: updatedPago[0]
+      message: "Pago rechazado exitosamente",
+      data: updatedPago[0],
     });
-
   } catch (error) {
-    console.error('Error al rechazar pago:', error);
+    console.error("Error al rechazar pago:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al rechazar pago'
+      message: "Error al rechazar pago",
     });
   }
 };
@@ -1044,38 +1144,37 @@ export const deletePagoPendiente = async (req: Request, res: Response) => {
 
     // Verificar que existe
     const pagoResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'pendiente'",
-      [id]
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Pago pendiente no encontrado'
+        message: "Pago pendiente no encontrado",
       });
     }
 
     // Solo se puede eliminar si está pendiente
-    if (pagoResult[0].estado !== 'pendiente') {
+    if (pagoResult[0].estado !== "pendiente") {
       return res.status(400).json({
         success: false,
-        message: 'Solo se pueden eliminar pagos pendientes'
+        message: "Solo se pueden eliminar pagos pendientes",
       });
     }
 
     // Eliminar
-    await query("DELETE FROM movimientos WHERE id = ? AND tipo_movimiento = 'pendiente'", [id]);
+    await query("DELETE FROM movimientos WHERE id = ?", [id]);
 
     res.json({
       success: true,
-      message: 'Pago pendiente eliminado exitosamente'
+      message: "Pago pendiente eliminado exitosamente",
     });
-
   } catch (error) {
-    console.error('Error al eliminar pago pendiente:', error);
+    console.error("Error al eliminar pago pendiente:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al eliminar pago pendiente'
+      message: "Error al eliminar pago pendiente",
     });
   }
 };
