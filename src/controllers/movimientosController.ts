@@ -1178,3 +1178,34 @@ export const deletePagoPendiente = async (req: Request, res: Response) => {
     });
   }
 };
+// GET /api/pagos-pendientes/historial/:userId
+export const getHistorialByUser = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const sql = `
+      SELECT 
+        m.*,
+        uc.nombre as usuario_creador_nombre,
+        ur.nombre as usuario_revisor_nombre
+      FROM movimientos m
+      LEFT JOIN usuarios uc ON m.user_id = uc.id
+      LEFT JOIN usuarios ur ON m.usuario_revisor_id = ur.id
+      WHERE m.user_id = ?
+      ORDER BY m.fecha DESC, m.created_at DESC
+    `;
+
+    const result: any = await query(sql, [userId]);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Error al obtener historial de pagos pendientes:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al obtener historial",
+    });
+  }
+};

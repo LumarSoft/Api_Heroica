@@ -5,10 +5,14 @@ import {
     createPagoPendiente,
     aprobarPagoPendiente,
     rechazarPagoPendiente,
-    deletePagoPendiente
+    deletePagoPendiente,
+    getHistorialByUser
 } from '../controllers/movimientosController';
 
 const router = Router();
+
+// Obtener historial de un usuario
+router.get('/historial/:userId', getHistorialByUser);
 
 // Obtener todos los pagos pendientes
 router.get('/all', getAllPagosPendientes);
