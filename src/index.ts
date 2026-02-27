@@ -7,6 +7,7 @@ import movimientosRoutes from "./routes/movimientosRoutes";
 import pagosPendientesRoutes from "./routes/pagosPendientesRoutes";
 import cajaBancoRoutes from "./routes/cajaBancoRoutes";
 import configuracionRoutes from "./routes/configuracionRoutes";
+import reportesRoutes from "./routes/reportesRoutes";
 
 // Cargar variables de entorno
 dotenv.config();
@@ -38,6 +39,7 @@ app.use("/api/movimientos", movimientosRoutes);
 app.use("/api/pagos-pendientes", pagosPendientesRoutes);
 app.use("/api/caja-banco", cajaBancoRoutes);
 app.use("/api/configuracion", configuracionRoutes);
+app.use("/api/reportes", reportesRoutes);
 
 // Ruta de prueba
 app.get("/", (req: Request, res: Response) => {
