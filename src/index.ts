@@ -8,6 +8,7 @@ import pagosPendientesRoutes from "./routes/pagosPendientesRoutes";
 import cajaBancoRoutes from "./routes/cajaBancoRoutes";
 import configuracionRoutes from "./routes/configuracionRoutes";
 import reportesRoutes from "./routes/reportesRoutes";
+import healthRoutes from "./routes/healthRoutes";
 
 // Cargar variables de entorno
 dotenv.config();
@@ -41,49 +42,16 @@ app.use("/api/caja-banco", cajaBancoRoutes);
 app.use("/api/configuracion", configuracionRoutes);
 app.use("/api/reportes", reportesRoutes);
 
-// Ruta de prueba
-app.get("/", (req: Request, res: Response) => {
-  res.json({
-    message: "🍺 API de Heroica - Sistema de Contabilidad",
-    version: "1.0.0",
-    endpoints: {
-      auth: {
-        login: "/api/auth/login",
-        verify: "/api/auth/verify",
-      },
-      sucursales: {
-        getAll: "/api/sucursales",
-        getById: "/api/sucursales/:id",
-        create: "/api/sucursales",
-      },
-      movimientos: {
-        getBySucursal: "/api/movimientos/:sucursalId",
-        getTotales: "/api/movimientos/:sucursalId/totales",
-        create: "/api/movimientos/efectivo",
-        update: "/api/movimientos/:id",
-        moverAReal: "/api/movimientos/efectivo/:id/mover-a-real",
-        updateEstado: "/api/movimientos/:id/estado",
-        delete: "/api/movimientos/:id",
-      },
-      pagosPendientes: {
-        getBySucursal: "/api/pagos-pendientes/:sucursalId",
-        create: "/api/pagos-pendientes",
-        aprobar: "/api/pagos-pendientes/:id/aprobar",
-        rechazar: "/api/pagos-pendientes/:id/rechazar",
-        delete: "/api/pagos-pendientes/:id",
-      },
-      cajaBanco: {
-        getBySucursal: "/api/caja-banco/:sucursalId",
-        getTotales: "/api/caja-banco/:sucursalId/totales",
-        create: "/api/caja-banco",
-        update: "/api/caja-banco/:id",
-        moverAReal: "/api/caja-banco/:id/mover-a-real",
-        updateEstado: "/api/caja-banco/:id/estado",
-        delete: "/api/caja-banco/:id",
-      },
-    },
+// Ruta raíz — no expone información sensible en producción
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: "ok",
+    service: "heroica-api",
   });
 });
+
+// Rutas de health check
+app.use("/", healthRoutes);
 
 // Ruta 404
 app.use((req: Request, res: Response) => {
