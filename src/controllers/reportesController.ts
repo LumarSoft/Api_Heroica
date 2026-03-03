@@ -84,6 +84,21 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
         .sort((a, b) => b.value - a.value); // Sort descending
     };
 
+    // DEUDAS (Without date filters)
+    const sqlDeudas = `
+      SELECT m.id, m.fecha, m.concepto, m.monto, m.tipo, m.tipo_movimiento as medio_pago,
+             m.estado, m.categoria_id, m.subcategoria_id, c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
+             m.es_deuda
+      FROM movimientos m
+      LEFT JOIN categorias c ON m.categoria_id = c.id
+      LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+      WHERE m.sucursal_id = ? 
+        AND m.es_deuda = 1
+      ORDER BY m.fecha DESC
+    `;
+    const deudasList: any = await query(sqlDeudas, [sucursalId]);
+    const deudasTotales = deudasList.reduce((acc: number, mov: any) => acc + Math.abs(Number(mov.monto)), 0);
+
     res.json({
       success: true,
       data: {
@@ -91,12 +106,14 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
           ingresos: ingresosTotales,
           egresos: egresosTotales,
           resultado: ingresosTotales - egresosTotales,
+          deudas: deudasTotales
         },
         ingresosBreakdown: formatBreakdown(ingresosPorCategoria),
         egresosBreakdown: formatBreakdown(egresosPorCategoria),
         detalles: {
           ingresos: ingresosList,
           egresos: egresosList,
+          deudas: deudasList,
         }
       },
     });
