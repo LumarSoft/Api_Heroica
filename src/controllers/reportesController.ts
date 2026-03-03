@@ -10,9 +10,10 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
 
     let sql = `
       SELECT m.id, m.fecha, m.concepto, m.monto, m.tipo, m.tipo_movimiento as medio_pago,
-             m.estado, m.categoria_id, c.nombre as categoria_nombre
+             m.estado, m.categoria_id, m.subcategoria_id, c.nombre as categoria_nombre, s.nombre as subcategoria_nombre
       FROM movimientos m
       LEFT JOIN categorias c ON m.categoria_id = c.id
+      LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
       WHERE m.sucursal_id = ? 
         AND m.estado IN ('completado', 'aprobado')
     `;
@@ -36,8 +37,8 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     let ingresosTotales = 0;
     let egresosTotales = 0;
 
-    const ingresosPorCategoria: Record<string, number> = {};
-    const egresosPorCategoria: Record<string, number> = {};
+    const ingresosPorCategoria: Record<string, { total: number; subcategorias: Record<string, number> }> = {};
+    const egresosPorCategoria: Record<string, { total: number; subcategorias: Record<string, number> }> = {};
 
     const ingresosList: any[] = [];
     const egresosList: any[] = [];
@@ -45,22 +46,41 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     movimientos.forEach((mov: any) => {
       const monto = Number(mov.monto);
       const catNombre = mov.categoria_nombre || "Sin Categoría";
+      const subCatNombre = mov.subcategoria_nombre || "Sin Subcategoría";
 
       if (mov.tipo === "ingreso") {
         ingresosTotales += monto;
-        ingresosPorCategoria[catNombre] = (ingresosPorCategoria[catNombre] || 0) + monto;
+        
+        if (!ingresosPorCategoria[catNombre]) {
+          ingresosPorCategoria[catNombre] = { total: 0, subcategorias: {} };
+        }
+        ingresosPorCategoria[catNombre].total += monto;
+        ingresosPorCategoria[catNombre].subcategorias[subCatNombre] = (ingresosPorCategoria[catNombre].subcategorias[subCatNombre] || 0) + monto;
+        
         ingresosList.push(mov);
       } else if (mov.tipo === "egreso") {
         const montoAbs = Math.abs(monto);
         egresosTotales += montoAbs;
-        egresosPorCategoria[catNombre] = (egresosPorCategoria[catNombre] || 0) + montoAbs;
+        
+        if (!egresosPorCategoria[catNombre]) {
+          egresosPorCategoria[catNombre] = { total: 0, subcategorias: {} };
+        }
+        egresosPorCategoria[catNombre].total += montoAbs;
+        egresosPorCategoria[catNombre].subcategorias[subCatNombre] = (egresosPorCategoria[catNombre].subcategorias[subCatNombre] || 0) + montoAbs;
+        
         egresosList.push(mov);
       }
     });
 
-    const formatBreakdown = (breakdownRecord: Record<string, number>) => {
+    const formatBreakdown = (breakdownRecord: Record<string, { total: number; subcategorias: Record<string, number> }>) => {
       return Object.entries(breakdownRecord)
-        .map(([name, value]) => ({ name, value }))
+        .map(([name, data]) => ({
+          name,
+          value: data.total,
+          subcategorias: Object.entries(data.subcategorias)
+            .map(([subName, subValue]) => ({ name: subName, value: subValue }))
+            .sort((a, b) => b.value - a.value)
+        }))
         .sort((a, b) => b.value - a.value); // Sort descending
     };
 
