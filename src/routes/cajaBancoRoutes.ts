@@ -6,7 +6,8 @@ import {
     deleteMovimientoBanco,
     moverARealBanco as moverAReal,
     getTotalesBanco,
-    updateEstadoMovimientoBanco
+    updateEstadoMovimientoBanco,
+    toggleDeudaBanco,
 } from '../controllers/movimientosController';
 
 const router = Router();
@@ -28,6 +29,9 @@ router.put('/:id/mover-a-real', moverAReal);
 
 // Actualizar estado de movimiento
 router.put('/:id/estado', updateEstadoMovimientoBanco);
+
+// Actualizar deuda de movimiento banco
+router.put('/:id/deuda', toggleDeudaBanco);
 
 // Eliminar movimiento banco
 router.delete('/:id', deleteMovimientoBanco);

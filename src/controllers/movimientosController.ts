@@ -10,7 +10,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
     const result: any = await query(
       `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.descripcion, m.prioridad, 
               m.saldo as tipo_movimiento, m.estado, m.categoria_id, m.subcategoria_id, 
-              m.tipo,
+              m.tipo, m.es_deuda, m.fecha_original_vencimiento,
               c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
               m.created_at, m.updated_at 
        FROM movimientos m
@@ -359,6 +359,77 @@ export const moverAReal = async (req: Request, res: Response) => {
   }
 };
 
+// PUT /api/movimientos/:id/deuda
+export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { es_deuda, fecha_original_vencimiento } = req.body;
+
+    if (es_deuda === undefined || (es_deuda !== 0 && es_deuda !== 1)) {
+      return res.status(400).json({
+        success: false,
+        message: "es_deuda debe ser 0 o 1",
+      });
+    }
+
+    // Verificar que el movimiento existe
+    const movResult: any = await query(
+      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      [id],
+    );
+
+    if (!Array.isArray(movResult) || movResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Movimiento no encontrado",
+      });
+    }
+
+    const mov = movResult[0];
+
+    if (es_deuda === 1) {
+      // Activar deuda: guardar fecha original de vencimiento
+      await query(
+        `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'efectivo'`,
+        [fecha_original_vencimiento || mov.fecha, id],
+      );
+    } else {
+      // Desactivar deuda: agregar nota en descripcion y limpiar fecha
+      const fechaOriginal = mov.fecha_original_vencimiento;
+      let nuevaDescripcion = mov.descripcion || "";
+      if (fechaOriginal) {
+        const partes = fechaOriginal.toString().split("T")[0].split("-");
+        const fechaFormateada = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : fechaOriginal;
+        const nota = `[Fecha original de vencimiento: ${fechaFormateada}]`;
+        nuevaDescripcion = nuevaDescripcion
+          ? `${nuevaDescripcion} ${nota}`
+          : nota;
+      }
+      await query(
+        `UPDATE movimientos SET es_deuda = 0, fecha_original_vencimiento = NULL, descripcion = ? WHERE id = ? AND tipo_movimiento = 'efectivo'`,
+        [nuevaDescripcion, id],
+      );
+    }
+
+    const updatedResult: any = await query(
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
+    );
+
+    res.json({
+      success: true,
+      message: es_deuda === 1 ? "Deuda activada exitosamente" : "Deuda desactivada exitosamente",
+      data: updatedResult[0],
+    });
+  } catch (error) {
+    console.error("Error al actualizar deuda (efectivo):", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al actualizar estado de deuda",
+    });
+  }
+};
+
 // GET /api/movimientos/efectivo/:sucursalId/totales
 export const getTotalesEfectivo = async (req: Request, res: Response) => {
   try {
@@ -403,6 +474,7 @@ export const getMovimientosBancoBySucursal = async (
       `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.comprobante, m.monto, m.descripcion, m.prioridad, 
               m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu, 
               m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.banco_id, m.medio_pago_id,
+              m.es_deuda, m.fecha_original_vencimiento,
               c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
               b.nombre as banco_nombre, mp.nombre as medio_pago_nombre,
               m.created_at, m.updated_at 
@@ -716,6 +788,77 @@ export const moverARealBanco = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Error al mover movimiento",
+    });
+  }
+};
+
+// PUT /api/caja-banco/:id/deuda
+export const toggleDeudaBanco = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { es_deuda, fecha_original_vencimiento } = req.body;
+
+    if (es_deuda === undefined || (es_deuda !== 0 && es_deuda !== 1)) {
+      return res.status(400).json({
+        success: false,
+        message: "es_deuda debe ser 0 o 1",
+      });
+    }
+
+    // Verificar que el movimiento existe
+    const movResult: any = await query(
+      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      [id],
+    );
+
+    if (!Array.isArray(movResult) || movResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Movimiento no encontrado",
+      });
+    }
+
+    const mov = movResult[0];
+
+    if (es_deuda === 1) {
+      // Activar deuda
+      await query(
+        `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'banco'`,
+        [fecha_original_vencimiento || mov.fecha, id],
+      );
+    } else {
+      // Desactivar deuda: agregar nota en descripcion y limpiar fecha
+      const fechaOriginal = mov.fecha_original_vencimiento;
+      let nuevaDescripcion = mov.descripcion || "";
+      if (fechaOriginal) {
+        const partes = fechaOriginal.toString().split("T")[0].split("-");
+        const fechaFormateada = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : fechaOriginal;
+        const nota = `[Fecha original de vencimiento: ${fechaFormateada}]`;
+        nuevaDescripcion = nuevaDescripcion
+          ? `${nuevaDescripcion} ${nota}`
+          : nota;
+      }
+      await query(
+        `UPDATE movimientos SET es_deuda = 0, fecha_original_vencimiento = NULL, descripcion = ? WHERE id = ? AND tipo_movimiento = 'banco'`,
+        [nuevaDescripcion, id],
+      );
+    }
+
+    const updatedResult: any = await query(
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
+    );
+
+    res.json({
+      success: true,
+      message: es_deuda === 1 ? "Deuda activada exitosamente" : "Deuda desactivada exitosamente",
+      data: updatedResult[0],
+    });
+  } catch (error) {
+    console.error("Error al actualizar deuda (banco):", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al actualizar estado de deuda",
     });
   }
 };

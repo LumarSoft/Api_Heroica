@@ -7,6 +7,7 @@ import {
   createMovimientoEfectivo,
   moverAReal,
   getTotalesEfectivo,
+  toggleDeudaEfectivo,
 } from "../controllers/movimientosController";
 
 const router = Router();
@@ -27,6 +28,9 @@ router.get("/:sucursalId", getMovimientosBySucursal);
 
 // Actualizar estado de movimiento
 router.put("/:id/estado", updateEstadoMovimiento);
+
+// Actualizar deuda de movimiento
+router.put("/:id/deuda", toggleDeudaEfectivo);
 
 // Actualizar movimiento
 router.put("/:id", updateMovimiento);
