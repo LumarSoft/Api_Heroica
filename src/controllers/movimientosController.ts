@@ -994,7 +994,7 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.estado = 'pendiente'
+      WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL)
     `;
 
     const params: any[] = [];
@@ -1043,7 +1043,7 @@ export const getPagosPendientesBySucursal = async (
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente'
+      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL)
     `;
 
     const params: any[] = [sucursalId];
@@ -1150,7 +1150,7 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
 export const aprobarPagoPendiente = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { usuario_revisor_id } = req.body;
+    const { usuario_revisor_id, tipo_caja, fecha, banco_id, medio_pago_id } = req.body;
 
     // Validación
     if (!usuario_revisor_id) {
@@ -1184,18 +1184,34 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     }
 
     // Determinar destino (se asume que si el body mandó tipo_caja, se prioriza)
-    const { tipo_caja } = req.body;
     let newTipoMovimiento = pago.tipo_movimiento;
     if (tipo_caja) {
       newTipoMovimiento = tipo_caja === "efectivo" ? "efectivo" : "banco";
     }
 
+    // Verificar si la fecha fue modificada
+    let nuevaDescripcion = pago.descripcion || "";
+    if (fecha && pago.fecha) {
+      // pago.fecha puede ser un Date object desde la BD
+      const fechaOriginal = new Date(pago.fecha).toISOString().split('T')[0];
+      if (fechaOriginal !== fecha) {
+        const partsOriginal = fechaOriginal.split('-');
+        const fechaOriginalFormat = `${partsOriginal[2]}/${partsOriginal[1]}/${partsOriginal[0]}`;
+        const partsNueva = fecha.split('-');
+        const fechaNuevaFormat = `${partsNueva[2]}/${partsNueva[1]}/${partsNueva[0]}`;
+        
+        const nota = `\n[Nota del sistema: El administrador modificó la fecha de pago de ${fechaOriginalFormat} a ${fechaNuevaFormat}]`;
+        nuevaDescripcion = nuevaDescripcion ? `${nuevaDescripcion}${nota}` : nota;
+      }
+    }
+
     // Actualizar estado del pago pendiente: lo pasamos a aprobado y confirmamos la caja
     await query(
       `UPDATE movimientos 
-             SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario'
+             SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario',
+             fecha = COALESCE(?, fecha), banco_id = ?, medio_pago_id = ?, descripcion = ?
              WHERE id = ?`,
-      [usuario_revisor_id, newTipoMovimiento, id],
+      [usuario_revisor_id, newTipoMovimiento, fecha || null, banco_id || null, medio_pago_id || null, nuevaDescripcion, id],
     );
 
     // Obtener el pago actualizado
@@ -1325,8 +1341,12 @@ export const deletePagoPendiente = async (req: Request, res: Response) => {
 export const getHistorialByUser = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
+    const { sucursal_id } = req.query;
 
-    const sql = `
+    const userResult: any = await query("SELECT rol FROM usuarios WHERE id = ?", [userId]);
+    const rol = userResult && userResult.length > 0 ? userResult[0].rol : "empleado";
+
+    let sql = `
       SELECT 
         m.*,
         uc.nombre as usuario_creador_nombre,
@@ -1334,11 +1354,25 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       FROM movimientos m
       LEFT JOIN usuarios uc ON m.user_id = uc.id
       LEFT JOIN usuarios ur ON m.usuario_revisor_id = ur.id
-      WHERE m.user_id = ?
-      ORDER BY m.fecha DESC, m.created_at DESC
+      WHERE m.estado IN ('aprobado', 'rechazado', 'completado')
+        AND (m.tipo = 'egreso' OR m.tipo IS NULL)
     `;
 
-    const result: any = await query(sql, [userId]);
+    const queryParams: any[] = [];
+
+    if (rol !== "admin") {
+      sql += " AND m.user_id = ?";
+      queryParams.push(userId);
+    }
+
+    if (sucursal_id) {
+      sql += " AND m.sucursal_id = ?";
+      queryParams.push(sucursal_id);
+    }
+
+    sql += " ORDER BY m.fecha DESC, m.created_at DESC";
+
+    const result: any = await query(sql, queryParams);
 
     res.json({
       success: true,
