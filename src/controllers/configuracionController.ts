@@ -6,14 +6,19 @@ import { query } from "../config/database";
 // GET /api/configuracion/categorias
 export const getCategorias = async (req: Request, res: Response) => {
     try {
-        const { activo } = req.query;
+        const { activo, tipo } = req.query;
 
-        let sql = "SELECT * FROM categorias";
+        let sql = "SELECT * FROM categorias WHERE 1=1";
         const params: any[] = [];
 
         if (activo !== undefined) {
-            sql += " WHERE activo = ?";
+            sql += " AND activo = ?";
             params.push(activo === "true" ? 1 : 0);
+        }
+
+        if (tipo) {
+            sql += " AND tipo = ?";
+            params.push(tipo);
         }
 
         sql += " ORDER BY nombre ASC";
@@ -36,7 +41,7 @@ export const getCategorias = async (req: Request, res: Response) => {
 // POST /api/configuracion/categorias
 export const createCategoria = async (req: Request, res: Response) => {
     try {
-        const { nombre, descripcion } = req.body;
+        const { nombre, descripcion, tipo } = req.body;
 
         if (!nombre) {
             return res.status(400).json({
@@ -46,8 +51,8 @@ export const createCategoria = async (req: Request, res: Response) => {
         }
 
         const result: any = await query(
-            "INSERT INTO categorias (nombre, descripcion) VALUES (?, ?)",
-            [nombre, descripcion || null]
+            "INSERT INTO categorias (nombre, descripcion, tipo) VALUES (?, ?, ?)",
+            [nombre, descripcion || null, tipo || 'egreso']
         );
 
         const created: any = await query(
@@ -79,11 +84,11 @@ export const createCategoria = async (req: Request, res: Response) => {
 export const updateCategoria = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { nombre, descripcion, activo } = req.body;
+        const { nombre, descripcion, activo, tipo } = req.body;
 
         await query(
-            "UPDATE categorias SET nombre = ?, descripcion = ?, activo = ? WHERE id = ?",
-            [nombre, descripcion || null, activo !== undefined ? activo : true, id]
+            "UPDATE categorias SET nombre = ?, descripcion = ?, activo = ?, tipo = ? WHERE id = ?",
+            [nombre, descripcion || null, activo !== undefined ? activo : true, tipo || 'egreso', id]
         );
 
         const updated: any = await query(
