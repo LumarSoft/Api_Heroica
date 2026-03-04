@@ -57,7 +57,13 @@ export const getSucursalById = async (req: Request, res: Response) => {
 // POST /api/sucursales
 export const createSucursal = async (req: Request, res: Response) => {
   try {
-    const { nombre, razon_social, cuit, direccion } = req.body;
+    let { nombre, razon_social, cuit, direccion } = req.body;
+
+    // Autocompletar guiones en CUIT si solo vienen 11 números
+    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {
+      const digits = cuit.replace(/\D/g, '');
+      cuit = `${digits.substring(0, 2)}-${digits.substring(2, 10)}-${digits.substring(10, 11)}`;
+    }
 
     // Validación
     if (!nombre || !razon_social || !cuit || !direccion) {
@@ -107,7 +113,13 @@ export const createSucursal = async (req: Request, res: Response) => {
 export const updateSucursal = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { nombre, razon_social, cuit, direccion, email_correspondencia } = req.body;
+    let { nombre, razon_social, cuit, direccion, email_correspondencia, activo } = req.body;
+
+    // Autocompletar guiones en CUIT si solo vienen 11 números
+    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {
+      const digits = cuit.replace(/\D/g, '');
+      cuit = `${digits.substring(0, 2)}-${digits.substring(2, 10)}-${digits.substring(10, 11)}`;
+    }
 
     // Validación
     if (!nombre || !razon_social || !cuit || !direccion) {
@@ -119,7 +131,7 @@ export const updateSucursal = async (req: Request, res: Response) => {
 
     // Verificar que la sucursal existe
     const existingResult: any = await query(
-      'SELECT id FROM sucursales WHERE id = ?',
+      'SELECT id, activo FROM sucursales WHERE id = ?',
       [id]
     );
 
@@ -130,10 +142,13 @@ export const updateSucursal = async (req: Request, res: Response) => {
       });
     }
 
+    const currentActivo = existingResult[0].activo;
+    const newActivo = activo !== undefined ? activo : currentActivo;
+
     // Actualizar sucursal
     await query(
-      'UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ?, email_correspondencia = ? WHERE id = ?',
-      [nombre, razon_social, cuit, direccion, email_correspondencia || null, id]
+      'UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ?, email_correspondencia = ?, activo = ? WHERE id = ?',
+      [nombre, razon_social, cuit, direccion, email_correspondencia || null, newActivo, id]
     );
 
     res.json({
@@ -145,7 +160,8 @@ export const updateSucursal = async (req: Request, res: Response) => {
         razon_social,
         cuit,
         direccion,
-        email_correspondencia
+        email_correspondencia,
+        activo: newActivo
       }
     });
 

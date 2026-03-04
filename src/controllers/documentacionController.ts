@@ -70,6 +70,7 @@ export const getDocumentos = async (req: Request, res: Response) => {
 export const uploadDocumento = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
+        const { tipo_documento, fecha_vencimiento } = req.body;
         const userId = (req as any).user?.id; // Asumiendo que tienes middleware de auth
 
         if (!req.file) {
@@ -99,9 +100,9 @@ export const uploadDocumento = async (req: Request, res: Response) => {
 
         const insertResult: any = await query(
             `INSERT INTO documentos_sucursal 
-       (sucursal_id, nombre_archivo, ruta_archivo, tipo_archivo, tamano_bytes, usuario_subida_id) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-            [id, req.file.originalname, relativePath, req.file.mimetype, req.file.size, userId || null]
+       (sucursal_id, nombre_archivo, ruta_archivo, tipo_archivo, tamano_bytes, usuario_subida_id, tipo_documento, fecha_vencimiento) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, req.file.originalname, relativePath, req.file.mimetype, req.file.size, userId || null, tipo_documento || null, fecha_vencimiento || null]
         );
 
         res.json({
@@ -112,7 +113,9 @@ export const uploadDocumento = async (req: Request, res: Response) => {
                 nombre: req.file.originalname,
                 path: relativePath,
                 size: req.file.size,
-                tipo: req.file.mimetype
+                tipo: req.file.mimetype,
+                tipo_documento: tipo_documento || null,
+                fecha_vencimiento: fecha_vencimiento || null
             }
         });
 
