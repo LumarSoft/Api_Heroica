@@ -1,7 +1,7 @@
-import { Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { query } from '../config/database';
+import { Request, Response } from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { query } from "../config/database";
 
 // Interface para el usuario
 interface User {
@@ -9,7 +9,8 @@ interface User {
   email: string;
   password: string;
   nombre: string;
-  rol: string;
+  rol_id: number;
+  rol_nombre: string;
 }
 
 // POST /api/auth/login
@@ -21,13 +22,16 @@ export const login = async (req: Request, res: Response) => {
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Email y contraseña son requeridos'
+        message: "Email y contraseña son requeridos",
       });
     }
 
-    // Buscar usuario en la base de datos
+    // Buscar usuario en la base de datos con su rol
     const result: any = await query(
-      'SELECT * FROM usuarios WHERE email = ? AND activo = TRUE',
+      `SELECT u.*, r.nombre as rol_nombre 
+       FROM usuarios u 
+       LEFT JOIN roles r ON u.rol_id = r.id 
+       WHERE u.email = ? AND u.activo = TRUE`,
       [email]
     );
 
@@ -35,7 +39,7 @@ export const login = async (req: Request, res: Response) => {
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(401).json({
         success: false,
-        message: 'Credenciales inválidas'
+        message: "Credenciales inválidas",
       });
     }
 
@@ -43,45 +47,46 @@ export const login = async (req: Request, res: Response) => {
 
     // Verificar contraseña
     const passwordValida = await bcrypt.compare(password, user.password);
-    
+
     if (!passwordValida) {
       return res.status(401).json({
         success: false,
-        message: 'Credenciales inválidas'
+        message: "Credenciales inválidas",
       });
     }
 
     // Generar JWT
     const token = jwt.sign(
-      { 
-        id: user.id, 
+      {
+        id: user.id,
         email: user.email,
-        rol: user.rol 
+        rol_id: user.rol_id,
+        rol: user.rol_nombre,
       },
-      process.env.JWT_SECRET || 'secret',
-      { expiresIn: '24h' }
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "24h" }
     );
 
     // Respuesta exitosa
     res.json({
       success: true,
-      message: 'Login exitoso',
+      message: "Login exitoso",
       data: {
         token,
         user: {
           id: user.id,
           email: user.email,
           nombre: user.nombre,
-          rol: user.rol
-        }
-      }
+          rol: user.rol_nombre,
+          rol_id: user.rol_id,
+        },
+      },
     });
-
   } catch (error) {
-    console.error('Error en login:', error);
+    console.error("Error en login:", error);
     res.status(500).json({
       success: false,
-      message: 'Error interno del servidor'
+      message: "Error interno del servidor",
     });
   }
 };
@@ -89,26 +94,25 @@ export const login = async (req: Request, res: Response) => {
 // POST /api/auth/verify
 export const verifyToken = async (req: Request, res: Response) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
+    const token = req.headers.authorization?.split(" ")[1];
 
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Token no proporcionado'
+        message: "Token no proporcionado",
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
 
     res.json({
       success: true,
-      data: decoded
+      data: decoded,
     });
-
   } catch (error) {
     res.status(401).json({
       success: false,
-      message: 'Token inválido o expirado'
+      message: "Token inválido o expirado",
     });
   }
 };
