@@ -56,8 +56,14 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     let ingresosTotales = 0;
     let egresosTotales = 0;
 
-    const ingresosPorCategoria: Record<string, { total: number; subcategorias: Record<string, number> }> = {};
-    const egresosPorCategoria: Record<string, { total: number; subcategorias: Record<string, number> }> = {};
+    const ingresosPorCategoria: Record<
+      string,
+      { total: number; subcategorias: Record<string, number> }
+    > = {};
+    const egresosPorCategoria: Record<
+      string,
+      { total: number; subcategorias: Record<string, number> }
+    > = {};
 
     const ingresosList: any[] = [];
     const egresosList: any[] = [];
@@ -74,36 +80,45 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
 
       if (mov.tipo === "ingreso") {
         ingresosTotales += monto;
-        
+
         if (!ingresosPorCategoria[catNombre]) {
           ingresosPorCategoria[catNombre] = { total: 0, subcategorias: {} };
         }
         ingresosPorCategoria[catNombre].total += monto;
-        ingresosPorCategoria[catNombre].subcategorias[subCatNombre] = (ingresosPorCategoria[catNombre].subcategorias[subCatNombre] || 0) + monto;
-        
+        ingresosPorCategoria[catNombre].subcategorias[subCatNombre] =
+          (ingresosPorCategoria[catNombre].subcategorias[subCatNombre] || 0) +
+          monto;
+
         ingresosList.push(mov);
       } else if (mov.tipo === "egreso") {
         const montoAbs = Math.abs(monto);
         egresosTotales += montoAbs;
-        
+
         if (!egresosPorCategoria[catNombre]) {
           egresosPorCategoria[catNombre] = { total: 0, subcategorias: {} };
         }
         egresosPorCategoria[catNombre].total += montoAbs;
-        egresosPorCategoria[catNombre].subcategorias[subCatNombre] = (egresosPorCategoria[catNombre].subcategorias[subCatNombre] || 0) + montoAbs;
-        
+        egresosPorCategoria[catNombre].subcategorias[subCatNombre] =
+          (egresosPorCategoria[catNombre].subcategorias[subCatNombre] || 0) +
+          montoAbs;
+
         egresosList.push(mov);
       }
     });
 
-    const formatBreakdown = (breakdownRecord: Record<string, { total: number; subcategorias: Record<string, number> }>) => {
+    const formatBreakdown = (
+      breakdownRecord: Record<
+        string,
+        { total: number; subcategorias: Record<string, number> }
+      >,
+    ) => {
       return Object.entries(breakdownRecord)
         .map(([name, data]) => ({
           name,
           value: data.total,
           subcategorias: Object.entries(data.subcategorias)
             .map(([subName, subValue]) => ({ name: subName, value: subValue }))
-            .sort((a, b) => b.value - a.value)
+            .sort((a, b) => b.value - a.value),
         }))
         .sort((a, b) => b.value - a.value); // Sort descending
     };
@@ -124,7 +139,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     if (endDate) {
       sqlDeudas += " AND m.fecha <= ?";
       deudasParams.push(endDate);
-      
+
       // Si el mes consultado es anterior al pago de la deuda, la deuda debe seguir mostrándose como activa en ese mes
       sqlDeudas += " AND (m.estado != 'completado' OR DATE(m.updated_at) > ?)";
       deudasParams.push(endDate);
@@ -135,7 +150,10 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     sqlDeudas += " ORDER BY m.fecha DESC";
 
     const deudasList: any = await query(sqlDeudas, deudasParams);
-    const deudasTotales = deudasList.reduce((acc: number, mov: any) => acc + Math.abs(Number(mov.monto)), 0);
+    const deudasTotales = deudasList.reduce(
+      (acc: number, mov: any) => acc + Math.abs(Number(mov.monto)),
+      0,
+    );
 
     res.json({
       success: true,
@@ -144,7 +162,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
           ingresos: ingresosTotales,
           egresos: egresosTotales,
           resultado: ingresosTotales - egresosTotales,
-          deudas: deudasTotales
+          deudas: deudasTotales,
         },
         ingresosBreakdown: formatBreakdown(ingresosPorCategoria),
         egresosBreakdown: formatBreakdown(egresosPorCategoria),
@@ -152,7 +170,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
           ingresos: ingresosList,
           egresos: egresosList,
           deudas: deudasList,
-        }
+        },
       },
     });
   } catch (error) {
