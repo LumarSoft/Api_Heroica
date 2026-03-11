@@ -4,9 +4,9 @@ import { query } from '../config/database';
 // GET /api/sucursales
 export const getSucursales = async (req: Request, res: Response) => {
   try {
-    // Obtener todas las sucursales activas
+    // Obtener todas las sucursales (activas e inactivas), activas primero
     const result: any = await query(
-      'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE activo = TRUE ORDER BY nombre ASC'
+      'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales ORDER BY activo DESC, nombre ASC'
     );
 
     res.json({
