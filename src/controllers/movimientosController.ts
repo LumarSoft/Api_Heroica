@@ -394,20 +394,53 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
         [fecha_original_vencimiento || mov.fecha, id],
       );
     } else {
-      // Desactivar deuda: agregar nota en descripcion y limpiar fecha
-      const fechaOriginal = mov.fecha_original_vencimiento;
+      // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
+      await query(
+        `UPDATE movimientos SET estado = 'completado' WHERE id = ? AND tipo_movimiento = 'efectivo'`,
+        [id],
+      );
+
+      // 2. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
+      const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha;
       let nuevaDescripcion = mov.descripcion || "";
       if (fechaOriginal) {
         const partes = fechaOriginal.toString().split("T")[0].split("-");
         const fechaFormateada = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : fechaOriginal;
-        const nota = `[Fecha original de vencimiento: ${fechaFormateada}]`;
+        const nota = `[Pago de deuda original del: ${fechaFormateada}]`;
         nuevaDescripcion = nuevaDescripcion
           ? `${nuevaDescripcion} ${nota}`
           : nota;
       }
+      
+      const fechaPago = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const adjustedMonto = -Math.abs(mov.monto); // Aseguramos que sea egreso en caja
+      
       await query(
-        `UPDATE movimientos SET es_deuda = 0, fecha_original_vencimiento = NULL, descripcion = ? WHERE id = ? AND tipo_movimiento = 'efectivo'`,
-        [nuevaDescripcion, id],
+        `INSERT INTO movimientos 
+         (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
+          numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo,
+          es_deuda, fecha_original_vencimiento) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL)`,
+        [
+          mov.sucursal_id,
+          mov.user_id,
+          fechaPago,
+          mov.concepto,
+          mov.comprobante,
+          nuevaDescripcion,
+          adjustedMonto,
+          mov.saldo,
+          mov.prioridad,
+          mov.numero_cheque,
+          mov.banco,
+          mov.cuenta,
+          mov.cbu,
+          mov.tipo_operacion,
+          mov.categoria_id,
+          mov.subcategoria_id,
+          mov.banco_id,
+          mov.medio_pago_id
+        ],
       );
     }
 
@@ -827,20 +860,53 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
         [fecha_original_vencimiento || mov.fecha, id],
       );
     } else {
-      // Desactivar deuda: agregar nota en descripcion y limpiar fecha
-      const fechaOriginal = mov.fecha_original_vencimiento;
+      // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
+      await query(
+        `UPDATE movimientos SET estado = 'completado' WHERE id = ? AND tipo_movimiento = 'banco'`,
+        [id],
+      );
+
+      // 2. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
+      const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha;
       let nuevaDescripcion = mov.descripcion || "";
       if (fechaOriginal) {
         const partes = fechaOriginal.toString().split("T")[0].split("-");
         const fechaFormateada = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : fechaOriginal;
-        const nota = `[Fecha original de vencimiento: ${fechaFormateada}]`;
+        const nota = `[Pago de deuda original del: ${fechaFormateada}]`;
         nuevaDescripcion = nuevaDescripcion
           ? `${nuevaDescripcion} ${nota}`
           : nota;
       }
+
+      const fechaPago = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const adjustedMonto = -Math.abs(mov.monto); // Aseguramos que sea egreso en banco
+
       await query(
-        `UPDATE movimientos SET es_deuda = 0, fecha_original_vencimiento = NULL, descripcion = ? WHERE id = ? AND tipo_movimiento = 'banco'`,
-        [nuevaDescripcion, id],
+        `INSERT INTO movimientos 
+         (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
+          numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo,
+          es_deuda, fecha_original_vencimiento) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL)`,
+        [
+          mov.sucursal_id,
+          mov.user_id,
+          fechaPago,
+          mov.concepto,
+          mov.comprobante,
+          nuevaDescripcion,
+          adjustedMonto,
+          mov.saldo,
+          mov.prioridad,
+          mov.numero_cheque,
+          mov.banco,
+          mov.cuenta,
+          mov.cbu,
+          mov.tipo_operacion,
+          mov.categoria_id,
+          mov.subcategoria_id,
+          mov.banco_id,
+          mov.medio_pago_id
+        ],
       );
     }
 
