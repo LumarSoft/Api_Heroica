@@ -1469,6 +1469,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
       cbu,
       tipo_operacion,
       nota_descripcion,
+      es_credito,
     } = req.body;
 
     // Validación básica
@@ -1494,6 +1495,9 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
     const mov = movResult[0];
 
+    const isDifferentSucursal = String(mov.sucursal_id) !== String(destino_sucursal_id);
+    const createDebts = es_credito && isDifferentSucursal;
+
     // Preparar campos a actualizar
     let nuevaDescripcion = mov.descripcion || "";
     if (nota_descripcion) {
@@ -1507,41 +1511,143 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         ? `${nuevaDescripcion}${separador}${nota_descripcion}`
         : `${nota_descripcion}`;
     }
+    
+    // Si es crédito, invertimos el tipo para la sucursal de destino.
+    // Ej: Si era egreso en origen, ingresa a destino.
+    let nuevoTipo = mov.tipo;
+    if (createDebts) {
+      nuevoTipo = mov.tipo === "ingreso" ? "egreso" : "ingreso";
+    }
 
     const nuevoEstado = destino_saldo === "saldo_real" ? "completado" : "aprobado";
 
-    if (destino_tipo_movimiento === "efectivo") {
-      // Mover a efectivo: limpiar datos bancarios
+    if (createDebts) {
+      // SI ES CRÉDITO: EL REGISTRO ORIGINAL NO SE "MUEVE" SINO QUE SE CLONA/COMPENSA.
+      // 1. El registro original (ingreso/egreso) se queda en la sucursal origen.
+      // Pero si era un INGRESO que movemos, significa que estamos mandando esa plata a otra lado, 
+      //  -> El registro en origen se convierte en EGRESO (salió la plata).
+      //  -> El registro en destino será INGRESO (entró la plata).
+      // Si era un EGRESO que movemos (estamos asumiendo un gasto de otra sucursal),
+      //  -> El origen asume el gasto: se queda como EGRESO.
+      //  -> El destino recibe el beneficio: ingresa dinero ficticio para compensar? (esto lo detalla luego el user)
+      // Asumiendo reglas básicas:
+      // Mov original tipo -> nuevoTipo para destino
+      let tipoOrigenActualizado = mov.tipo === 'ingreso' ? 'egreso' : 'egreso'; // Simplificación: si lo muevo es que sale de mi caja
+      let tipoDestinoReal = mov.tipo === 'ingreso' ? 'ingreso' : 'ingreso'; // Simplificación: si lo muevo es que entra a la otra
+      
+      const getSignedMonto = (t: string, m: number) => t === 'egreso' ? -Math.abs(m) : Math.abs(m);
+
+      // Actualizamos el registro original en su MISMA sucursal para que refleje la salida real del dinero
       await query(
         `UPDATE movimientos 
-         SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, 
-             banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+         SET tipo = ?, estado = ?, descripcion = ?, monto = ?
          WHERE id = ?`,
-        [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, id],
+        [tipoOrigenActualizado, "completado", nuevaDescripcion, getSignedMonto(tipoOrigenActualizado, mov.monto), id],
       );
-    } else {
-      // Mover a banco: asignar nuevos datos bancarios si vienen
+
+      // Creamos el registro real en la sucursal de destino
       await query(
-        `UPDATE movimientos 
-         SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, 
-             banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
-         WHERE id = ?`,
+        `INSERT INTO movimientos (
+          sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+          tipo, tipo_movimiento, saldo, estado, banco_id, medio_pago_id, 
+          numero_cheque, banco, cuenta, cbu, tipo_operacion
+        ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           destino_sucursal_id,
+          mov.user_id,
+          mov.concepto,
+          getSignedMonto(tipoDestinoReal, mov.monto),
+          nuevaDescripcion,
+          tipoDestinoReal,
+          destino_tipo_movimiento,
           destino_saldo,
           nuevoEstado,
-          nuevaDescripcion,
-          banco_id || mov.banco_id || null,
-          medio_pago_id || mov.medio_pago_id || null,
-          numero_cheque || mov.numero_cheque || null,
-          banco || mov.banco || null,
-          cuenta || mov.cuenta || null,
-          cbu || mov.cbu || null,
-          tipo_operacion || mov.tipo_operacion || null,
-          id,
-        ],
+          destino_tipo_movimiento === "banco" ? (banco_id || mov.banco_id || null) : null,
+          destino_tipo_movimiento === "banco" ? (medio_pago_id || mov.medio_pago_id || null) : null,
+          destino_tipo_movimiento === "banco" ? (numero_cheque || mov.numero_cheque || null) : null,
+          destino_tipo_movimiento === "banco" ? (banco || mov.banco || null) : null,
+          destino_tipo_movimiento === "banco" ? (cuenta || mov.cuenta || null) : null,
+          destino_tipo_movimiento === "banco" ? (cbu || mov.cbu || null) : null,
+          destino_tipo_movimiento === "banco" ? (tipo_operacion || mov.tipo_operacion || null) : null,
+        ]
       );
+
+      // Creamos la deuda a favor en el Origen
+      // Si el origen soltó plata (egreso real), tiene que tener un ingreso a cobrar.
+      const tipoOrigenDeuda = tipoOrigenActualizado === "egreso" ? "ingreso" : "egreso";
+      await query(
+        `INSERT INTO movimientos (
+          sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+          tipo, tipo_movimiento, saldo, estado, es_deuda
+        ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+        [
+          mov.sucursal_id, // Origen
+          mov.user_id,
+          mov.concepto + " [DEUDA]",
+          getSignedMonto(tipoOrigenDeuda, mov.monto),
+          `Crédito auto-generado por movimiento hacia Sucursal ${destino_sucursal_id}`,
+          tipoOrigenDeuda,
+          mov.tipo_movimiento 
+        ]
+      );
+
+      // Creamos la deuda en contra en el Destino
+      // Si el destino recibió plata (ingreso real), tiene que tener un egreso a pagar.
+      const tipoDestinoDeuda = tipoDestinoReal === "ingreso" ? "egreso" : "ingreso";
+      await query(
+        `INSERT INTO movimientos (
+          sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+          tipo, tipo_movimiento, saldo, estado, es_deuda
+        ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+        [
+          destino_sucursal_id, // Destino
+          mov.user_id,
+          mov.concepto + " [DEUDA]",
+          getSignedMonto(tipoDestinoDeuda, mov.monto),
+          `Deuda auto-generada recibida de Sucursal ${mov.sucursal_id}`,
+          tipoDestinoDeuda,
+          destino_tipo_movimiento 
+        ]
+      );
+
+    } else {
+      // FLUJO NORMAL: Solo lo movemos de sucursal
+      if (destino_tipo_movimiento === "efectivo") {
+        // Mover a efectivo: limpiar datos bancarios
+        await query(
+          `UPDATE movimientos 
+           SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?,
+               banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+           WHERE id = ?`,
+          [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, nuevoTipo, id],
+        );
+      } else {
+        // Mover a banco: asignar nuevos datos bancarios si vienen
+        await query(
+          `UPDATE movimientos 
+           SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?, 
+               banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
+           WHERE id = ?`,
+          [
+            destino_sucursal_id,
+            destino_saldo,
+            nuevoEstado,
+            nuevaDescripcion,
+            nuevoTipo,
+            banco_id || mov.banco_id || null,
+            medio_pago_id || mov.medio_pago_id || null,
+            numero_cheque || mov.numero_cheque || null,
+            banco || mov.banco || null,
+            cuenta || mov.cuenta || null,
+            cbu || mov.cbu || null,
+            tipo_operacion || mov.tipo_operacion || null,
+            id,
+          ],
+        );
+      }
     }
+
+
 
     // Obtener movimiento actualizado
     const updatedResult: any = await query(
