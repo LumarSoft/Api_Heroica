@@ -1073,7 +1073,7 @@ export const updateEstadoMovimientoBanco = async (
 // GET /api/pagos-pendientes/all
 export const getAllPagosPendientes = async (req: Request, res: Response) => {
   try {
-    const { estado } = req.query; // Filtro opcional por estado
+    const { estado, moneda } = req.query; // Filtro opcional por estado y moneda
 
     let sql = `
       SELECT 
@@ -1097,6 +1097,11 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
       params.push(estado);
     }
     */
+
+    if (moneda) {
+      sql += " AND pp.moneda = ?";
+      params.push(moneda);
+    }
 
     sql += " ORDER BY pp.fecha DESC";
 
@@ -1122,7 +1127,7 @@ export const getPagosPendientesBySucursal = async (
 ) => {
   try {
     const { sucursalId } = req.params;
-    const { estado } = req.query; // Filtro opcional por estado
+    const { estado, moneda } = req.query; // Filtro opcional por estado y moneda
 
     let sql = `
       SELECT 
@@ -1145,6 +1150,11 @@ export const getPagosPendientesBySucursal = async (
       params.push(estado);
     }
     */
+
+    if (moneda) {
+      sql += " AND pp.moneda = ?";
+      params.push(moneda);
+    }
 
     sql += " ORDER BY pp.fecha DESC";
 
@@ -1431,7 +1441,7 @@ export const deletePagoPendiente = async (req: Request, res: Response) => {
 export const getHistorialByUser = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    const { sucursal_id } = req.query;
+    const { sucursal_id, moneda } = req.query;
 
     const userResult: any = await query("SELECT r.nombre as rol FROM usuarios u LEFT JOIN roles r ON u.rol_id = r.id WHERE u.id = ?", [userId]);
     const rol = userResult && userResult.length > 0 ? userResult[0].rol : "empleado";
@@ -1458,6 +1468,11 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
     if (sucursal_id) {
       sql += " AND m.sucursal_id = ?";
       queryParams.push(sucursal_id);
+    }
+
+    if (moneda) {
+      sql += " AND m.moneda = ?";
+      queryParams.push(moneda);
     }
 
     sql += " ORDER BY m.fecha DESC, m.created_at DESC";
