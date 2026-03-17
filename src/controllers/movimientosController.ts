@@ -1452,3 +1452,108 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
     });
   }
 };
+
+// PUT /api/movimientos/:id/mover
+export const moverMovimiento = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      destino_tipo_movimiento,
+      destino_saldo,
+      destino_sucursal_id,
+      banco_id,
+      medio_pago_id,
+      numero_cheque,
+      banco,
+      cuenta,
+      cbu,
+      tipo_operacion,
+      nota_descripcion,
+    } = req.body;
+
+    // Validación básica
+    if (!destino_tipo_movimiento || !destino_saldo || !destino_sucursal_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Faltan datos de destino obligatorios.",
+      });
+    }
+
+    // Verificar que el movimiento existe
+    const movResult: any = await query(
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
+    );
+
+    if (!Array.isArray(movResult) || movResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Movimiento no encontrado",
+      });
+    }
+
+    const mov = movResult[0];
+
+    // Preparar campos a actualizar
+    let nuevaDescripcion = mov.descripcion || "";
+    if (nota_descripcion) {
+      nuevaDescripcion = nuevaDescripcion
+        ? `${nuevaDescripcion} | ${nota_descripcion}`
+        : nota_descripcion;
+    }
+
+    const nuevoEstado = destino_saldo === "saldo_real" ? "completado" : "aprobado";
+
+    if (destino_tipo_movimiento === "efectivo") {
+      // Mover a efectivo: limpiar datos bancarios
+      await query(
+        `UPDATE movimientos 
+         SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, 
+             banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+         WHERE id = ?`,
+        [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, id],
+      );
+    } else {
+      // Mover a banco: asignar nuevos datos bancarios si vienen
+      await query(
+        `UPDATE movimientos 
+         SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, 
+             banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
+         WHERE id = ?`,
+        [
+          destino_sucursal_id,
+          destino_saldo,
+          nuevoEstado,
+          nuevaDescripcion,
+          banco_id || mov.banco_id || null,
+          medio_pago_id || mov.medio_pago_id || null,
+          numero_cheque || mov.numero_cheque || null,
+          banco || mov.banco || null,
+          cuenta || mov.cuenta || null,
+          cbu || mov.cbu || null,
+          tipo_operacion || mov.tipo_operacion || null,
+          id,
+        ],
+      );
+    }
+
+    // Obtener movimiento actualizado
+    const updatedResult: any = await query(
+      "SELECT * FROM movimientos WHERE id = ?",
+      [id],
+    );
+
+    res.json({
+      success: true,
+      message: "Movimiento movido exitosamente",
+      data: updatedResult[0],
+    });
+  } catch (error) {
+    console.error("Error al mover movimiento:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al mover movimiento",
+    });
+  }
+};
+

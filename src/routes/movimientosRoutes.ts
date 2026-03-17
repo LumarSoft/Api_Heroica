@@ -8,6 +8,7 @@ import {
   moverAReal,
   getTotalesEfectivo,
   toggleDeudaEfectivo,
+  moverMovimiento,
 } from "../controllers/movimientosController";
 
 const router = Router();
@@ -34,6 +35,9 @@ router.put("/:id/deuda", toggleDeudaEfectivo);
 
 // Actualizar movimiento
 router.put("/:id", updateMovimiento);
+
+// Mover movimiento (internamente)
+router.put("/:id/mover", moverMovimiento);
 
 // Eliminar movimiento
 router.delete("/:id", deleteMovimiento);
