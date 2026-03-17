@@ -1409,7 +1409,7 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
     const { userId } = req.params;
     const { sucursal_id } = req.query;
 
-    const userResult: any = await query("SELECT rol FROM usuarios WHERE id = ?", [userId]);
+    const userResult: any = await query("SELECT r.nombre as rol FROM usuarios u LEFT JOIN roles r ON u.rol_id = r.id WHERE u.id = ?", [userId]);
     const rol = userResult && userResult.length > 0 ? userResult[0].rol : "empleado";
 
     let sql = `
