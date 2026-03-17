@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { query } from "../config/database";
+import bcrypt from "bcryptjs";
 
 // ========== CATEGORÍAS ==========
 
@@ -508,6 +509,218 @@ export const deleteMedioPago = async (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             message: "Error al eliminar medio de pago",
+        });
+    }
+};
+
+// ========== USUARIOS ==========
+
+// GET /api/configuracion/usuarios
+export const getUsuarios = async (req: Request, res: Response) => {
+    try {
+        const { activo } = req.query;
+
+        let sql = `
+            SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
+            FROM usuarios u
+            LEFT JOIN roles r ON u.rol_id = r.id
+            WHERE 1=1
+        `;
+        const params: any[] = [];
+
+        if (activo !== undefined) {
+            sql += " AND u.activo = ?";
+            params.push(activo === "true" ? 1 : 0);
+        }
+
+        sql += " ORDER BY u.nombre ASC";
+
+        const result: any = await query(sql, params);
+
+        res.json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        console.error("Error al obtener usuarios:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error al obtener usuarios",
+        });
+    }
+};
+
+// PUT /api/configuracion/usuarios/:id/rol
+export const updateUsuarioRol = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { rol_id } = req.body;
+
+        if (!rol_id) {
+            return res.status(400).json({
+                success: false,
+                message: "El rol_id es requerido",
+            });
+        }
+
+        const validRoles = [1, 2, 3];
+        if (!validRoles.includes(rol_id)) {
+            return res.status(400).json({
+                success: false,
+                message: "El rol_id debe ser 1 (gerente), 2 (admin) o 3 (superadmin)",
+            });
+        }
+
+        const usuario: any = await query(
+            "SELECT email FROM usuarios WHERE id = ?",
+            [id]
+        );
+
+        if (!usuario || usuario.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Usuario no encontrado",
+            });
+        }
+
+        if (usuario[0].email === "admin@heroica.com") {
+            return res.status(403).json({
+                success: false,
+                message: "No se puede modificar el usuario administrador principal",
+            });
+        }
+
+        await query(
+            "UPDATE usuarios SET rol_id = ? WHERE id = ?",
+            [rol_id, id]
+        );
+
+        const updated: any = await query(
+            `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
+             FROM usuarios u
+             LEFT JOIN roles r ON u.rol_id = r.id
+             WHERE u.id = ?`,
+            [id]
+        );
+
+        res.json({
+            success: true,
+            message: "Rol del usuario actualizado exitosamente",
+            data: updated[0],
+        });
+    } catch (error) {
+        console.error("Error al actualizar rol del usuario:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error al actualizar rol del usuario",
+        });
+    }
+};
+
+// PUT /api/configuracion/usuarios/:id/toggle-activo
+export const toggleUsuarioActivo = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const usuario: any = await query(
+            "SELECT email, activo FROM usuarios WHERE id = ?",
+            [id]
+        );
+
+        if (!usuario || usuario.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Usuario no encontrado",
+            });
+        }
+
+        if (usuario[0].email === "admin@heroica.com") {
+            return res.status(403).json({
+                success: false,
+                message: "No se puede desactivar el usuario administrador principal",
+            });
+        }
+
+        const nuevoEstado = usuario[0].activo ? 0 : 1;
+
+        await query(
+            "UPDATE usuarios SET activo = ? WHERE id = ?",
+            [nuevoEstado, id]
+        );
+
+        const updated: any = await query(
+            `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
+             FROM usuarios u
+             LEFT JOIN roles r ON u.rol_id = r.id
+             WHERE u.id = ?`,
+            [id]
+        );
+
+        res.json({
+            success: true,
+            message: `Usuario ${nuevoEstado ? "activado" : "desactivado"} exitosamente`,
+            data: updated[0],
+        });
+    } catch (error) {
+        console.error("Error al cambiar estado del usuario:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error al cambiar estado del usuario",
+        });
+    }
+};
+
+// POST /api/configuracion/usuarios
+export const createUsuario = async (req: Request, res: Response) => {
+    try {
+        const { email, password, nombre, rol_id } = req.body;
+
+        if (!email || !password || !nombre || !rol_id) {
+            return res.status(400).json({
+                success: false,
+                message: "Email, contraseña, nombre y rol son requeridos",
+            });
+        }
+
+        const validRoles = [1, 2, 3];
+        if (!validRoles.includes(rol_id)) {
+            return res.status(400).json({
+                success: false,
+                message: "El rol_id debe ser 1 (gerente), 2 (admin) o 3 (superadmin)",
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const result: any = await query(
+            "INSERT INTO usuarios (email, password, nombre, rol_id) VALUES (?, ?, ?, ?)",
+            [email, hashedPassword, nombre, rol_id]
+        );
+
+        const created: any = await query(
+            `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
+             FROM usuarios u
+             LEFT JOIN roles r ON u.rol_id = r.id
+             WHERE u.id = ?`,
+            [result.insertId]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: "Usuario creado exitosamente",
+            data: created[0],
+        });
+    } catch (error: any) {
+        console.error("Error al crear usuario:", error);
+        if (error.code === "ER_DUP_ENTRY") {
+            return res.status(400).json({
+                success: false,
+                message: "Ya existe un usuario con ese email",
+            });
+        }
+        res.status(500).json({
+            success: false,
+            message: "Error al crear usuario",
         });
     }
 };

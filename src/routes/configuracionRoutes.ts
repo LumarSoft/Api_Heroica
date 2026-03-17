@@ -20,6 +20,11 @@ import {
     createMedioPago,
     updateMedioPago,
     deleteMedioPago,
+    // Usuarios
+    getUsuarios,
+    createUsuario,
+    updateUsuarioRol,
+    toggleUsuarioActivo,
 } from "../controllers/configuracionController";
 
 const router = Router();
@@ -47,5 +52,11 @@ router.get("/medios-pago", getMediosPago);
 router.post("/medios-pago", createMedioPago);
 router.put("/medios-pago/:id", updateMedioPago);
 router.delete("/medios-pago/:id", deleteMedioPago);
+
+// ========== USUARIOS ==========
+router.get("/usuarios", getUsuarios);
+router.post("/usuarios", createUsuario);
+router.put("/usuarios/:id/rol", updateUsuarioRol);
+router.put("/usuarios/:id/toggle-activo", toggleUsuarioActivo);
 
 export default router;
