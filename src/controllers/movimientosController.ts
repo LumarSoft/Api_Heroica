@@ -1497,9 +1497,15 @@ export const moverMovimiento = async (req: Request, res: Response) => {
     // Preparar campos a actualizar
     let nuevaDescripcion = mov.descripcion || "";
     if (nota_descripcion) {
+      // Limpiar notas de movimiento previas para evitar un "choclo" de texto acumulado
+      const separador = "\n📌 Nota interna: ";
+      if (nuevaDescripcion.includes(separador)) {
+        nuevaDescripcion = nuevaDescripcion.split(separador)[0].trim();
+      }
+
       nuevaDescripcion = nuevaDescripcion
-        ? `${nuevaDescripcion} | ${nota_descripcion}`
-        : nota_descripcion;
+        ? `${nuevaDescripcion}${separador}${nota_descripcion}`
+        : `${nota_descripcion}`;
     }
 
     const nuevoEstado = destino_saldo === "saldo_real" ? "completado" : "aprobado";
