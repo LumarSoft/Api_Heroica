@@ -10,6 +10,13 @@ import {
   toggleDeudaEfectivo,
   moverMovimiento,
 } from "../controllers/movimientosController";
+import {
+  getDocumentos,
+  uploadDocumento,
+  deleteDocumento,
+  downloadDocumento,
+  upload
+} from "../controllers/documentosMovimientoController";
 
 const router = Router();
 
@@ -41,5 +48,11 @@ router.put("/:id/mover", moverMovimiento);
 
 // Eliminar movimiento
 router.delete("/:id", deleteMovimiento);
+
+// Rutas para documentos de movimientos
+router.get("/:id/documentos", getDocumentos);
+router.post("/:id/documentos", upload.single('file'), uploadDocumento);
+router.get("/:movimientoId/documentos/:docId/download", downloadDocumento);
+router.delete("/:movimientoId/documentos/:docId", deleteDocumento);
 
 export default router;

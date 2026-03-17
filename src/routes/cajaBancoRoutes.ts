@@ -9,6 +9,13 @@ import {
     updateEstadoMovimientoBanco,
     toggleDeudaBanco,
 } from '../controllers/movimientosController';
+import {
+    getDocumentos,
+    uploadDocumento,
+    deleteDocumento,
+    downloadDocumento,
+    upload
+} from '../controllers/documentosMovimientoController';
 
 const router = Router();
 
@@ -35,5 +42,11 @@ router.put('/:id/deuda', toggleDeudaBanco);
 
 // Eliminar movimiento banco
 router.delete('/:id', deleteMovimientoBanco);
+
+// Rutas para documentos de movimientos banco
+router.get('/:id/documentos', getDocumentos);
+router.post('/:id/documentos', upload.single('file'), uploadDocumento);
+router.get('/:movimientoId/documentos/:docId/download', downloadDocumento);
+router.delete('/:movimientoId/documentos/:docId', deleteDocumento);
 
 export default router;
