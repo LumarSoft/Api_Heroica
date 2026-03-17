@@ -1530,85 +1530,207 @@ export const moverMovimiento = async (req: Request, res: Response) => {
       // Si era un EGRESO que movemos (estamos asumiendo un gasto de otra sucursal),
       //  -> El origen asume el gasto: se queda como EGRESO.
       //  -> El destino recibe el beneficio: ingresa dinero ficticio para compensar? (esto lo detalla luego el user)
-      // Asumiendo reglas básicas:
-      // Mov original tipo -> nuevoTipo para destino
-      let tipoOrigenActualizado = mov.tipo === 'ingreso' ? 'egreso' : 'egreso'; // Simplificación: si lo muevo es que sale de mi caja
-      let tipoDestinoReal = mov.tipo === 'ingreso' ? 'ingreso' : 'ingreso'; // Simplificación: si lo muevo es que entra a la otra
-      
+      // ASUMIENDO REGLAS BÁSICAS SEGÚN CONTEXTO DEL USUARIO:
+      let tipoOrigenActualizado: "ingreso" | "egreso" = "egreso";
+      let tipoDestinoReal: "ingreso" | "egreso" = "ingreso";
+      let tipoOrigenDeuda: "ingreso" | "egreso" = "ingreso";
+      let tipoDestinoDeuda: "ingreso" | "egreso" = "egreso";
+
+      if (mov.tipo === "ingreso") {
+        // CASO 1: MUEVO UN INGRESO (plata que tengo) a otra sucursal
+        // Salió plata real mía (egreso) -> Entra plata real al destino (ingreso).
+        tipoOrigenActualizado = "egreso";
+        tipoDestinoReal = "ingreso";
+        // Origen asume ingreso a futuro (A Cobrar / deuda a favor)
+        tipoOrigenDeuda = "ingreso";
+        // Destino asume egreso a futuro (A Pagar / deuda en contra)
+        tipoDestinoDeuda = "egreso";
+      } else {
+        // CASO 2: MUEVO UN EGRESO (un gasto ajeno que pagué yo) a otra sucursal
+        // El Origen asume el "Mover" como que ese gasto ya se delegó (el registro queda como Egreso, pero la deuda será distinta).
+        // Actualizamos origen (queda el egreso real).
+        tipoOrigenActualizado = "egreso";
+        
+        // El Destino asume el consumo (Egreso Real).
+        tipoDestinoReal = "egreso";
+        
+        // El Origen (que garpó) ahora tiene una Deuda A FAVOR (Ingreso futuro).
+        tipoOrigenDeuda = "ingreso";
+        // El Destino (el gastador original) tiene una Deuda EN CONTRA (Egreso que debe compensar, aunque el user pidió Deuda en contra).
+        // Aclaración del User: "..crear la deuda a favor (para nosotros, origen) y en contra (para destino)".
+        // Wait, review user's message:
+        // "En la caja origen.. se genera.. un registro como DEUDA (el cual actualmente lo esta creando, pero positivo, cuando deberia ser negativo) en el saldo necesario."
+        // Let's re-read the prompt exactly for EGRESO.
+        // Origen: Muevo egreso -> el registro se va?. "Lo unico que tiene que hacer es mover el consumo a la sucursal destino, y generar un registro como DEUDA... en negativo"
+        // Destino: "Crear el registro que me enviaron para pagar (negativo). .. Ademas debo crear un registro extra como deuda a favor (positivo) porque en algun momento vamos a cobrar.."
+        
+        // Ok, inverted roles completely requested by user for EGRESO:
+        // ORIGEN: NO hay registro real, se MUEVE al destino literal. Pero queda la DEUDA EN CONTRA (egreso). "generar un registro como DEUDA (negativo) en necesario".
+        // DESTINO: Obtiene el consumo real (egreso), Y ADEMÁS obtiene una deuda a favor (ingreso). "Ademas debo crear un registro extra como deuda a favor (positivo)".
+      }
+
+      // We need to implement this branching fully above the UPDATE/INSERTs.
       const getSignedMonto = (t: string, m: number) => t === 'egreso' ? -Math.abs(m) : Math.abs(m);
 
-      // Actualizamos el registro original en su MISMA sucursal para que refleje la salida real del dinero
-      await query(
-        `UPDATE movimientos 
-         SET tipo = ?, estado = ?, descripcion = ?, monto = ?
-         WHERE id = ?`,
-        [tipoOrigenActualizado, "completado", nuevaDescripcion, getSignedMonto(tipoOrigenActualizado, mov.monto), id],
-      );
+      if (mov.tipo === "ingreso") {
+        // --- CASO 1: MUEVO UN INGRESO ---
+        const tipoOrigenActualizado = "egreso";
+        const tipoDestinoReal       = "ingreso";
+        const tipoOrigenDeuda       = "ingreso";
+        const tipoDestinoDeuda      = "egreso";
 
-      // Creamos el registro real en la sucursal de destino
-      await query(
-        `INSERT INTO movimientos (
-          sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-          tipo, tipo_movimiento, saldo, estado, banco_id, medio_pago_id, 
-          numero_cheque, banco, cuenta, cbu, tipo_operacion
-        ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          destino_sucursal_id,
-          mov.user_id,
-          mov.concepto,
-          getSignedMonto(tipoDestinoReal, mov.monto),
-          nuevaDescripcion,
-          tipoDestinoReal,
-          destino_tipo_movimiento,
-          destino_saldo,
-          nuevoEstado,
-          destino_tipo_movimiento === "banco" ? (banco_id || mov.banco_id || null) : null,
-          destino_tipo_movimiento === "banco" ? (medio_pago_id || mov.medio_pago_id || null) : null,
-          destino_tipo_movimiento === "banco" ? (numero_cheque || mov.numero_cheque || null) : null,
-          destino_tipo_movimiento === "banco" ? (banco || mov.banco || null) : null,
-          destino_tipo_movimiento === "banco" ? (cuenta || mov.cuenta || null) : null,
-          destino_tipo_movimiento === "banco" ? (cbu || mov.cbu || null) : null,
-          destino_tipo_movimiento === "banco" ? (tipo_operacion || mov.tipo_operacion || null) : null,
-        ]
-      );
+        // Actualizamos el registro original en su MISMA sucursal para que refleje la salida real del dinero
+        await query(
+          `UPDATE movimientos 
+           SET tipo = ?, estado = ?, descripcion = ?, monto = ?
+           WHERE id = ?`,
+          [tipoOrigenActualizado, "completado", nuevaDescripcion, getSignedMonto(tipoOrigenActualizado, mov.monto), id],
+        );
 
-      // Creamos la deuda a favor en el Origen
-      // Si el origen soltó plata (egreso real), tiene que tener un ingreso a cobrar.
-      const tipoOrigenDeuda = tipoOrigenActualizado === "egreso" ? "ingreso" : "egreso";
-      await query(
-        `INSERT INTO movimientos (
-          sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-          tipo, tipo_movimiento, saldo, estado, es_deuda
-        ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-        [
-          mov.sucursal_id, // Origen
-          mov.user_id,
-          mov.concepto + " [DEUDA]",
-          getSignedMonto(tipoOrigenDeuda, mov.monto),
-          `Crédito auto-generado por movimiento hacia Sucursal ${destino_sucursal_id}`,
-          tipoOrigenDeuda,
-          mov.tipo_movimiento 
-        ]
-      );
+        // Creamos el registro real en la sucursal de destino
+        await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+            tipo, tipo_movimiento, saldo, estado, banco_id, medio_pago_id, 
+            numero_cheque, banco, cuenta, cbu, tipo_operacion
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            destino_sucursal_id,
+            mov.user_id,
+            mov.concepto,
+            getSignedMonto(tipoDestinoReal, mov.monto),
+            nuevaDescripcion,
+            tipoDestinoReal,
+            destino_tipo_movimiento,
+            destino_saldo,
+            nuevoEstado,
+            destino_tipo_movimiento === "banco" ? (banco_id || mov.banco_id || null) : null,
+            destino_tipo_movimiento === "banco" ? (medio_pago_id || mov.medio_pago_id || null) : null,
+            destino_tipo_movimiento === "banco" ? (numero_cheque || mov.numero_cheque || null) : null,
+            destino_tipo_movimiento === "banco" ? (banco || mov.banco || null) : null,
+            destino_tipo_movimiento === "banco" ? (cuenta || mov.cuenta || null) : null,
+            destino_tipo_movimiento === "banco" ? (cbu || mov.cbu || null) : null,
+            destino_tipo_movimiento === "banco" ? (tipo_operacion || mov.tipo_operacion || null) : null,
+          ]
+        );
 
-      // Creamos la deuda en contra en el Destino
-      // Si el destino recibió plata (ingreso real), tiene que tener un egreso a pagar.
-      const tipoDestinoDeuda = tipoDestinoReal === "ingreso" ? "egreso" : "ingreso";
-      await query(
-        `INSERT INTO movimientos (
-          sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-          tipo, tipo_movimiento, saldo, estado, es_deuda
-        ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-        [
-          destino_sucursal_id, // Destino
-          mov.user_id,
-          mov.concepto + " [DEUDA]",
-          getSignedMonto(tipoDestinoDeuda, mov.monto),
-          `Deuda auto-generada recibida de Sucursal ${mov.sucursal_id}`,
-          tipoDestinoDeuda,
-          destino_tipo_movimiento 
-        ]
-      );
+        // Creamos la deuda a favor en el Origen
+        await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [
+            mov.sucursal_id, // Origen
+            mov.user_id,
+            mov.concepto + " [DEUDA]",
+            getSignedMonto(tipoOrigenDeuda, mov.monto),
+            `Crédito auto-generado por movimiento hacia Sucursal ${destino_sucursal_id}`,
+            tipoOrigenDeuda,
+            mov.tipo_movimiento 
+          ]
+        );
+
+        // Creamos la deuda en contra en el Destino
+        await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [
+            destino_sucursal_id, // Destino
+            mov.user_id,
+            mov.concepto + " [DEUDA]",
+            getSignedMonto(tipoDestinoDeuda, mov.monto),
+            `Deuda auto-generada recibida de Sucursal ${mov.sucursal_id}`,
+            tipoDestinoDeuda,
+            destino_tipo_movimiento 
+          ]
+        );
+
+      } else {
+        // --- CASO 2: MUEVO UN EGRESO ---
+        // Según usuario: 
+        // 1. Origen: Desaparece el consumo real (Movemos el original al destino).
+        // 2. Destino: Carga el consumo enviado (El original modificado). 
+        //             (Aclaración: El "movimiento que desaparece de Origen y se carga a Destino" es directamente hacer el flujo habitual, 
+        //             donde al UPDATE se le cambia la `sucursal_id` de Origen -> Destino).
+        // 3. Origen (Deuda): Generar un registro como DEUDA (en negativo) -> tipo = "egreso", es_deuda = 1.
+        // 4. Destino (Deuda Extra): Generar registro extra, DEUDA a favor (positivo) -> tipo = "ingreso", es_deuda = 1.
+        
+        // Mover el consumo / registro hacia la sucursal de Destino (el "Mover" habitual).
+        // Nótese que asume el destino_tipo_movimiento, por lo que copiamos lógica normal.
+        const tipoDestinoReal = "egreso"; 
+        
+        if (destino_tipo_movimiento === "efectivo") {
+          await query(
+            `UPDATE movimientos 
+             SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
+                 banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+             WHERE id = ?`,
+            [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, tipoDestinoReal, getSignedMonto(tipoDestinoReal, mov.monto), id],
+          );
+        } else {
+          await query(
+            `UPDATE movimientos 
+             SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
+                 banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
+             WHERE id = ?`,
+            [
+              destino_sucursal_id,
+              destino_saldo,
+              nuevoEstado,
+              nuevaDescripcion,
+              tipoDestinoReal,
+              getSignedMonto(tipoDestinoReal, mov.monto),
+              banco_id || mov.banco_id || null,
+              medio_pago_id || mov.medio_pago_id || null,
+              numero_cheque || mov.numero_cheque || null,
+              banco || mov.banco || null,
+              cuenta || mov.cuenta || null,
+              cbu || mov.cbu || null,
+              tipo_operacion || mov.tipo_operacion || null,
+              id,
+            ],
+          );
+        }
+
+        // Creamos la DEUDA EN CONTRA (egreso) en el ORIGEN (porque nos cobraron desde el destino el favor).
+        const tipoOrigenDeuda = "egreso";
+        await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [
+            mov.sucursal_id, // Origen original (ahora ausente del primer registro modificado)
+            mov.user_id,
+            mov.concepto + " [DEUDA]",
+            getSignedMonto(tipoOrigenDeuda, mov.monto),
+            `Deuda auto-generada por mover consumo (egreso) a Sucursal ${destino_sucursal_id}`,
+            tipoOrigenDeuda,
+            mov.tipo_movimiento 
+          ]
+        );
+
+        // Creamos la DEUDA A FAVOR (ingreso) en el DESTINO (porque nos pagaron u asumimos el costo a cobrar).
+        const tipoDestinoDeuda = "ingreso";
+        await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [
+            destino_sucursal_id, // Destino
+            mov.user_id,
+            mov.concepto + " [DEUDA]",
+            getSignedMonto(tipoDestinoDeuda, mov.monto),
+            `Crédito a cobrar generado al asumir consumo (egreso) desde Sucursal ${mov.sucursal_id}`,
+            tipoDestinoDeuda,
+            destino_tipo_movimiento 
+          ]
+        );
+      }
 
     } else {
       // FLUJO NORMAL: Solo lo movemos de sucursal
