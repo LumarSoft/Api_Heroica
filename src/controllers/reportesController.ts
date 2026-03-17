@@ -6,7 +6,7 @@ import { query } from "../config/database";
 export const getReportesBySucursal = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, moneda = "ARS" } = req.query;
 
     let sql = `
       SELECT m.id, m.fecha, m.concepto, m.monto, m.tipo, m.tipo_movimiento as medio_pago,
@@ -16,6 +16,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       LEFT JOIN categorias c ON m.categoria_id = c.id
       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
       WHERE m.sucursal_id = ? 
+        AND m.moneda = ?
         AND m.estado IN ('completado', 'aprobado')
         AND (
           (m.es_deuda = 0 OR m.es_deuda IS NULL)
@@ -24,7 +25,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
         )
     `;
 
-    const params: any[] = [sucursalId];
+    const params: any[] = [sucursalId, moneda];
 
     if (startDate && endDate) {
       sql += ` AND (
@@ -132,9 +133,10 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       LEFT JOIN categorias c ON m.categoria_id = c.id
       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
       WHERE m.sucursal_id = ? 
+        AND m.moneda = ?
         AND m.es_deuda = 1
     `;
-    const deudasParams: any[] = [sucursalId];
+    const deudasParams: any[] = [sucursalId, moneda];
 
     if (endDate) {
       sqlDeudas += " AND m.fecha <= ?";

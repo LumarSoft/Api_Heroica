@@ -5,20 +5,22 @@ import { query } from "../config/database";
 export const getMovimientosBySucursal = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
+    const moneda = (req.query.moneda as string) || 'ARS';
 
     // Obtener todos los movimientos de la sucursal
     const result: any = await query(
       `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.descripcion, m.prioridad, 
               m.saldo as tipo_movimiento, m.estado, m.categoria_id, m.subcategoria_id, 
               m.tipo, m.es_deuda, m.fecha_original_vencimiento,
+              m.moneda, m.tipo_cambio,
               c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
               m.created_at, m.updated_at 
        FROM movimientos m
        LEFT JOIN categorias c ON m.categoria_id = c.id
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo'
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ?
        ORDER BY m.fecha DESC`,
-      [sucursalId],
+      [sucursalId, moneda],
     );
 
     // Agrupar por tipo de movimiento (que mapea a 'saldo' real o necesario)
@@ -240,6 +242,8 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       categoria_id,
       subcategoria_id,
       tipo,
+      moneda,
+      tipo_cambio,
     } = req.body;
 
     // Validación
@@ -266,10 +270,13 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
     const adjustedMonto =
       tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
+    const monedaFinal = moneda || 'ARS';
+    const tipoCambioFinal = monedaFinal === 'USD' ? (tipo_cambio || null) : null;
+
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, tipo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?)`,
+       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
@@ -283,6 +290,8 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
         categoria_id || null,
         subcategoria_id || null,
         tipo || "ingreso",
+        monedaFinal,
+        tipoCambioFinal,
       ],
     );
 
@@ -419,8 +428,8 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
         `INSERT INTO movimientos 
          (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
           numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo,
-          es_deuda, fecha_original_vencimiento) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL)`,
+          es_deuda, fecha_original_vencimiento, moneda, tipo_cambio) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL, ?, ?)`,
         [
           mov.sucursal_id,
           mov.user_id,
@@ -439,7 +448,9 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
           mov.categoria_id,
           mov.subcategoria_id,
           mov.banco_id,
-          mov.medio_pago_id
+          mov.medio_pago_id,
+          mov.moneda || 'ARS',
+          mov.moneda === 'USD' ? (mov.tipo_cambio || null) : null
         ],
       );
     }
@@ -467,6 +478,7 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
 export const getTotalesEfectivo = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
+    const moneda = (req.query.moneda as string) || 'ARS';
 
     const result: any = await query(
       `SELECT 
@@ -474,8 +486,8 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
         SUM(CASE WHEN estado = 'aprobado' AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
         MAX(updated_at) as ultima_actualizacion
        FROM movimientos 
-       WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo'`,
-      [sucursalId],
+       WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo' AND moneda = ?`,
+      [sucursalId, moneda],
     );
 
     res.json({
@@ -502,12 +514,14 @@ export const getMovimientosBancoBySucursal = async (
 ) => {
   try {
     const { sucursalId } = req.params;
+    const moneda = (req.query.moneda as string) || 'ARS';
 
     const result: any = await query(
       `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.comprobante, m.monto, m.descripcion, m.prioridad, 
               m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu, 
               m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.banco_id, m.medio_pago_id,
               m.es_deuda, m.fecha_original_vencimiento,
+              m.moneda, m.tipo_cambio,
               c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
               b.nombre as banco_nombre, mp.nombre as medio_pago_nombre,
               m.created_at, m.updated_at 
@@ -516,9 +530,9 @@ export const getMovimientosBancoBySucursal = async (
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco'
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ?
        ORDER BY m.fecha DESC`,
-      [sucursalId],
+      [sucursalId, moneda],
     );
 
     // Agrupar por tipo de movimiento (saldo real/necesario)
@@ -565,6 +579,8 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       cbu,
       tipo_operacion,
       tipo,
+      moneda,
+      tipo_cambio,
     } = req.body;
 
     // Validación
@@ -591,11 +607,14 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
     const adjustedMonto =
       tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
+    const monedaFinal = moneda || 'ARS';
+    const tipoCambioFinal = monedaFinal === 'USD' ? (tipo_cambio || null) : null;
+
     const result: any = await query(
       `INSERT INTO movimientos 
        (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
-        numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo, moneda, tipo_cambio) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
@@ -617,6 +636,8 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
         banco_id || null,
         medio_pago_id || null,
         tipo || "ingreso",
+        monedaFinal,
+        tipoCambioFinal,
       ],
     );
 
@@ -885,8 +906,8 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
         `INSERT INTO movimientos 
          (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
           numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo,
-          es_deuda, fecha_original_vencimiento) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL)`,
+          es_deuda, fecha_original_vencimiento, moneda, tipo_cambio) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL, ?, ?)`,
         [
           mov.sucursal_id,
           mov.user_id,
@@ -905,7 +926,9 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
           mov.categoria_id,
           mov.subcategoria_id,
           mov.banco_id,
-          mov.medio_pago_id
+          mov.medio_pago_id,
+          mov.moneda || 'ARS',
+          mov.moneda === 'USD' ? (mov.tipo_cambio || null) : null
         ],
       );
     }
@@ -933,14 +956,15 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
 export const getTotalesBanco = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
+    const moneda = (req.query.moneda as string) || 'ARS';
 
     const result: any = await query(
       `SELECT 
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
         SUM(CASE WHEN estado IN ('aprobado', 'pendiente') AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario
        FROM movimientos 
-       WHERE sucursal_id = ? AND tipo_movimiento = 'banco'`,
-      [sucursalId],
+       WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ?`,
+      [sucursalId, moneda],
     );
 
     const parcialesResult: any = await query(
@@ -951,9 +975,9 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
         SUM(CASE WHEN m.estado IN ('aprobado', 'pendiente') AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario
        FROM movimientos m
        LEFT JOIN bancos b ON m.banco_id = b.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco'
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ?
        GROUP BY b.id, b.nombre`,
-      [sucursalId],
+      [sucursalId, moneda],
     );
 
     res.json({
