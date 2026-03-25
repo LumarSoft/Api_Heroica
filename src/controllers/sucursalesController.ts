@@ -6,7 +6,7 @@ export const getSucursales = async (req: Request, res: Response) => {
   try {
     // Obtener todas las sucursales (activas e inactivas), activas primero
     const result: any = await query(
-      'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales ORDER BY activo DESC, nombre ASC'
+      'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC'
     );
 
     res.json({
@@ -29,7 +29,7 @@ export const getSucursalById = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const result: any = await query(
-      'SELECT * FROM sucursales WHERE id = ?',
+      'SELECT * FROM sucursales WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
 
@@ -183,14 +183,14 @@ export const updateSucursal = async (req: Request, res: Response) => {
   }
 };
 
-// DELETE /api/sucursales/:id (soft delete)
+// DELETE /api/sucursales/:id
 export const deleteSucursal = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Verificar que la sucursal existe
+    // Verificar que la sucursal existe y no está eliminada
     const existingResult: any = await query(
-      'SELECT id FROM sucursales WHERE id = ?',
+      'SELECT id FROM sucursales WHERE id = ? AND deleted_at IS NULL',
       [id]
     );
 
@@ -201,9 +201,9 @@ export const deleteSucursal = async (req: Request, res: Response) => {
       });
     }
 
-    // Soft delete: marcar como inactiva
+    // Soft delete con deleted_at
     await query(
-      'UPDATE sucursales SET activo = FALSE WHERE id = ?',
+      'UPDATE sucursales SET deleted_at = NOW() WHERE id = ?',
       [id]
     );
 

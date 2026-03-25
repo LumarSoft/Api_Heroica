@@ -524,7 +524,7 @@ export const getUsuarios = async (req: Request, res: Response) => {
             SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
             FROM usuarios u
             LEFT JOIN roles r ON u.rol_id = r.id
-            WHERE 1=1
+            WHERE u.deleted_at IS NULL
         `;
         const params: any[] = [];
 
@@ -666,6 +666,45 @@ export const toggleUsuarioActivo = async (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             message: "Error al cambiar estado del usuario",
+        });
+    }
+};
+
+// DELETE /api/configuracion/usuarios/:id
+export const deleteUsuario = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const usuario: any = await query(
+            "SELECT email FROM usuarios WHERE id = ? AND deleted_at IS NULL",
+            [id]
+        );
+
+        if (!usuario || usuario.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Usuario no encontrado",
+            });
+        }
+
+        if (usuario[0].email === "admin@heroica.com") {
+            return res.status(403).json({
+                success: false,
+                message: "No se puede eliminar el usuario administrador principal",
+            });
+        }
+
+        await query("UPDATE usuarios SET deleted_at = NOW() WHERE id = ?", [id]);
+
+        res.json({
+            success: true,
+            message: "Usuario eliminado exitosamente",
+        });
+    } catch (error) {
+        console.error("Error al eliminar usuario:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error al eliminar usuario",
         });
     }
 };

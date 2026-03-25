@@ -25,6 +25,7 @@ import {
     createUsuario,
     updateUsuarioRol,
     toggleUsuarioActivo,
+    deleteUsuario,
 } from "../controllers/configuracionController";
 
 const router = Router();
@@ -58,5 +59,6 @@ router.get("/usuarios", getUsuarios);
 router.post("/usuarios", createUsuario);
 router.put("/usuarios/:id/rol", updateUsuarioRol);
 router.put("/usuarios/:id/toggle-activo", toggleUsuarioActivo);
+router.delete("/usuarios/:id", deleteUsuario);
 
 export default router;
