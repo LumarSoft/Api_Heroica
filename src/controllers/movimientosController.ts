@@ -961,7 +961,8 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
     const result: any = await query(
       `SELECT 
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN estado IN ('aprobado', 'pendiente') AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario
+        SUM(CASE WHEN estado IN ('aprobado', 'pendiente') AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
+        MAX(updated_at) as ultima_actualizacion
        FROM movimientos 
        WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ?`,
       [sucursalId, moneda],
@@ -985,6 +986,7 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
       data: {
         total_real: result[0]?.total_real || 0,
         total_necesario: result[0]?.total_necesario || 0,
+        ultima_actualizacion: result[0]?.ultima_actualizacion || null,
         parciales: parcialesResult || [],
       },
     });
