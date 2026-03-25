@@ -1456,11 +1456,12 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       LEFT JOIN usuarios ur ON m.usuario_revisor_id = ur.id
       WHERE m.estado IN ('aprobado', 'rechazado', 'completado')
         AND (m.tipo = 'egreso' OR m.tipo IS NULL)
+        AND m.usuario_revisor_id IS NOT NULL
     `;
 
     const queryParams: any[] = [];
 
-    if (rol !== "admin") {
+    if (rol !== "admin" && rol !== "superadmin") {
       sql += " AND m.user_id = ?";
       queryParams.push(userId);
     }
