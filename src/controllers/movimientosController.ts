@@ -1833,3 +1833,138 @@ export const moverMovimiento = async (req: Request, res: Response) => {
   }
 };
 
+// POST /api/movimientos/compra-venta-divisas
+// operacion: "compra" | "venta"
+// compra: ingresa USD en caja USD, egresa ARS de caja ARS
+// venta:  egresa USD de caja USD, ingresa ARS en caja ARS
+export const compraVentaDivisas = async (req: Request, res: Response) => {
+  try {
+    const {
+      sucursal_id,
+      user_id,
+      fecha,
+      cantidad_usd,
+      cotizacion,
+      operacion, // "compra" | "venta"
+      concepto,
+      descripcion,
+    } = req.body;
+
+    if (
+      !sucursal_id ||
+      !user_id ||
+      !fecha ||
+      cantidad_usd === undefined ||
+      cotizacion === undefined ||
+      !operacion
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Faltan campos requeridos: sucursal_id, user_id, fecha, cantidad_usd, cotizacion, operacion",
+      });
+    }
+
+    if (operacion !== "compra" && operacion !== "venta") {
+      return res.status(400).json({
+        success: false,
+        message: 'operacion debe ser "compra" o "venta"',
+      });
+    }
+
+    const montoUsd = Math.abs(Number(cantidad_usd));
+    const montoArs = montoUsd * Math.abs(Number(cotizacion));
+
+    if (isNaN(montoUsd) || isNaN(montoArs) || montoUsd <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "cantidad_usd y cotizacion deben ser números positivos",
+      });
+    }
+
+    const fechaOp = fecha;
+    const conceptoFinal =
+      concepto ||
+      (operacion === "compra"
+        ? "Compra de divisas (USD)"
+        : "Venta de divisas (USD)");
+    const descripcionFinal = descripcion || null;
+    const prioridad = "media";
+    const estado = "completado";
+    const saldo = "saldo_real";
+
+    // Lógica de signos por operación:
+    //   Venta USD: se SACAN dólares (egreso USD) y se INGRESAN pesos (ingreso ARS)
+    //   Compra USD: se INGRESAN dólares (ingreso USD) y se SACAN pesos (egreso ARS)
+    const montoUsdMovimiento = operacion === "venta" ? -montoUsd : montoUsd;
+    const montoArsMovimiento = operacion === "venta" ? montoArs : -montoArs;
+    const tipoUsd = operacion === "venta" ? "egreso" : "ingreso";
+    const tipoArs = operacion === "venta" ? "ingreso" : "egreso";
+
+    // Movimiento en caja USD (efectivo, moneda USD)
+    const resultUsd: any = await query(
+      `INSERT INTO movimientos
+       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, 'USD', ?)`,
+      [
+        sucursal_id,
+        user_id,
+        fechaOp,
+        conceptoFinal,
+        descripcionFinal,
+        montoUsdMovimiento,
+        saldo,
+        prioridad,
+        estado,
+        tipoUsd,
+        Number(cotizacion),
+      ],
+    );
+
+    // Movimiento en caja ARS (efectivo, moneda ARS)
+    const resultArs: any = await query(
+      `INSERT INTO movimientos
+       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, 'ARS', NULL)`,
+      [
+        sucursal_id,
+        user_id,
+        fechaOp,
+        conceptoFinal,
+        descripcionFinal,
+        montoArsMovimiento,
+        saldo,
+        prioridad,
+        estado,
+        tipoArs,
+      ],
+    );
+
+    const [movUsd, movArs]: any[] = await Promise.all([
+      query("SELECT * FROM movimientos WHERE id = ?", [resultUsd.insertId]),
+      query("SELECT * FROM movimientos WHERE id = ?", [resultArs.insertId]),
+    ]);
+
+    res.status(201).json({
+      success: true,
+      message: `Operación de ${operacion} de divisas registrada exitosamente`,
+      data: {
+        movimiento_usd: (movUsd as any[])[0],
+        movimiento_ars: (movArs as any[])[0],
+        resumen: {
+          operacion,
+          cantidad_usd: montoUsd,
+          cotizacion: Number(cotizacion),
+          monto_ars: montoArs,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error en compra-venta de divisas:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al registrar la operación de compra-venta de divisas",
+    });
+  }
+};
+

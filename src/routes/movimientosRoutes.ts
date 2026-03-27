@@ -9,6 +9,7 @@ import {
   getTotalesEfectivo,
   toggleDeudaEfectivo,
   moverMovimiento,
+  compraVentaDivisas,
 } from "../controllers/movimientosController";
 import {
   getDocumentos,
@@ -24,6 +25,9 @@ const router = Router();
 
 // Crear movimiento efectivo (debe ir antes de /:sucursalId)
 router.post("/efectivo", createMovimientoEfectivo);
+
+// Compra-venta de divisas (crea 2 movimientos: USD y ARS)
+router.post("/compra-venta-divisas", compraVentaDivisas);
 
 // Mover movimiento a saldo real (debe ir antes de /:id)
 router.put("/efectivo/:id/mover-a-real", moverAReal);
