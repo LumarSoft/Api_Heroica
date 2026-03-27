@@ -5,7 +5,7 @@ import { query } from "../config/database";
 export const getMovimientosBySucursal = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
+    const moneda = (req.query.moneda as string) || "ARS";
 
     // Obtener todos los movimientos de la sucursal
     const result: any = await query(
@@ -209,7 +209,11 @@ export const updateEstadoMovimiento = async (req: Request, res: Response) => {
 
     // Si pasa a completado y es una deuda con contraparte vinculada,
     // completar y acreditar automáticamente la deuda espejo en la sucursal acreedora
-    if (estado === "completado" && mov.es_deuda && mov.movimiento_contraparte_id) {
+    if (
+      estado === "completado" &&
+      mov.es_deuda &&
+      mov.movimiento_contraparte_id
+    ) {
       await query(
         `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
         [mov.movimiento_contraparte_id],
@@ -279,8 +283,8 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
     const adjustedMonto =
       tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
-    const monedaFinal = moneda || 'ARS';
-    const tipoCambioFinal = monedaFinal === 'USD' ? (tipo_cambio || null) : null;
+    const monedaFinal = moneda || "ARS";
+    const tipoCambioFinal = monedaFinal === "USD" ? tipo_cambio || null : null;
 
     const result: any = await query(
       `INSERT INTO movimientos
@@ -447,16 +451,19 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
       let nuevaDescripcion = mov.descripcion || "";
       if (fechaOriginal) {
         const partes = fechaOriginal.toString().split("T")[0].split("-");
-        const fechaFormateada = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : fechaOriginal;
+        const fechaFormateada =
+          partes.length === 3
+            ? `${partes[2]}/${partes[1]}/${partes[0]}`
+            : fechaOriginal;
         const nota = `[Pago de deuda original del: ${fechaFormateada}]`;
         nuevaDescripcion = nuevaDescripcion
           ? `${nuevaDescripcion} ${nota}`
           : nota;
       }
-      
-      const fechaPago = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+      const fechaPago = new Date().toISOString().slice(0, 19).replace("T", " ");
       const adjustedMonto = -Math.abs(mov.monto); // Aseguramos que sea egreso en caja
-      
+
       await query(
         `INSERT INTO movimientos 
          (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
@@ -482,8 +489,8 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
           mov.subcategoria_id,
           mov.banco_id,
           mov.medio_pago_id,
-          mov.moneda || 'ARS',
-          mov.moneda === 'USD' ? (mov.tipo_cambio || null) : null
+          mov.moneda || "ARS",
+          mov.moneda === "USD" ? mov.tipo_cambio || null : null,
         ],
       );
     }
@@ -495,7 +502,10 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: es_deuda === 1 ? "Deuda activada exitosamente" : "Deuda desactivada exitosamente",
+      message:
+        es_deuda === 1
+          ? "Deuda activada exitosamente"
+          : "Deuda desactivada exitosamente",
       data: updatedResult[0],
     });
   } catch (error) {
@@ -511,7 +521,7 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
 export const getTotalesEfectivo = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
+    const moneda = (req.query.moneda as string) || "ARS";
 
     const result: any = await query(
       `SELECT 
@@ -547,7 +557,7 @@ export const getMovimientosBancoBySucursal = async (
 ) => {
   try {
     const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
+    const moneda = (req.query.moneda as string) || "ARS";
 
     const result: any = await query(
       `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.comprobante, m.monto, m.descripcion, m.prioridad, 
@@ -640,8 +650,8 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
     const adjustedMonto =
       tipo === "egreso" ? -Math.abs(monto) : Math.abs(monto);
 
-    const monedaFinal = moneda || 'ARS';
-    const tipoCambioFinal = monedaFinal === 'USD' ? (tipo_cambio || null) : null;
+    const monedaFinal = moneda || "ARS";
+    const tipoCambioFinal = monedaFinal === "USD" ? tipo_cambio || null : null;
 
     const result: any = await query(
       `INSERT INTO movimientos 
@@ -949,14 +959,17 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
       let nuevaDescripcion = mov.descripcion || "";
       if (fechaOriginal) {
         const partes = fechaOriginal.toString().split("T")[0].split("-");
-        const fechaFormateada = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : fechaOriginal;
+        const fechaFormateada =
+          partes.length === 3
+            ? `${partes[2]}/${partes[1]}/${partes[0]}`
+            : fechaOriginal;
         const nota = `[Pago de deuda original del: ${fechaFormateada}]`;
         nuevaDescripcion = nuevaDescripcion
           ? `${nuevaDescripcion} ${nota}`
           : nota;
       }
 
-      const fechaPago = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const fechaPago = new Date().toISOString().slice(0, 19).replace("T", " ");
       const adjustedMonto = -Math.abs(mov.monto); // Aseguramos que sea egreso en banco
 
       await query(
@@ -984,8 +997,8 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
           mov.subcategoria_id,
           mov.banco_id,
           mov.medio_pago_id,
-          mov.moneda || 'ARS',
-          mov.moneda === 'USD' ? (mov.tipo_cambio || null) : null
+          mov.moneda || "ARS",
+          mov.moneda === "USD" ? mov.tipo_cambio || null : null,
         ],
       );
     }
@@ -997,7 +1010,10 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: es_deuda === 1 ? "Deuda activada exitosamente" : "Deuda desactivada exitosamente",
+      message:
+        es_deuda === 1
+          ? "Deuda activada exitosamente"
+          : "Deuda desactivada exitosamente",
       data: updatedResult[0],
     });
   } catch (error) {
@@ -1013,7 +1029,7 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
 export const getTotalesBanco = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
+    const moneda = (req.query.moneda as string) || "ARS";
 
     const result: any = await query(
       `SELECT 
@@ -1111,7 +1127,11 @@ export const updateEstadoMovimientoBanco = async (
 
     // Si pasa a completado y es una deuda con contraparte vinculada,
     // completar y acreditar automáticamente la deuda espejo en la sucursal acreedora
-    if (estado === "completado" && mov.es_deuda && mov.movimiento_contraparte_id) {
+    if (
+      estado === "completado" &&
+      mov.es_deuda &&
+      mov.movimiento_contraparte_id
+    ) {
       await query(
         `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
         [mov.movimiento_contraparte_id],
@@ -1318,7 +1338,8 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
 export const aprobarPagoPendiente = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { usuario_revisor_id, tipo_caja, fecha, banco_id, medio_pago_id } = req.body;
+    const { usuario_revisor_id, tipo_caja, fecha, banco_id, medio_pago_id } =
+      req.body;
 
     // Validación
     if (!usuario_revisor_id) {
@@ -1361,15 +1382,17 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     let nuevaDescripcion = pago.descripcion || "";
     if (fecha && pago.fecha) {
       // pago.fecha puede ser un Date object desde la BD
-      const fechaOriginal = new Date(pago.fecha).toISOString().split('T')[0];
+      const fechaOriginal = new Date(pago.fecha).toISOString().split("T")[0];
       if (fechaOriginal !== fecha) {
-        const partsOriginal = fechaOriginal.split('-');
+        const partsOriginal = fechaOriginal.split("-");
         const fechaOriginalFormat = `${partsOriginal[2]}/${partsOriginal[1]}/${partsOriginal[0]}`;
-        const partsNueva = fecha.split('-');
+        const partsNueva = fecha.split("-");
         const fechaNuevaFormat = `${partsNueva[2]}/${partsNueva[1]}/${partsNueva[0]}`;
-        
+
         const nota = `\n[Nota del sistema: El administrador modificó la fecha de pago de ${fechaOriginalFormat} a ${fechaNuevaFormat}]`;
-        nuevaDescripcion = nuevaDescripcion ? `${nuevaDescripcion}${nota}` : nota;
+        nuevaDescripcion = nuevaDescripcion
+          ? `${nuevaDescripcion}${nota}`
+          : nota;
       }
     }
 
@@ -1379,7 +1402,15 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
              SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario',
              fecha = COALESCE(?, fecha), banco_id = ?, medio_pago_id = ?, descripcion = ?
              WHERE id = ?`,
-      [usuario_revisor_id, newTipoMovimiento, fecha || null, banco_id || null, medio_pago_id || null, nuevaDescripcion, id],
+      [
+        usuario_revisor_id,
+        newTipoMovimiento,
+        fecha || null,
+        banco_id || null,
+        medio_pago_id || null,
+        nuevaDescripcion,
+        id,
+      ],
     );
 
     // Obtener el pago actualizado
@@ -1511,8 +1542,12 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
     const { userId } = req.params;
     const { sucursal_id, moneda } = req.query;
 
-    const userResult: any = await query("SELECT r.nombre as rol FROM usuarios u LEFT JOIN roles r ON u.rol_id = r.id WHERE u.id = ?", [userId]);
-    const rol = userResult && userResult.length > 0 ? userResult[0].rol : "empleado";
+    const userResult: any = await query(
+      "SELECT r.nombre as rol FROM usuarios u LEFT JOIN roles r ON u.rol_id = r.id WHERE u.id = ?",
+      [userId],
+    );
+    const rol =
+      userResult && userResult.length > 0 ? userResult[0].rol : "empleado";
 
     let sql = `
       SELECT 
@@ -1603,16 +1638,21 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
     const mov = movResult[0];
 
-    const isDifferentSucursal = String(mov.sucursal_id) !== String(destino_sucursal_id);
+    const isDifferentSucursal =
+      String(mov.sucursal_id) !== String(destino_sucursal_id);
     const createDebts = es_credito && isDifferentSucursal;
 
     // Obtener nombres de sucursales para las descripciones de deuda
     const [sucOrigenResult, sucDestinoResult]: any[] = await Promise.all([
       query("SELECT nombre FROM sucursales WHERE id = ?", [mov.sucursal_id]),
-      query("SELECT nombre FROM sucursales WHERE id = ?", [destino_sucursal_id]),
+      query("SELECT nombre FROM sucursales WHERE id = ?", [
+        destino_sucursal_id,
+      ]),
     ]);
-    const nombreOrigen = sucOrigenResult?.[0]?.nombre ?? `Sucursal ${mov.sucursal_id}`;
-    const nombreDestino = sucDestinoResult?.[0]?.nombre ?? `Sucursal ${destino_sucursal_id}`;
+    const nombreOrigen =
+      sucOrigenResult?.[0]?.nombre ?? `Sucursal ${mov.sucursal_id}`;
+    const nombreDestino =
+      sucDestinoResult?.[0]?.nombre ?? `Sucursal ${destino_sucursal_id}`;
 
     // Preparar campos a actualizar
     let nuevaDescripcion = mov.descripcion || "";
@@ -1627,7 +1667,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         ? `${nuevaDescripcion}${separador}${nota_descripcion}`
         : `${nota_descripcion}`;
     }
-    
+
     // Si es crédito, invertimos el tipo para la sucursal de destino.
     // Ej: Si era egreso en origen, ingresa a destino.
     let nuevoTipo = mov.tipo;
@@ -1635,12 +1675,13 @@ export const moverMovimiento = async (req: Request, res: Response) => {
       nuevoTipo = mov.tipo === "ingreso" ? "egreso" : "ingreso";
     }
 
-    const nuevoEstado = destino_saldo === "saldo_real" ? "completado" : "aprobado";
+    const nuevoEstado =
+      destino_saldo === "saldo_real" ? "completado" : "aprobado";
 
     if (createDebts) {
       // SI ES CRÉDITO: EL REGISTRO ORIGINAL NO SE "MUEVE" SINO QUE SE CLONA/COMPENSA.
       // 1. El registro original (ingreso/egreso) se queda en la sucursal origen.
-      // Pero si era un INGRESO que movemos, significa que estamos mandando esa plata a otra lado, 
+      // Pero si era un INGRESO que movemos, significa que estamos mandando esa plata a otra lado,
       //  -> El registro en origen se convierte en EGRESO (salió la plata).
       //  -> El registro en destino será INGRESO (entró la plata).
       // Si era un EGRESO que movemos (estamos asumiendo un gasto de otra sucursal),
@@ -1666,10 +1707,10 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         // El Origen asume el "Mover" como que ese gasto ya se delegó (el registro queda como Egreso, pero la deuda será distinta).
         // Actualizamos origen (queda el egreso real).
         tipoOrigenActualizado = "egreso";
-        
+
         // El Destino asume el consumo (Egreso Real).
         tipoDestinoReal = "egreso";
-        
+
         // El Origen (que garpó) ahora tiene una Deuda A FAVOR (Ingreso futuro).
         tipoOrigenDeuda = "ingreso";
         // El Destino (el gastador original) tiene una Deuda EN CONTRA (Egreso que debe compensar, aunque el user pidió Deuda en contra).
@@ -1679,28 +1720,35 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         // Let's re-read the prompt exactly for EGRESO.
         // Origen: Muevo egreso -> el registro se va?. "Lo unico que tiene que hacer es mover el consumo a la sucursal destino, y generar un registro como DEUDA... en negativo"
         // Destino: "Crear el registro que me enviaron para pagar (negativo). .. Ademas debo crear un registro extra como deuda a favor (positivo) porque en algun momento vamos a cobrar.."
-        
+
         // Ok, inverted roles completely requested by user for EGRESO:
         // ORIGEN: NO hay registro real, se MUEVE al destino literal. Pero queda la DEUDA EN CONTRA (egreso). "generar un registro como DEUDA (negativo) en necesario".
         // DESTINO: Obtiene el consumo real (egreso), Y ADEMÁS obtiene una deuda a favor (ingreso). "Ademas debo crear un registro extra como deuda a favor (positivo)".
       }
 
       // We need to implement this branching fully above the UPDATE/INSERTs.
-      const getSignedMonto = (t: string, m: number) => t === 'egreso' ? -Math.abs(m) : Math.abs(m);
+      const getSignedMonto = (t: string, m: number) =>
+        t === "egreso" ? -Math.abs(m) : Math.abs(m);
 
       if (mov.tipo === "ingreso") {
         // --- CASO 1: MUEVO UN INGRESO ---
         const tipoOrigenActualizado = "egreso";
-        const tipoDestinoReal       = "ingreso";
-        const tipoOrigenDeuda       = "ingreso";
-        const tipoDestinoDeuda      = "egreso";
+        const tipoDestinoReal = "ingreso";
+        const tipoOrigenDeuda = "ingreso";
+        const tipoDestinoDeuda = "egreso";
 
         // Actualizamos el registro original en su MISMA sucursal para que refleje la salida real del dinero
         await query(
           `UPDATE movimientos 
            SET tipo = ?, estado = ?, descripcion = ?, monto = ?
            WHERE id = ?`,
-          [tipoOrigenActualizado, "completado", nuevaDescripcion, getSignedMonto(tipoOrigenActualizado, mov.monto), id],
+          [
+            tipoOrigenActualizado,
+            "completado",
+            nuevaDescripcion,
+            getSignedMonto(tipoOrigenActualizado, mov.monto),
+            id,
+          ],
         );
 
         // Creamos el registro real en la sucursal de destino
@@ -1720,14 +1768,26 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             destino_tipo_movimiento,
             destino_saldo,
             nuevoEstado,
-            destino_tipo_movimiento === "banco" ? (banco_id || mov.banco_id || null) : null,
-            destino_tipo_movimiento === "banco" ? (medio_pago_id || mov.medio_pago_id || null) : null,
-            destino_tipo_movimiento === "banco" ? (numero_cheque || mov.numero_cheque || null) : null,
-            destino_tipo_movimiento === "banco" ? (banco || mov.banco || null) : null,
-            destino_tipo_movimiento === "banco" ? (cuenta || mov.cuenta || null) : null,
-            destino_tipo_movimiento === "banco" ? (cbu || mov.cbu || null) : null,
-            destino_tipo_movimiento === "banco" ? (tipo_operacion || mov.tipo_operacion || null) : null,
-          ]
+            destino_tipo_movimiento === "banco"
+              ? banco_id || mov.banco_id || null
+              : null,
+            destino_tipo_movimiento === "banco"
+              ? medio_pago_id || mov.medio_pago_id || null
+              : null,
+            destino_tipo_movimiento === "banco"
+              ? numero_cheque || mov.numero_cheque || null
+              : null,
+            destino_tipo_movimiento === "banco"
+              ? banco || mov.banco || null
+              : null,
+            destino_tipo_movimiento === "banco"
+              ? cuenta || mov.cuenta || null
+              : null,
+            destino_tipo_movimiento === "banco" ? cbu || mov.cbu || null : null,
+            destino_tipo_movimiento === "banco"
+              ? tipo_operacion || mov.tipo_operacion || null
+              : null,
+          ],
         );
 
         // Creamos la deuda a favor en el Origen
@@ -1743,8 +1803,8 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             getSignedMonto(tipoOrigenDeuda, mov.monto),
             `Crédito auto-generado por movimiento hacia ${nombreDestino}`,
             tipoOrigenDeuda,
-            mov.tipo_movimiento 
-          ]
+            mov.tipo_movimiento,
+          ],
         );
 
         // Creamos la deuda en contra en el Destino
@@ -1760,8 +1820,8 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             getSignedMonto(tipoDestinoDeuda, mov.monto),
             `Deuda auto-generada recibida de ${nombreOrigen}`,
             tipoDestinoDeuda,
-            destino_tipo_movimiento 
-          ]
+            destino_tipo_movimiento,
+          ],
         );
 
         // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
@@ -1769,34 +1829,41 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         const idDestinoDeuda = insertDestinoDeuda.insertId;
         await query(
           `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idDestinoDeuda, idOrigenDeuda]
+          [idDestinoDeuda, idOrigenDeuda],
         );
         await query(
           `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idOrigenDeuda, idDestinoDeuda]
+          [idOrigenDeuda, idDestinoDeuda],
         );
-
       } else {
         // --- CASO 2: MUEVO UN EGRESO ---
-        // Según usuario: 
+        // Según usuario:
         // 1. Origen: Desaparece el consumo real (Movemos el original al destino).
-        // 2. Destino: Carga el consumo enviado (El original modificado). 
-        //             (Aclaración: El "movimiento que desaparece de Origen y se carga a Destino" es directamente hacer el flujo habitual, 
+        // 2. Destino: Carga el consumo enviado (El original modificado).
+        //             (Aclaración: El "movimiento que desaparece de Origen y se carga a Destino" es directamente hacer el flujo habitual,
         //             donde al UPDATE se le cambia la `sucursal_id` de Origen -> Destino).
         // 3. Origen (Deuda): Generar un registro como DEUDA (en negativo) -> tipo = "egreso", es_deuda = 1.
         // 4. Destino (Deuda Extra): Generar registro extra, DEUDA a favor (positivo) -> tipo = "ingreso", es_deuda = 1.
-        
+
         // Mover el consumo / registro hacia la sucursal de Destino (el "Mover" habitual).
         // Nótese que asume el destino_tipo_movimiento, por lo que copiamos lógica normal.
-        const tipoDestinoReal = "egreso"; 
-        
+        const tipoDestinoReal = "egreso";
+
         if (destino_tipo_movimiento === "efectivo") {
           await query(
             `UPDATE movimientos 
              SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
                  banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
              WHERE id = ?`,
-            [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, tipoDestinoReal, getSignedMonto(tipoDestinoReal, mov.monto), id],
+            [
+              destino_sucursal_id,
+              destino_saldo,
+              nuevoEstado,
+              nuevaDescripcion,
+              tipoDestinoReal,
+              getSignedMonto(tipoDestinoReal, mov.monto),
+              id,
+            ],
           );
         } else {
           await query(
@@ -1837,8 +1904,8 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             getSignedMonto(tipoOrigenDeuda, mov.monto),
             `Deuda auto-generada por mover consumo (egreso) a ${nombreDestino}`,
             tipoOrigenDeuda,
-            mov.tipo_movimiento 
-          ]
+            mov.tipo_movimiento,
+          ],
         );
 
         // Creamos la DEUDA A FAVOR (ingreso) en el DESTINO (porque nos pagaron u asumimos el costo a cobrar).
@@ -1855,8 +1922,8 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             getSignedMonto(tipoDestinoDeuda, mov.monto),
             `Crédito a cobrar generado al asumir consumo (egreso) desde ${nombreOrigen}`,
             tipoDestinoDeuda,
-            destino_tipo_movimiento 
-          ]
+            destino_tipo_movimiento,
+          ],
         );
 
         // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
@@ -1864,14 +1931,21 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         const idDestinoDeuda2 = insertDestinoDeuda2.insertId;
         await query(
           `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idDestinoDeuda2, idOrigenDeuda2]
+          [idDestinoDeuda2, idOrigenDeuda2],
+        );
+
+        // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
+        const idOrigenDeuda2 = insertOrigenDeuda2.insertId;
+        const idDestinoDeuda2 = insertDestinoDeuda2.insertId;
+        await query(
+          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
+          [idDestinoDeuda2, idOrigenDeuda2],
         );
         await query(
           `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idOrigenDeuda2, idDestinoDeuda2]
+          [idOrigenDeuda2, idDestinoDeuda2],
         );
       }
-
     } else {
       // FLUJO NORMAL: Solo lo movemos de sucursal
       if (destino_tipo_movimiento === "efectivo") {
@@ -1881,7 +1955,14 @@ export const moverMovimiento = async (req: Request, res: Response) => {
            SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?,
                banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
            WHERE id = ?`,
-          [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, nuevoTipo, id],
+          [
+            destino_sucursal_id,
+            destino_saldo,
+            nuevoEstado,
+            nuevaDescripcion,
+            nuevoTipo,
+            id,
+          ],
         );
       } else {
         // Mover a banco: asignar nuevos datos bancarios si vienen
@@ -1908,8 +1989,6 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         );
       }
     }
-
-
 
     // Obtener movimiento actualizado
     const updatedResult: any = await query(
@@ -2066,3 +2145,54 @@ export const compraVentaDivisas = async (req: Request, res: Response) => {
   }
 };
 
+// POST /api/movimientos/compra-venta-divisas
+// operacion: "compra" | "venta"
+// compra: ingresa USD en caja USD, egresa ARS de caja ARS
+// venta:  egresa USD de caja USD, ingresa ARS en caja ARS
+
+// GET /api/movimientos/deudas?sucursalId=&fechaInicio=&fechaFin=
+export const getDeudasInterSucursal = async (req: Request, res: Response) => {
+  try {
+    const { sucursalId, fechaInicio, fechaFin } = req.query;
+
+    if (!sucursalId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "sucursalId es requerido" });
+    }
+
+    let sql = `
+      SELECT 
+        m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.descripcion,
+        m.tipo, m.tipo_movimiento, m.saldo, m.estado, m.es_deuda,
+        m.fecha_original_vencimiento, m.moneda,
+        suc.nombre AS sucursal_nombre
+      FROM movimientos m
+      INNER JOIN sucursales suc ON m.sucursal_id = suc.id
+      WHERE m.es_deuda = 1
+        AND m.sucursal_id = ?
+        AND suc.activo = 1
+    `;
+    const params: (string | number)[] = [String(sucursalId)];
+
+    if (fechaInicio) {
+      sql += ` AND m.fecha >= ?`;
+      params.push(`${fechaInicio} 00:00:00`);
+    }
+    if (fechaFin) {
+      sql += ` AND m.fecha <= ?`;
+      params.push(`${fechaFin} 23:59:59`);
+    }
+
+    sql += ` ORDER BY m.fecha DESC`;
+
+    const result = await query(sql, params);
+
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("Error en getDeudasInterSucursal:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Error interno del servidor" });
+  }
+};

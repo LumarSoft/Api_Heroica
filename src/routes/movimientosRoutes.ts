@@ -10,18 +10,22 @@ import {
   toggleDeudaEfectivo,
   moverMovimiento,
   compraVentaDivisas,
+  getDeudasInterSucursal,
 } from "../controllers/movimientosController";
 import {
   getDocumentos,
   uploadDocumento,
   deleteDocumento,
   downloadDocumento,
-  upload
+  upload,
 } from "../controllers/documentosMovimientoController";
 
 const router = Router();
 
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros dinámicos
+
+// Deudas inter-sucursal (debe ir antes de /:sucursalId)
+router.get("/deudas", getDeudasInterSucursal);
 
 // Crear movimiento efectivo (debe ir antes de /:sucursalId)
 router.post("/efectivo", createMovimientoEfectivo);
@@ -55,7 +59,7 @@ router.delete("/:id", deleteMovimiento);
 
 // Rutas para documentos de movimientos
 router.get("/:id/documentos", getDocumentos);
-router.post("/:id/documentos", upload.single('file'), uploadDocumento);
+router.post("/:id/documentos", upload.single("file"), uploadDocumento);
 router.get("/:movimientoId/documentos/:docId/download", downloadDocumento);
 router.delete("/:movimientoId/documentos/:docId", deleteDocumento);
 
