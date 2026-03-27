@@ -207,6 +207,15 @@ export const updateEstadoMovimiento = async (req: Request, res: Response) => {
     // Actualizar estado normalmente
     await query("UPDATE movimientos SET estado = ? WHERE id = ?", [estado, id]);
 
+    // Si pasa a completado y es una deuda con contraparte vinculada,
+    // completar y acreditar automáticamente la deuda espejo en la sucursal acreedora
+    if (estado === "completado" && mov.es_deuda && mov.movimiento_contraparte_id) {
+      await query(
+        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
+        [mov.movimiento_contraparte_id],
+      );
+    }
+
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
       "SELECT * FROM movimientos WHERE id = ?",
@@ -340,6 +349,8 @@ export const moverAReal = async (req: Request, res: Response) => {
       });
     }
 
+    const mov = movResult[0];
+
     // Mover a saldo real
     await query(
       `UPDATE movimientos 
@@ -347,6 +358,14 @@ export const moverAReal = async (req: Request, res: Response) => {
        WHERE id = ?`,
       [id],
     );
+
+    // Si es una deuda con contraparte vinculada, completar y acreditar la deuda espejo
+    if (mov.es_deuda && mov.movimiento_contraparte_id) {
+      await query(
+        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
+        [mov.movimiento_contraparte_id],
+      );
+    }
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
@@ -409,7 +428,21 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
         [id],
       );
 
-      // 2. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
+      // 2. Si tiene contraparte vinculada, también la completamos y la pasamos a saldo_real
+      if (mov.movimiento_contraparte_id) {
+        const contraparteResult: any = await query(
+          "SELECT * FROM movimientos WHERE id = ?",
+          [mov.movimiento_contraparte_id],
+        );
+        if (Array.isArray(contraparteResult) && contraparteResult.length > 0) {
+          await query(
+            `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
+            [mov.movimiento_contraparte_id],
+          );
+        }
+      }
+
+      // 3. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
       const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha;
       let nuevaDescripcion = mov.descripcion || "";
       if (fechaOriginal) {
@@ -818,6 +851,8 @@ export const moverARealBanco = async (req: Request, res: Response) => {
       });
     }
 
+    const mov = movResult[0];
+
     // Mover a saldo real
     await query(
       `UPDATE movimientos 
@@ -825,6 +860,14 @@ export const moverARealBanco = async (req: Request, res: Response) => {
        WHERE id = ? AND tipo_movimiento = 'banco'`,
       [id],
     );
+
+    // Si es una deuda con contraparte vinculada, completar y acreditar la deuda espejo
+    if (mov.es_deuda && mov.movimiento_contraparte_id) {
+      await query(
+        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
+        [mov.movimiento_contraparte_id],
+      );
+    }
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
@@ -887,7 +930,21 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
         [id],
       );
 
-      // 2. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
+      // 2. Si tiene contraparte vinculada, también la completamos y la pasamos a saldo_real
+      if (mov.movimiento_contraparte_id) {
+        const contraparteResult: any = await query(
+          "SELECT * FROM movimientos WHERE id = ?",
+          [mov.movimiento_contraparte_id],
+        );
+        if (Array.isArray(contraparteResult) && contraparteResult.length > 0) {
+          await query(
+            `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
+            [mov.movimiento_contraparte_id],
+          );
+        }
+      }
+
+      // 3. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
       const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha;
       let nuevaDescripcion = mov.descripcion || "";
       if (fechaOriginal) {
@@ -1051,6 +1108,15 @@ export const updateEstadoMovimientoBanco = async (
       "UPDATE movimientos SET estado = ? WHERE id = ? AND tipo_movimiento = 'banco'",
       [estado, id],
     );
+
+    // Si pasa a completado y es una deuda con contraparte vinculada,
+    // completar y acreditar automáticamente la deuda espejo en la sucursal acreedora
+    if (estado === "completado" && mov.es_deuda && mov.movimiento_contraparte_id) {
+      await query(
+        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
+        [mov.movimiento_contraparte_id],
+      );
+    }
 
     // Obtener el movimiento actualizado
     const updatedResult: any = await query(
@@ -1665,7 +1731,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         );
 
         // Creamos la deuda a favor en el Origen
-        await query(
+        const insertOrigenDeuda: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, descripcion, 
             tipo, tipo_movimiento, saldo, estado, es_deuda
@@ -1682,7 +1748,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         );
 
         // Creamos la deuda en contra en el Destino
-        await query(
+        const insertDestinoDeuda: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, descripcion, 
             tipo, tipo_movimiento, saldo, estado, es_deuda
@@ -1696,6 +1762,18 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             tipoDestinoDeuda,
             destino_tipo_movimiento 
           ]
+        );
+
+        // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
+        const idOrigenDeuda = insertOrigenDeuda.insertId;
+        const idDestinoDeuda = insertDestinoDeuda.insertId;
+        await query(
+          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
+          [idDestinoDeuda, idOrigenDeuda]
+        );
+        await query(
+          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
+          [idOrigenDeuda, idDestinoDeuda]
         );
 
       } else {
@@ -1747,7 +1825,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
         // Creamos la DEUDA EN CONTRA (egreso) en el ORIGEN (porque nos cobraron desde el destino el favor).
         const tipoOrigenDeuda = "egreso";
-        await query(
+        const insertOrigenDeuda2: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, descripcion, 
             tipo, tipo_movimiento, saldo, estado, es_deuda
@@ -1765,7 +1843,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
         // Creamos la DEUDA A FAVOR (ingreso) en el DESTINO (porque nos pagaron u asumimos el costo a cobrar).
         const tipoDestinoDeuda = "ingreso";
-        await query(
+        const insertDestinoDeuda2: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, descripcion, 
             tipo, tipo_movimiento, saldo, estado, es_deuda
@@ -1779,6 +1857,18 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             tipoDestinoDeuda,
             destino_tipo_movimiento 
           ]
+        );
+
+        // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
+        const idOrigenDeuda2 = insertOrigenDeuda2.insertId;
+        const idDestinoDeuda2 = insertDestinoDeuda2.insertId;
+        await query(
+          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
+          [idDestinoDeuda2, idOrigenDeuda2]
+        );
+        await query(
+          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
+          [idOrigenDeuda2, idDestinoDeuda2]
         );
       }
 
