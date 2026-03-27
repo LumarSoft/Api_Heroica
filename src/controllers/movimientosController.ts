@@ -1933,14 +1933,6 @@ export const moverMovimiento = async (req: Request, res: Response) => {
           `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
           [idDestinoDeuda2, idOrigenDeuda2],
         );
-
-        // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
-        const idOrigenDeuda2 = insertOrigenDeuda2.insertId;
-        const idDestinoDeuda2 = insertDestinoDeuda2.insertId;
-        await query(
-          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idDestinoDeuda2, idOrigenDeuda2],
-        );
         await query(
           `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
           [idOrigenDeuda2, idDestinoDeuda2],
