@@ -63,7 +63,7 @@ export const login = async (req: Request, res: Response) => {
         rol_id: user.rol_id,
         rol: user.rol_nombre,
       },
-      process.env.JWT_SECRET || "secret",
+      process.env.JWT_SECRET as string,
       { expiresIn: "24h" }
     );
 
@@ -103,7 +103,7 @@ export const verifyToken = async (req: Request, res: Response) => {
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string);
 
     res.json({
       success: true,
