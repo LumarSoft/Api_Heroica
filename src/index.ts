@@ -11,6 +11,7 @@ import configuracionRoutes from "./routes/configuracionRoutes";
 import reportesRoutes from "./routes/reportesRoutes";
 import healthRoutes from "./routes/healthRoutes";
 import cuentasBancariasRoutes from "./routes/cuentasBancariasRoutes";
+import tareasRoutes from "./routes/tareasRoutes";
 
 // Cargar variables de entorno
 dotenv.config();
@@ -66,6 +67,7 @@ app.use("/api/caja-banco", cajaBancoRoutes);
 app.use("/api/configuracion", configuracionRoutes);
 app.use("/api/reportes", reportesRoutes);
 app.use("/api/cuentas-bancarias", cuentasBancariasRoutes);
+app.use("/api/tareas", tareasRoutes);
 
 // Ruta raíz — no expone información sensible en producción
 app.get("/", (_req: Request, res: Response) => {
