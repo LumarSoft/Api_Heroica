@@ -11,6 +11,7 @@ interface User {
   nombre: string;
   rol_id: number;
   rol_nombre: string;
+  must_change_password: boolean;
 }
 
 // POST /api/auth/login
@@ -67,6 +68,16 @@ export const login = async (req: Request, res: Response) => {
       { expiresIn: "24h" }
     );
 
+    // Obtener permisos del rol
+    const permisosResult: any = await query(
+      `SELECT p.clave 
+       FROM permisos p
+       INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
+       WHERE rp.rol_id = ?`,
+      [user.rol_id]
+    );
+    const permisos: string[] = permisosResult.map((p: any) => p.clave);
+
     // Respuesta exitosa
     res.json({
       success: true,
@@ -79,6 +90,8 @@ export const login = async (req: Request, res: Response) => {
           nombre: user.nombre,
           rol: user.rol_nombre,
           rol_id: user.rol_id,
+          must_change_password: Boolean(user.must_change_password),
+          permisos,
         },
       },
     });
@@ -113,6 +126,94 @@ export const verifyToken = async (req: Request, res: Response) => {
     res.status(401).json({
       success: false,
       message: "Token inválido o expirado",
+    });
+  }
+};
+
+// PUT /api/auth/change-password
+// El usuario autenticado cambia su propia contraseña
+export const changePassword = async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "Token no proporcionado",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET as string);
+    } catch {
+      return res.status(401).json({
+        success: false,
+        message: "Token inválido o expirado",
+      });
+    }
+
+    const userId = decoded.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "La contraseña actual y la nueva son requeridas",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "La nueva contraseña debe tener al menos 6 caracteres",
+      });
+    }
+
+    // Obtener contraseña actual del usuario
+    const result: any = await query(
+      "SELECT password FROM usuarios WHERE id = ? AND activo = TRUE",
+      [userId]
+    );
+
+    if (!result || result.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Usuario no encontrado",
+      });
+    }
+
+    const passwordValida = await bcrypt.compare(currentPassword, result[0].password);
+    if (!passwordValida) {
+      return res.status(400).json({
+        success: false,
+        message: "La contraseña actual es incorrecta",
+      });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "La nueva contraseña debe ser diferente a la actual",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await query(
+      "UPDATE usuarios SET password = ?, must_change_password = 0 WHERE id = ?",
+      [hashedPassword, userId]
+    );
+
+    res.json({
+      success: true,
+      message: "Contraseña actualizada exitosamente",
+    });
+  } catch (error) {
+    console.error("Error al cambiar contraseña:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor",
     });
   }
 };

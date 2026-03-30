@@ -26,6 +26,15 @@ import {
     updateUsuarioRol,
     toggleUsuarioActivo,
     deleteUsuario,
+    getUsuarioSucursales,
+    updateUsuarioSucursales,
+    // Roles
+    getRoles,
+    createRol,
+    updateRol,
+    deleteRol,
+    // Permisos
+    getPermisos,
 } from "../controllers/configuracionController";
 
 const router = Router();
@@ -60,5 +69,16 @@ router.post("/usuarios", createUsuario);
 router.put("/usuarios/:id/rol", updateUsuarioRol);
 router.put("/usuarios/:id/toggle-activo", toggleUsuarioActivo);
 router.delete("/usuarios/:id", deleteUsuario);
+router.get("/usuarios/:id/sucursales", getUsuarioSucursales);
+router.put("/usuarios/:id/sucursales", updateUsuarioSucursales);
+
+// ========== ROLES ==========
+router.get("/roles", getRoles);
+router.post("/roles", createRol);
+router.put("/roles/:id", updateRol);
+router.delete("/roles/:id", deleteRol);
+
+// ========== PERMISOS ==========
+router.get("/permisos", getPermisos);
 
 export default router;

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, verifyToken } from '../controllers/authController';
+import { login, verifyToken, changePassword } from '../controllers/authController';
 
 const router = Router();
 
@@ -8,5 +8,8 @@ router.post('/login', login);
 
 // Ruta para verificar token
 router.post('/verify', verifyToken);
+
+// Ruta para cambiar contraseña propia
+router.put('/change-password', changePassword);
 
 export default router;
