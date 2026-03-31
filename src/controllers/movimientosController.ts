@@ -19,7 +19,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
        LEFT JOIN categorias c ON m.categoria_id = c.id
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ?
-       ORDER BY m.fecha DESC`,
+       ORDER BY m.id DESC`,
       [sucursalId, moneda],
     );
 
@@ -574,7 +574,7 @@ export const getMovimientosBancoBySucursal = async (
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ?
-       ORDER BY m.fecha DESC`,
+       ORDER BY m.id DESC`,
       [sucursalId, moneda],
     );
 
@@ -1579,7 +1579,7 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       queryParams.push(moneda);
     }
 
-    sql += " ORDER BY m.fecha DESC, m.created_at DESC";
+    sql += " ORDER BY m.id DESC";
 
     const result: any = await query(sql, queryParams);
 
@@ -2176,7 +2176,7 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
       params.push(`${fechaFin} 23:59:59`);
     }
 
-    sql += ` ORDER BY m.fecha DESC`;
+    sql += ` ORDER BY m.id DESC`;
 
     const result = await query(sql, params);
 
