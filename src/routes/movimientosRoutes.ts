@@ -11,6 +11,8 @@ import {
   moverMovimiento,
   compraVentaDivisas,
   getDeudasInterSucursal,
+  deleteBulkMovimientos,
+  moverBulkMovimientos,
 } from "../controllers/movimientosController";
 import {
   getDocumentos,
@@ -26,6 +28,10 @@ const router = Router();
 
 // Deudas inter-sucursal (debe ir antes de /:sucursalId)
 router.get("/deudas", getDeudasInterSucursal);
+
+// Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
+router.delete("/bulk", deleteBulkMovimientos);
+router.put("/bulk/mover", moverBulkMovimientos);
 
 // Crear movimiento efectivo (debe ir antes de /:sucursalId)
 router.post("/efectivo", createMovimientoEfectivo);

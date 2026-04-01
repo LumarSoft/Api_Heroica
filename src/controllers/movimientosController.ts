@@ -2188,3 +2188,89 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
       .json({ success: false, message: "Error interno del servidor" });
   }
 };
+
+// DELETE /api/movimientos/bulk  — Body: { ids: number[] }
+export const deleteBulkMovimientos = async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: "Se requiere un array de ids no vacío." });
+    }
+
+    const placeholders = ids.map(() => "?").join(", ");
+    await query(`DELETE FROM movimientos WHERE id IN (${placeholders})`, ids);
+
+    res.json({ success: true, message: `${ids.length} movimiento(s) eliminado(s).` });
+  } catch (error) {
+    console.error("Error en deleteBulkMovimientos:", error);
+    res.status(500).json({ success: false, message: "Error al eliminar movimientos en bloque." });
+  }
+};
+
+// PUT /api/movimientos/bulk/mover
+// Body: { ids, destino_sucursal_id, destino_tipo_movimiento, destino_saldo, banco_id?, medio_pago_id?, numero_cheque?, banco?, cuenta?, cbu?, tipo_operacion? }
+export const moverBulkMovimientos = async (req: Request, res: Response) => {
+  try {
+    const {
+      ids,
+      destino_sucursal_id,
+      destino_tipo_movimiento,
+      destino_saldo,
+      banco_id,
+      medio_pago_id,
+      numero_cheque,
+      banco,
+      cuenta,
+      cbu,
+      tipo_operacion,
+    } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: "Se requiere un array de ids no vacío." });
+    }
+    if (!destino_sucursal_id || !destino_tipo_movimiento || !destino_saldo) {
+      return res.status(400).json({ success: false, message: "Faltan datos de destino obligatorios." });
+    }
+
+    const nuevoEstado = destino_saldo === "saldo_real" ? "completado" : "aprobado";
+    const placeholders = ids.map(() => "?").join(", ");
+
+    if (destino_tipo_movimiento === "efectivo") {
+      await query(
+        `UPDATE movimientos
+         SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?,
+             banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL,
+             banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+         WHERE id IN (${placeholders})`,
+        [destino_sucursal_id, destino_saldo, nuevoEstado, ...ids],
+      );
+    } else {
+      await query(
+        `UPDATE movimientos
+         SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?,
+             banco_id = ?, medio_pago_id = ?, numero_cheque = ?,
+             banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
+         WHERE id IN (${placeholders})`,
+        [
+          destino_sucursal_id,
+          destino_saldo,
+          nuevoEstado,
+          banco_id || null,
+          medio_pago_id || null,
+          numero_cheque || null,
+          banco || null,
+          cuenta || null,
+          cbu || null,
+          tipo_operacion || null,
+          ...ids,
+        ],
+      );
+    }
+
+    res.json({ success: true, message: `${ids.length} movimiento(s) movido(s).` });
+  } catch (error) {
+    console.error("Error en moverBulkMovimientos:", error);
+    res.status(500).json({ success: false, message: "Error al mover movimientos en bloque." });
+  }
+};

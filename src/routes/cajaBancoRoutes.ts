@@ -8,6 +8,8 @@ import {
     getTotalesBanco,
     updateEstadoMovimientoBanco,
     toggleDeudaBanco,
+    deleteBulkMovimientos,
+    moverBulkMovimientos,
 } from '../controllers/movimientosController';
 import {
     getDocumentos,
@@ -18,6 +20,10 @@ import {
 } from '../controllers/documentosMovimientoController';
 
 const router = Router();
+
+// Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
+router.delete('/bulk', deleteBulkMovimientos);
+router.put('/bulk/mover', moverBulkMovimientos);
 
 // Obtener movimientos banco de una sucursal
 router.get('/:sucursalId', getMovimientosBancoBySucursal);
