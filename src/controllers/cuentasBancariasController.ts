@@ -1,24 +1,24 @@
-import { Request, Response } from 'express';
-import { query } from '../config/database';
+import { Request, Response } from "express";
+import { query } from "../config/database";
 
 // GET /api/cuentas-bancarias/:sucursalId
 export const getCuentasBancarias = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
     const result: any = await query(
-      'SELECT * FROM cuentas_bancarias_sucursal WHERE sucursal_id = ? AND deleted_at IS NULL ORDER BY id ASC',
-      [sucursalId]
+      "SELECT * FROM cuentas_bancarias_sucursal WHERE sucursal_id = ? AND deleted_at IS NULL ORDER BY id ASC",
+      [sucursalId],
     );
 
     res.json({
       success: true,
-      data: result || []
+      data: result || [],
     });
   } catch (error) {
-    console.error('Error al obtener cuentas bancarias:', error);
+    console.error("Error al obtener cuentas bancarias:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener cuentas bancarias'
+      message: "Error al obtener cuentas bancarias",
     });
   }
 };
@@ -32,13 +32,13 @@ export const createCuentaBancaria = async (req: Request, res: Response) => {
     if (!cbu) {
       return res.status(400).json({
         success: false,
-        message: 'El CBU es requerido'
+        message: "El CBU es requerido",
       });
     }
 
     const insertResult: any = await query(
-      'INSERT INTO cuentas_bancarias_sucursal (sucursal_id, cbu, alias, tipo_cuenta, banco) VALUES (?, ?, ?, ?, ?)',
-      [sucursalId, cbu, alias || null, tipo_cuenta || null, banco || null]
+      "INSERT INTO cuentas_bancarias_sucursal (sucursal_id, cbu, alias, tipo_cuenta, banco) VALUES (?, ?, ?, ?, ?)",
+      [sucursalId, cbu, alias || null, tipo_cuenta || null, banco || null],
     );
 
     res.status(201).json({
@@ -49,14 +49,14 @@ export const createCuentaBancaria = async (req: Request, res: Response) => {
         cbu,
         alias,
         tipo_cuenta,
-        banco
-      }
+        banco,
+      },
     });
   } catch (error) {
-    console.error('Error al crear cuenta bancaria:', error);
+    console.error("Error al crear cuenta bancaria:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al crear cuenta bancaria'
+      message: "Error al crear cuenta bancaria",
     });
   }
 };
@@ -70,24 +70,24 @@ export const updateCuentaBancaria = async (req: Request, res: Response) => {
     if (!cbu) {
       return res.status(400).json({
         success: false,
-        message: 'El CBU es requerido'
+        message: "El CBU es requerido",
       });
     }
 
     await query(
-      'UPDATE cuentas_bancarias_sucursal SET cbu = ?, alias = ?, tipo_cuenta = ?, banco = ? WHERE id = ?',
-      [cbu, alias || null, tipo_cuenta || null, banco || null, id]
+      "UPDATE cuentas_bancarias_sucursal SET cbu = ?, alias = ?, tipo_cuenta = ?, banco = ? WHERE id = ?",
+      [cbu, alias || null, tipo_cuenta || null, banco || null, id],
     );
 
     res.json({
       success: true,
-      message: 'Cuenta bancaria actualizada correctamente'
+      message: "Cuenta bancaria actualizada correctamente",
     });
   } catch (error) {
-    console.error('Error al actualizar cuenta bancaria:', error);
+    console.error("Error al actualizar cuenta bancaria:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al actualizar cuenta bancaria'
+      message: "Error al actualizar cuenta bancaria",
     });
   }
 };
@@ -98,19 +98,19 @@ export const deleteCuentaBancaria = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     await query(
-      'UPDATE cuentas_bancarias_sucursal SET deleted_at = NOW() WHERE id = ?',
-      [id]
+      "UPDATE cuentas_bancarias_sucursal SET deleted_at = NOW() WHERE id = ?",
+      [id],
     );
 
     res.json({
       success: true,
-      message: 'Cuenta bancaria eliminada correctamente'
+      message: "Cuenta bancaria eliminada correctamente",
     });
   } catch (error) {
-    console.error('Error al eliminar cuenta bancaria:', error);
+    console.error("Error al eliminar cuenta bancaria:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al eliminar cuenta bancaria'
+      message: "Error al eliminar cuenta bancaria",
     });
   }
 };

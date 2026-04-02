@@ -32,7 +32,7 @@ export const login = async (req: Request, res: Response) => {
        FROM usuarios u 
        LEFT JOIN roles r ON u.rol_id = r.id 
        WHERE u.email = ? AND u.activo = TRUE AND u.deleted_at IS NULL`,
-      [email]
+      [email],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
@@ -72,7 +72,7 @@ export const login = async (req: Request, res: Response) => {
     const tempToken = jwt.sign(
       { id: user.id, email: user.email, temp2fa: true },
       process.env.JWT_SECRET as string,
-      { expiresIn: "5m" }
+      { expiresIn: "5m" },
     );
 
     return res.json({
@@ -126,7 +126,10 @@ export const verify2FA = async (req: Request, res: Response) => {
       });
     }
 
-    const decoded: any = jwt.verify(tempToken, process.env.JWT_SECRET as string);
+    const decoded: any = jwt.verify(
+      tempToken,
+      process.env.JWT_SECRET as string,
+    );
 
     if (!decoded.temp2fa) {
       return res.status(401).json({
@@ -140,7 +143,7 @@ export const verify2FA = async (req: Request, res: Response) => {
        FROM usuarios u 
        LEFT JOIN roles r ON u.rol_id = r.id 
        WHERE u.id = ? AND u.activo = TRUE`,
-      [decoded.id]
+      [decoded.id],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
@@ -181,7 +184,7 @@ export const verify2FA = async (req: Request, res: Response) => {
         rol: user.rol_nombre,
       },
       process.env.JWT_SECRET as string,
-      { expiresIn: "24h" }
+      { expiresIn: "24h" },
     );
 
     res.json({
@@ -223,10 +226,10 @@ export const enable2FA = async (req: Request, res: Response) => {
       length: 32,
     });
 
-    await query(
-      `UPDATE usuarios SET two_factor_secret = ? WHERE id = ?`,
-      [secret.base32, userId]
-    );
+    await query(`UPDATE usuarios SET two_factor_secret = ? WHERE id = ?`, [
+      secret.base32,
+      userId,
+    ]);
 
     const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url as string);
 
@@ -262,7 +265,7 @@ export const confirm2FA = async (req: Request, res: Response) => {
        FROM usuarios u 
        LEFT JOIN roles r ON u.rol_id = r.id 
        WHERE u.id = ?`,
-      [userId]
+      [userId],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
@@ -295,15 +298,14 @@ export const confirm2FA = async (req: Request, res: Response) => {
       });
     }
 
-    await query(
-      `UPDATE usuarios SET two_factor_enabled = 1 WHERE id = ?`,
-      [userId]
-    );
+    await query(`UPDATE usuarios SET two_factor_enabled = 1 WHERE id = ?`, [
+      userId,
+    ]);
 
     const tempToken = jwt.sign(
       { id: user.id, email: user.email, temp2fa: true },
       process.env.JWT_SECRET as string,
-      { expiresIn: "5m" }
+      { expiresIn: "5m" },
     );
 
     res.json({
@@ -333,7 +335,7 @@ export const disable2FA = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `SELECT password FROM usuarios WHERE id = ?`,
-      [userId]
+      [userId],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
@@ -355,7 +357,7 @@ export const disable2FA = async (req: Request, res: Response) => {
 
     await query(
       `UPDATE usuarios SET two_factor_enabled = 0, two_factor_secret = NULL WHERE id = ?`,
-      [userId]
+      [userId],
     );
 
     res.json({
@@ -384,12 +386,13 @@ export const reset2FA = async (req: Request, res: Response) => {
 
     await query(
       `UPDATE usuarios SET two_factor_enabled = 0, two_factor_secret = NULL WHERE id = ?`,
-      [userId]
+      [userId],
     );
 
     res.json({
       success: true,
-      message: "2FA reseteado. El usuario deberá configurarlo en su próximo login",
+      message:
+        "2FA reseteado. El usuario deberá configurarlo en su próximo login",
     });
   } catch (error) {
     console.error("Error en reset2FA:", error);

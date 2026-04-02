@@ -1,31 +1,31 @@
 import { Router } from "express";
 import {
-    // Categorías
-    getCategorias,
-    createCategoria,
-    updateCategoria,
-    deleteCategoria,
-    // Subcategorías
-    getSubcategorias,
-    createSubcategoria,
-    updateSubcategoria,
-    deleteSubcategoria,
-    // Bancos
-    getBancos,
-    createBanco,
-    updateBanco,
-    deleteBanco,
-    // Medios de Pago
-    getMediosPago,
-    createMedioPago,
-    updateMedioPago,
-    deleteMedioPago,
-    // Usuarios
-    getUsuarios,
-    createUsuario,
-    updateUsuarioRol,
-    toggleUsuarioActivo,
-    deleteUsuario,
+  // Categorías
+  getCategorias,
+  createCategoria,
+  updateCategoria,
+  deleteCategoria,
+  // Subcategorías
+  getSubcategorias,
+  createSubcategoria,
+  updateSubcategoria,
+  deleteSubcategoria,
+  // Bancos
+  getBancos,
+  createBanco,
+  updateBanco,
+  deleteBanco,
+  // Medios de Pago
+  getMediosPago,
+  createMedioPago,
+  updateMedioPago,
+  deleteMedioPago,
+  // Usuarios
+  getUsuarios,
+  createUsuario,
+  updateUsuarioRol,
+  toggleUsuarioActivo,
+  deleteUsuario,
 } from "../controllers/configuracionController";
 
 const router = Router();

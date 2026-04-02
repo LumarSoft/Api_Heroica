@@ -2195,16 +2195,29 @@ export const deleteBulkMovimientos = async (req: Request, res: Response) => {
     const { ids } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ success: false, message: "Se requiere un array de ids no vacío." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Se requiere un array de ids no vacío.",
+        });
     }
 
     const placeholders = ids.map(() => "?").join(", ");
     await query(`DELETE FROM movimientos WHERE id IN (${placeholders})`, ids);
 
-    res.json({ success: true, message: `${ids.length} movimiento(s) eliminado(s).` });
+    res.json({
+      success: true,
+      message: `${ids.length} movimiento(s) eliminado(s).`,
+    });
   } catch (error) {
     console.error("Error en deleteBulkMovimientos:", error);
-    res.status(500).json({ success: false, message: "Error al eliminar movimientos en bloque." });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Error al eliminar movimientos en bloque.",
+      });
   }
 };
 
@@ -2227,13 +2240,24 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
     } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ success: false, message: "Se requiere un array de ids no vacío." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Se requiere un array de ids no vacío.",
+        });
     }
     if (!destino_sucursal_id || !destino_tipo_movimiento || !destino_saldo) {
-      return res.status(400).json({ success: false, message: "Faltan datos de destino obligatorios." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Faltan datos de destino obligatorios.",
+        });
     }
 
-    const nuevoEstado = destino_saldo === "saldo_real" ? "completado" : "aprobado";
+    const nuevoEstado =
+      destino_saldo === "saldo_real" ? "completado" : "aprobado";
     const placeholders = ids.map(() => "?").join(", ");
 
     if (destino_tipo_movimiento === "efectivo") {
@@ -2268,9 +2292,17 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
       );
     }
 
-    res.json({ success: true, message: `${ids.length} movimiento(s) movido(s).` });
+    res.json({
+      success: true,
+      message: `${ids.length} movimiento(s) movido(s).`,
+    });
   } catch (error) {
     console.error("Error en moverBulkMovimientos:", error);
-    res.status(500).json({ success: false, message: "Error al mover movimientos en bloque." });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Error al mover movimientos en bloque.",
+      });
   }
 };

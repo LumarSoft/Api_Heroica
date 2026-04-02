@@ -1,24 +1,23 @@
-import { Request, Response } from 'express';
-import { query } from '../config/database';
+import { Request, Response } from "express";
+import { query } from "../config/database";
 
 // GET /api/sucursales
 export const getSucursales = async (req: Request, res: Response) => {
   try {
     // Obtener todas las sucursales (activas e inactivas), activas primero
     const result: any = await query(
-      'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC'
+      "SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC",
     );
 
     res.json({
       success: true,
-      data: result
+      data: result,
     });
-
   } catch (error) {
-    console.error('Error al obtener sucursales:', error);
+    console.error("Error al obtener sucursales:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener sucursales'
+      message: "Error al obtener sucursales",
     });
   }
 };
@@ -29,27 +28,26 @@ export const getSucursalById = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const result: any = await query(
-      'SELECT * FROM sucursales WHERE id = ? AND deleted_at IS NULL',
-      [id]
+      "SELECT * FROM sucursales WHERE id = ? AND deleted_at IS NULL",
+      [id],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Sucursal no encontrada'
+        message: "Sucursal no encontrada",
       });
     }
 
     res.json({
       success: true,
-      data: result[0]
+      data: result[0],
     });
-
   } catch (error) {
-    console.error('Error al obtener sucursal:', error);
+    console.error("Error al obtener sucursal:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al obtener sucursal'
+      message: "Error al obtener sucursal",
     });
   }
 };
@@ -60,8 +58,8 @@ export const createSucursal = async (req: Request, res: Response) => {
     let { nombre, razon_social, cuit, direccion } = req.body;
 
     // Autocompletar guiones en CUIT si solo vienen 11 números
-    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {
-      const digits = cuit.replace(/\D/g, '');
+    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ""))) {
+      const digits = cuit.replace(/\D/g, "");
       cuit = `${digits.substring(0, 2)}-${digits.substring(2, 10)}-${digits.substring(10, 11)}`;
     }
 
@@ -69,42 +67,41 @@ export const createSucursal = async (req: Request, res: Response) => {
     if (!nombre || !razon_social || !cuit || !direccion) {
       return res.status(400).json({
         success: false,
-        message: 'Todos los campos son requeridos'
+        message: "Todos los campos son requeridos",
       });
     }
 
     // Insertar sucursal
     const result: any = await query(
-      'INSERT INTO sucursales (nombre, razon_social, cuit, direccion) VALUES (?, ?, ?, ?)',
-      [nombre, razon_social, cuit, direccion]
+      "INSERT INTO sucursales (nombre, razon_social, cuit, direccion) VALUES (?, ?, ?, ?)",
+      [nombre, razon_social, cuit, direccion],
     );
 
     res.status(201).json({
       success: true,
-      message: 'Sucursal creada exitosamente',
+      message: "Sucursal creada exitosamente",
       data: {
         id: result.insertId,
         nombre,
         razon_social,
         cuit,
-        direccion
-      }
+        direccion,
+      },
     });
-
   } catch (error: any) {
-    console.error('Error al crear sucursal:', error);
+    console.error("Error al crear sucursal:", error);
 
     // Error de CUIT duplicado
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === "ER_DUP_ENTRY") {
       return res.status(400).json({
         success: false,
-        message: 'El CUIT ya está registrado'
+        message: "El CUIT ya está registrado",
       });
     }
 
     res.status(500).json({
       success: false,
-      message: 'Error al crear sucursal'
+      message: "Error al crear sucursal",
     });
   }
 };
@@ -113,11 +110,18 @@ export const createSucursal = async (req: Request, res: Response) => {
 export const updateSucursal = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    let { nombre, razon_social, cuit, direccion, email_correspondencia, activo } = req.body;
+    let {
+      nombre,
+      razon_social,
+      cuit,
+      direccion,
+      email_correspondencia,
+      activo,
+    } = req.body;
 
     // Autocompletar guiones en CUIT si solo vienen 11 números
-    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {
-      const digits = cuit.replace(/\D/g, '');
+    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ""))) {
+      const digits = cuit.replace(/\D/g, "");
       cuit = `${digits.substring(0, 2)}-${digits.substring(2, 10)}-${digits.substring(10, 11)}`;
     }
 
@@ -125,20 +129,20 @@ export const updateSucursal = async (req: Request, res: Response) => {
     if (!nombre || !razon_social || !cuit || !direccion) {
       return res.status(400).json({
         success: false,
-        message: 'Todos los campos son requeridos'
+        message: "Todos los campos son requeridos",
       });
     }
 
     // Verificar que la sucursal existe
     const existingResult: any = await query(
-      'SELECT id, activo FROM sucursales WHERE id = ?',
-      [id]
+      "SELECT id, activo FROM sucursales WHERE id = ?",
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Sucursal no encontrada'
+        message: "Sucursal no encontrada",
       });
     }
 
@@ -147,13 +151,21 @@ export const updateSucursal = async (req: Request, res: Response) => {
 
     // Actualizar sucursal
     await query(
-      'UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ?, email_correspondencia = ?, activo = ? WHERE id = ?',
-      [nombre, razon_social, cuit, direccion, email_correspondencia || null, newActivo, id]
+      "UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ?, email_correspondencia = ?, activo = ? WHERE id = ?",
+      [
+        nombre,
+        razon_social,
+        cuit,
+        direccion,
+        email_correspondencia || null,
+        newActivo,
+        id,
+      ],
     );
 
     res.json({
       success: true,
-      message: 'Sucursal actualizada exitosamente',
+      message: "Sucursal actualizada exitosamente",
       data: {
         id: parseInt(id),
         nombre,
@@ -161,24 +173,23 @@ export const updateSucursal = async (req: Request, res: Response) => {
         cuit,
         direccion,
         email_correspondencia,
-        activo: newActivo
-      }
+        activo: newActivo,
+      },
     });
-
   } catch (error: any) {
-    console.error('Error al actualizar sucursal:', error);
+    console.error("Error al actualizar sucursal:", error);
 
     // Error de CUIT duplicado
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === "ER_DUP_ENTRY") {
       return res.status(400).json({
         success: false,
-        message: 'El CUIT ya está registrado'
+        message: "El CUIT ya está registrado",
       });
     }
 
     res.status(500).json({
       success: false,
-      message: 'Error al actualizar sucursal'
+      message: "Error al actualizar sucursal",
     });
   }
 };
@@ -190,34 +201,29 @@ export const deleteSucursal = async (req: Request, res: Response) => {
 
     // Verificar que la sucursal existe y no está eliminada
     const existingResult: any = await query(
-      'SELECT id FROM sucursales WHERE id = ? AND deleted_at IS NULL',
-      [id]
+      "SELECT id FROM sucursales WHERE id = ? AND deleted_at IS NULL",
+      [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Sucursal no encontrada'
+        message: "Sucursal no encontrada",
       });
     }
 
     // Soft delete con deleted_at
-    await query(
-      'UPDATE sucursales SET deleted_at = NOW() WHERE id = ?',
-      [id]
-    );
+    await query("UPDATE sucursales SET deleted_at = NOW() WHERE id = ?", [id]);
 
     res.json({
       success: true,
-      message: 'Sucursal eliminada exitosamente'
+      message: "Sucursal eliminada exitosamente",
     });
-
   } catch (error) {
-    console.error('Error al eliminar sucursal:', error);
+    console.error("Error al eliminar sucursal:", error);
     res.status(500).json({
       success: false,
-      message: 'Error al eliminar sucursal'
+      message: "Error al eliminar sucursal",
     });
   }
 };
-
