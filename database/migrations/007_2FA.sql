@@ -1,0 +1,3 @@
+ALTER TABLE usuarios 
+ADD COLUMN two_factor_enabled TINYINT(1) DEFAULT 0,
+ADD COLUMN two_factor_secret VARCHAR(255) DEFAULT NULL;

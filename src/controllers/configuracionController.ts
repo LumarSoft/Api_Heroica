@@ -521,7 +521,7 @@ export const getUsuarios = async (req: Request, res: Response) => {
         const { activo } = req.query;
 
         let sql = `
-            SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
+            SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol, u.two_factor_enabled
             FROM usuarios u
             LEFT JOIN roles r ON u.rol_id = r.id
             WHERE u.deleted_at IS NULL
