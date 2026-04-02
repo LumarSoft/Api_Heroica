@@ -31,7 +31,7 @@ export const login = async (req: Request, res: Response) => {
       `SELECT u.*, r.nombre as rol_nombre 
        FROM usuarios u 
        LEFT JOIN roles r ON u.rol_id = r.id 
-       WHERE u.email = ? AND u.activo = TRUE`,
+       WHERE u.email = ? AND u.activo = TRUE AND u.deleted_at IS NULL`,
       [email]
     );
 

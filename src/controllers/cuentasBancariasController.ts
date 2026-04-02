@@ -6,7 +6,7 @@ export const getCuentasBancarias = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
     const result: any = await query(
-      'SELECT * FROM cuentas_bancarias_sucursal WHERE sucursal_id = ? ORDER BY id ASC',
+      'SELECT * FROM cuentas_bancarias_sucursal WHERE sucursal_id = ? AND deleted_at IS NULL ORDER BY id ASC',
       [sucursalId]
     );
 
@@ -98,7 +98,7 @@ export const deleteCuentaBancaria = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     await query(
-      'DELETE FROM cuentas_bancarias_sucursal WHERE id = ?',
+      'UPDATE cuentas_bancarias_sucursal SET deleted_at = NOW() WHERE id = ?',
       [id]
     );
 

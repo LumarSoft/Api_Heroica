@@ -9,7 +9,7 @@ export const getCategorias = async (req: Request, res: Response) => {
     try {
         const { activo, tipo } = req.query;
 
-        let sql = "SELECT * FROM categorias WHERE 1=1";
+        let sql = "SELECT * FROM categorias WHERE deleted_at IS NULL";
         const params: any[] = [];
 
         if (activo !== undefined) {
@@ -116,7 +116,8 @@ export const deleteCategoria = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        await query("DELETE FROM categorias WHERE id = ?", [id]);
+        await query("UPDATE categorias SET deleted_at = NOW() WHERE id = ?", [id]);
+        await query("UPDATE subcategorias SET deleted_at = NOW() WHERE categoria_id = ? AND deleted_at IS NULL", [id]);
 
         res.json({
             success: true,
@@ -139,10 +140,10 @@ export const getSubcategorias = async (req: Request, res: Response) => {
         const { categoria_id, activo } = req.query;
 
         let sql = `
-      SELECT s.*, c.nombre as categoria_nombre 
+      SELECT s.*, c.nombre as categoria_nombre
       FROM subcategorias s
       LEFT JOIN categorias c ON s.categoria_id = c.id
-      WHERE 1=1
+      WHERE s.deleted_at IS NULL
     `;
         const params: any[] = [];
 
@@ -250,7 +251,7 @@ export const deleteSubcategoria = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        await query("DELETE FROM subcategorias WHERE id = ?", [id]);
+        await query("UPDATE subcategorias SET deleted_at = NOW() WHERE id = ?", [id]);
 
         res.json({
             success: true,
@@ -272,11 +273,11 @@ export const getBancos = async (req: Request, res: Response) => {
     try {
         const { activo } = req.query;
 
-        let sql = "SELECT * FROM bancos";
+        let sql = "SELECT * FROM bancos WHERE deleted_at IS NULL";
         const params: any[] = [];
 
         if (activo !== undefined) {
-            sql += " WHERE activo = ?";
+            sql += " AND activo = ?";
             params.push(activo === "true" ? 1 : 0);
         }
 
@@ -374,7 +375,7 @@ export const deleteBanco = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        await query("DELETE FROM bancos WHERE id = ?", [id]);
+        await query("UPDATE bancos SET deleted_at = NOW() WHERE id = ?", [id]);
 
         res.json({
             success: true,
@@ -396,11 +397,11 @@ export const getMediosPago = async (req: Request, res: Response) => {
     try {
         const { activo } = req.query;
 
-        let sql = "SELECT * FROM medios_pago";
+        let sql = "SELECT * FROM medios_pago WHERE deleted_at IS NULL";
         const params: any[] = [];
 
         if (activo !== undefined) {
-            sql += " WHERE activo = ?";
+            sql += " AND activo = ?";
             params.push(activo === "true" ? 1 : 0);
         }
 
@@ -498,7 +499,7 @@ export const deleteMedioPago = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
 
-        await query("DELETE FROM medios_pago WHERE id = ?", [id]);
+        await query("UPDATE medios_pago SET deleted_at = NOW() WHERE id = ?", [id]);
 
         res.json({
             success: true,

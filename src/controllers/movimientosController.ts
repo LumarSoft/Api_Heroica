@@ -18,7 +18,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
        FROM movimientos m
        LEFT JOIN categorias c ON m.categoria_id = c.id
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ?
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ? AND m.deleted_at IS NULL
        ORDER BY m.id DESC`,
       [sucursalId, moneda],
     );
@@ -69,7 +69,7 @@ export const updateMovimiento = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -132,7 +132,7 @@ export const deleteMovimiento = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -143,8 +143,8 @@ export const deleteMovimiento = async (req: Request, res: Response) => {
       });
     }
 
-    // Eliminar movimiento (hard delete)
-    await query("DELETE FROM movimientos WHERE id = ?", [id]);
+    // Soft delete
+    await query("UPDATE movimientos SET deleted_at = NOW() WHERE id = ?", [id]);
 
     res.json({
       success: true,
@@ -177,7 +177,7 @@ export const updateEstadoMovimiento = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -335,7 +335,7 @@ export const moverAReal = async (req: Request, res: Response) => {
 
     // Verificar que existe y está en saldo_necesario
     const movResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -406,7 +406,7 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const movResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -528,8 +528,8 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
         SUM(CASE WHEN estado = 'aprobado' AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
         MAX(updated_at) as ultima_actualizacion
-       FROM movimientos 
-       WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo' AND moneda = ?`,
+       FROM movimientos
+       WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo' AND moneda = ? AND deleted_at IS NULL`,
       [sucursalId, moneda],
     );
 
@@ -573,7 +573,7 @@ export const getMovimientosBancoBySucursal = async (
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ?
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
        ORDER BY m.id DESC`,
       [sucursalId, moneda],
     );
@@ -806,7 +806,7 @@ export const deleteMovimientoBanco = async (req: Request, res: Response) => {
 
     // Verificar que existe
     const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -817,9 +817,9 @@ export const deleteMovimientoBanco = async (req: Request, res: Response) => {
       });
     }
 
-    // Eliminar
+    // Soft delete
     await query(
-      "DELETE FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "UPDATE movimientos SET deleted_at = NOW() WHERE id = ? AND tipo_movimiento = 'banco'",
       [id],
     );
 
@@ -843,7 +843,7 @@ export const moverARealBanco = async (req: Request, res: Response) => {
 
     // Verificar que existe y está en saldo_necesario
     const movResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -914,7 +914,7 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const movResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -1036,8 +1036,8 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
         SUM(CASE WHEN estado IN ('aprobado', 'pendiente') AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
         MAX(updated_at) as ultima_actualizacion
-       FROM movimientos 
-       WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ?`,
+       FROM movimientos
+       WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ? AND deleted_at IS NULL`,
       [sucursalId, moneda],
     );
 
@@ -1049,7 +1049,7 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
         SUM(CASE WHEN m.estado IN ('aprobado', 'pendiente') AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario
        FROM movimientos m
        LEFT JOIN bancos b ON m.banco_id = b.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ?
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
        GROUP BY b.id, b.nombre`,
       [sucursalId, moneda],
     );
@@ -1092,7 +1092,7 @@ export const updateEstadoMovimientoBanco = async (
 
     // Verificar que existe
     const existingResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -1172,7 +1172,7 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL)
+      WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL
     `;
 
     const params: any[] = [];
@@ -1226,7 +1226,7 @@ export const getPagosPendientesBySucursal = async (
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL)
+      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL
     `;
 
     const params: any[] = [sucursalId];

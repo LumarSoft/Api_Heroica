@@ -56,7 +56,7 @@ export const getDocumentos = async (req: Request, res: Response) => {
         const { id } = req.params;
 
         const result: any = await query(
-            'SELECT * FROM documentos_sucursal WHERE sucursal_id = ? ORDER BY fecha_subida DESC',
+            'SELECT * FROM documentos_sucursal WHERE sucursal_id = ? AND deleted_at IS NULL ORDER BY fecha_subida DESC',
             [id]
         );
 

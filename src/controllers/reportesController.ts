@@ -15,8 +15,9 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       FROM movimientos m
       LEFT JOIN categorias c ON m.categoria_id = c.id
       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
-      WHERE m.sucursal_id = ? 
+      WHERE m.sucursal_id = ?
         AND m.moneda = ?
+        AND m.deleted_at IS NULL
         AND m.estado IN ('completado', 'aprobado')
         AND (
           (m.es_deuda = 0 OR m.es_deuda IS NULL)
