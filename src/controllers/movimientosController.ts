@@ -6,6 +6,20 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
     const moneda = (req.query.moneda as string) || "ARS";
+    const user = req.user!;
+
+    // Verificar acceso a la sucursal
+    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
+    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    if (!isSuperAdmin) {
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [user.id, sucursalId]
+      );
+      if (!acceso || acceso.length === 0) {
+        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+      }
+    }
 
     // Obtener todos los movimientos de la sucursal
     const result: any = await query(
@@ -522,6 +536,20 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
     const moneda = (req.query.moneda as string) || "ARS";
+    const user = req.user!;
+
+    // Verificar acceso a la sucursal
+    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
+    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    if (!isSuperAdmin) {
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [user.id, sucursalId]
+      );
+      if (!acceso || acceso.length === 0) {
+        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+      }
+    }
 
     const result: any = await query(
       `SELECT 
@@ -558,6 +586,20 @@ export const getMovimientosBancoBySucursal = async (
   try {
     const { sucursalId } = req.params;
     const moneda = (req.query.moneda as string) || "ARS";
+    const user = req.user!;
+
+    // Verificar acceso a la sucursal
+    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
+    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    if (!isSuperAdmin) {
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [user.id, sucursalId]
+      );
+      if (!acceso || acceso.length === 0) {
+        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+      }
+    }
 
     const result: any = await query(
       `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.comprobante, m.monto, m.descripcion, m.prioridad, 
@@ -1030,6 +1072,20 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
     const moneda = (req.query.moneda as string) || "ARS";
+    const user = req.user!;
+
+    // Verificar acceso a la sucursal
+    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
+    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    if (!isSuperAdmin) {
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [user.id, sucursalId]
+      );
+      if (!acceso || acceso.length === 0) {
+        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+      }
+    }
 
     const result: any = await query(
       `SELECT 

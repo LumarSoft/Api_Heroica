@@ -13,36 +13,32 @@ import {
   deleteDocumento,
   downloadDocumento,
 } from "../controllers/documentacionController";
+import { requireAuth, requirePermission } from "../middlewares/authMiddleware";
 
 const router = Router();
 
-// Obtener todas las sucursales
-router.get("/", getSucursales);
+// Todas las rutas requieren autenticación
+router.use(requireAuth);
+
+// Obtener todas las sucursales (filtrado por usuario en el controller)
+router.get("/", requirePermission("ver_sucursales"), getSucursales);
 
 // Obtener una sucursal por ID
-router.get("/:id", getSucursalById);
+router.get("/:id", requirePermission("ver_sucursales"), getSucursalById);
 
 // Crear nueva sucursal
-router.post("/", createSucursal);
+router.post("/", requirePermission("gestionar_sucursales"), createSucursal);
 
 // Actualizar sucursal
-router.put("/:id", updateSucursal);
+router.put("/:id", requirePermission("gestionar_sucursales"), updateSucursal);
 
 // Eliminar sucursal (soft delete)
-router.delete("/:id", deleteSucursal);
+router.delete("/:id", requirePermission("gestionar_sucursales"), deleteSucursal);
 
-// ========== DOCUMENTACIÓN (MÚLTIPLES ARCHIVOS) ==========
-
-// Obtener todos los documentos de una sucursal
-router.get("/:id/documentos", getDocumentos);
-
-// Subir nuevo documento
-router.post("/:id/documentos", upload.single("file"), uploadDocumento);
-
-// Descargar documento específico
-router.get("/:sucursalId/documentos/:docId/download", downloadDocumento);
-
-// Eliminar documento específico
-router.delete("/:sucursalId/documentos/:docId", deleteDocumento);
+// Documentación de sucursales
+router.get("/:id/documentos", requirePermission("ver_sucursales"), getDocumentos);
+router.post("/:id/documentos", requirePermission("gestionar_sucursales"), upload.single("file"), uploadDocumento);
+router.get("/:sucursalId/documentos/:docId/download", requirePermission("ver_sucursales"), downloadDocumento);
+router.delete("/:sucursalId/documentos/:docId", requirePermission("gestionar_sucursales"), deleteDocumento);
 
 export default router;

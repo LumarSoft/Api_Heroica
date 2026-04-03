@@ -4,10 +4,30 @@ import { query } from "../config/database";
 // GET /api/sucursales
 export const getSucursales = async (req: Request, res: Response) => {
   try {
-    // Obtener todas las sucursales (activas e inactivas), activas primero
-    const result: any = await query(
-      "SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC",
-    );
+    const user = req.user!;
+
+    // Verificar si el usuario es superadmin consultando su rol
+    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
+    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+
+    let result: any;
+
+    if (isSuperAdmin) {
+      // Superadmin ve todas las sucursales
+      result = await query(
+        'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC'
+      );
+    } else {
+      // Usuario normal: solo ve las sucursales asignadas
+      result = await query(
+        `SELECT s.id, s.nombre, s.razon_social, s.cuit, s.direccion, s.activo
+         FROM sucursales s
+         INNER JOIN usuarios_sucursales us ON s.id = us.sucursal_id
+         WHERE s.deleted_at IS NULL AND us.usuario_id = ?
+         ORDER BY s.activo DESC, s.nombre ASC`,
+        [user.id]
+      );
+    }
 
     res.json({
       success: true,
@@ -26,6 +46,25 @@ export const getSucursales = async (req: Request, res: Response) => {
 export const getSucursalById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const user = req.user!;
+
+    // Verificar si el usuario es superadmin
+    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
+    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+
+    if (!isSuperAdmin) {
+      // Verificar que el usuario tiene acceso a esa sucursal
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [user.id, id]
+      );
+      if (!acceso || acceso.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'No tenés acceso a esta sucursal'
+        });
+      }
+    }
 
     const result: any = await query(
       "SELECT * FROM sucursales WHERE id = ? AND deleted_at IS NULL",

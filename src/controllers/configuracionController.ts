@@ -562,48 +562,55 @@ export const getUsuarios = async (req: Request, res: Response) => {
 
 // PUT /api/configuracion/usuarios/:id/rol
 export const updateUsuarioRol = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { rol_id } = req.body;
+    try {
+        const { id } = req.params;
+        const { rol_id } = req.body;
 
-    if (!rol_id) {
-      return res.status(400).json({
-        success: false,
-        message: "El rol_id es requerido",
-      });
-    }
+        if (!rol_id) {
+            return res.status(400).json({
+                success: false,
+                message: "El rol_id es requerido",
+            });
+        }
 
-    const validRoles = [1, 2, 3];
-    if (!validRoles.includes(rol_id)) {
-      return res.status(400).json({
-        success: false,
-        message: "El rol_id debe ser 1 (gerente), 2 (admin) o 3 (superadmin)",
-      });
-    }
+        // Verificar que el rol existe en la DB (dinámico)
+        const rolExiste: any = await query(
+            "SELECT id FROM roles WHERE id = ?",
+            [rol_id]
+        );
+        if (!rolExiste || rolExiste.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "El rol especificado no existe",
+            });
+        }
 
-    const usuario: any = await query(
-      "SELECT email FROM usuarios WHERE id = ?",
-      [id],
-    );
+        const usuario: any = await query(
+            "SELECT email FROM usuarios WHERE id = ?",
+            [id]
+        );
 
-    if (!usuario || usuario.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Usuario no encontrado",
-      });
-    }
+        if (!usuario || usuario.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Usuario no encontrado",
+            });
+        }
 
-    if (usuario[0].email === "admin@heroica.com") {
-      return res.status(403).json({
-        success: false,
-        message: "No se puede modificar el usuario administrador principal",
-      });
-    }
+        if (usuario[0].email === "admin@heroica.com") {
+            return res.status(403).json({
+                success: false,
+                message: "No se puede modificar el usuario administrador principal",
+            });
+        }
 
-    await query("UPDATE usuarios SET rol_id = ? WHERE id = ?", [rol_id, id]);
+        await query(
+            "UPDATE usuarios SET rol_id = ? WHERE id = ?",
+            [rol_id, id]
+        );
 
-    const updated: any = await query(
-      `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
+        const updated: any = await query(
+            `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, u.must_change_password, r.nombre as rol
              FROM usuarios u
              LEFT JOIN roles r ON u.rol_id = r.id
              WHERE u.id = ?`,
@@ -718,55 +725,348 @@ export const deleteUsuario = async (req: Request, res: Response) => {
 
 // POST /api/configuracion/usuarios
 export const createUsuario = async (req: Request, res: Response) => {
-  try {
-    const { email, password, nombre, rol_id } = req.body;
+    try {
+        const { email, password, nombre, rol_id, sucursal_ids, must_change_password } = req.body;
 
-    if (!email || !password || !nombre || !rol_id) {
-      return res.status(400).json({
-        success: false,
-        message: "Email, contraseña, nombre y rol son requeridos",
-      });
-    }
+        if (!email || !password || !nombre || !rol_id) {
+            return res.status(400).json({
+                success: false,
+                message: "Email, contraseña, nombre y rol son requeridos",
+            });
+        }
 
-    const validRoles = [1, 2, 3];
-    if (!validRoles.includes(rol_id)) {
-      return res.status(400).json({
-        success: false,
-        message: "El rol_id debe ser 1 (gerente), 2 (admin) o 3 (superadmin)",
-      });
-    }
+        if (password.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: "La contraseña debe tener al menos 6 caracteres",
+            });
+        }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+        // Verificar que el rol existe en la DB (dinámico)
+        const rolExiste: any = await query(
+            "SELECT id FROM roles WHERE id = ?",
+            [rol_id]
+        );
+        if (!rolExiste || rolExiste.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "El rol especificado no existe",
+            });
+        }
 
-    const result: any = await query(
-      "INSERT INTO usuarios (email, password, nombre, rol_id) VALUES (?, ?, ?, ?)",
-      [email, hashedPassword, nombre, rol_id],
-    );
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const forcePwdChange = must_change_password ? 1 : 0;
 
-    const created: any = await query(
-      `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
+        const result: any = await query(
+            "INSERT INTO usuarios (email, password, nombre, rol_id, must_change_password) VALUES (?, ?, ?, ?, ?)",
+            [email, hashedPassword, nombre, rol_id, forcePwdChange]
+        );
+
+        const newUserId = result.insertId;
+
+        // Asignar sucursales si se proporcionaron
+        if (Array.isArray(sucursal_ids) && sucursal_ids.length > 0) {
+            const placeholders = sucursal_ids.map(() => "(?, ?)").join(", ");
+            const flatParams = sucursal_ids.flatMap((sid: number) => [newUserId, sid]);
+            await query(
+                `INSERT IGNORE INTO usuarios_sucursales (usuario_id, sucursal_id) VALUES ${placeholders}`,
+                flatParams
+            );
+        }
+
+        const created: any = await query(
+            `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, u.must_change_password, r.nombre as rol
              FROM usuarios u
              LEFT JOIN roles r ON u.rol_id = r.id
              WHERE u.id = ?`,
-      [result.insertId],
-    );
+            [newUserId]
+        );
 
-    res.status(201).json({
-      success: true,
-      message: "Usuario creado exitosamente",
-      data: created[0],
-    });
-  } catch (error: any) {
-    console.error("Error al crear usuario:", error);
-    if (error.code === "ER_DUP_ENTRY") {
-      return res.status(400).json({
-        success: false,
-        message: "Ya existe un usuario con ese email",
-      });
+        res.status(201).json({
+            success: true,
+            message: "Usuario creado exitosamente",
+            data: created[0],
+        });
+    } catch (error: any) {
+        console.error("Error al crear usuario:", error);
+        if (error.code === "ER_DUP_ENTRY") {
+            return res.status(400).json({
+                success: false,
+                message: "Ya existe un usuario con ese email",
+            });
+        }
+        res.status(500).json({
+            success: false,
+            message: "Error al crear usuario",
+        });
     }
     res.status(500).json({
       success: false,
       message: "Error al crear usuario",
     });
   }
+};
+
+// ========== ROLES ==========
+
+// GET /api/configuracion/roles
+export const getRoles = async (req: Request, res: Response) => {
+    try {
+        const roles: any = await query(
+            `SELECT r.id, r.nombre, r.descripcion, r.es_sistema,
+                GROUP_CONCAT(p.clave SEPARATOR ',') as permisos_claves,
+                GROUP_CONCAT(p.id SEPARATOR ',') as permisos_ids
+             FROM roles r
+             LEFT JOIN roles_permisos rp ON r.id = rp.rol_id
+             LEFT JOIN permisos p ON rp.permiso_id = p.id
+             GROUP BY r.id
+             ORDER BY r.id ASC`,
+            []
+        );
+
+        const result = roles.map((rol: any) => ({
+            ...rol,
+            permisos_ids: rol.permisos_ids
+                ? rol.permisos_ids.split(',').map(Number)
+                : [],
+            permisos_claves: rol.permisos_claves
+                ? rol.permisos_claves.split(',')
+                : [],
+        }));
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error("Error al obtener roles:", error);
+        res.status(500).json({ success: false, message: "Error al obtener roles" });
+    }
+};
+
+// POST /api/configuracion/roles
+export const createRol = async (req: Request, res: Response) => {
+    try {
+        const { nombre, descripcion, permiso_ids } = req.body;
+
+        if (!nombre) {
+            return res.status(400).json({
+                success: false,
+                message: "El nombre del rol es requerido",
+            });
+        }
+
+        const result: any = await query(
+            "INSERT INTO roles (nombre, descripcion, es_sistema) VALUES (?, ?, 0)",
+            [nombre.toLowerCase().trim(), descripcion || null]
+        );
+
+        const rolId = result.insertId;
+
+        // Asignar permisos
+        if (Array.isArray(permiso_ids) && permiso_ids.length > 0) {
+            const placeholders = permiso_ids.map(() => "(?, ?)").join(", ");
+            const flatParams = permiso_ids.flatMap((pid: number) => [rolId, pid]);
+            await query(
+                `INSERT IGNORE INTO roles_permisos (rol_id, permiso_id) VALUES ${placeholders}`,
+                flatParams
+            );
+        }
+
+        const creado: any = await query(
+            `SELECT r.id, r.nombre, r.descripcion, r.es_sistema,
+                GROUP_CONCAT(p.id SEPARATOR ',') as permisos_ids
+             FROM roles r
+             LEFT JOIN roles_permisos rp ON r.id = rp.rol_id
+             LEFT JOIN permisos p ON rp.permiso_id = p.id
+             WHERE r.id = ?
+             GROUP BY r.id`,
+            [rolId]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: "Rol creado exitosamente",
+            data: {
+                ...creado[0],
+                permisos_ids: creado[0]?.permisos_ids
+                    ? creado[0].permisos_ids.split(',').map(Number)
+                    : [],
+            },
+        });
+    } catch (error: any) {
+        console.error("Error al crear rol:", error);
+        if (error.code === "ER_DUP_ENTRY") {
+            return res.status(400).json({
+                success: false,
+                message: "Ya existe un rol con ese nombre",
+            });
+        }
+        res.status(500).json({ success: false, message: "Error al crear rol" });
+    }
+};
+
+// PUT /api/configuracion/roles/:id
+export const updateRol = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { nombre, descripcion, permiso_ids } = req.body;
+
+        const rol: any = await query("SELECT * FROM roles WHERE id = ?", [id]);
+        if (!rol || rol.length === 0) {
+            return res.status(404).json({ success: false, message: "Rol no encontrado" });
+        }
+
+        // Actualizar nombre/descripción
+        await query(
+            "UPDATE roles SET nombre = ?, descripcion = ? WHERE id = ?",
+            [nombre || rol[0].nombre, descripcion ?? rol[0].descripcion, id]
+        );
+
+        // Reemplazar permisos
+        await query("DELETE FROM roles_permisos WHERE rol_id = ?", [id]);
+        if (Array.isArray(permiso_ids) && permiso_ids.length > 0) {
+            const placeholders = permiso_ids.map(() => "(?, ?)").join(", ");
+            const flatParams = permiso_ids.flatMap((pid: number) => [Number(id), pid]);
+            await query(
+                `INSERT IGNORE INTO roles_permisos (rol_id, permiso_id) VALUES ${placeholders}`,
+                flatParams
+            );
+        }
+
+        const actualizado: any = await query(
+            `SELECT r.id, r.nombre, r.descripcion, r.es_sistema,
+                GROUP_CONCAT(p.id SEPARATOR ',') as permisos_ids
+             FROM roles r
+             LEFT JOIN roles_permisos rp ON r.id = rp.rol_id
+             LEFT JOIN permisos p ON rp.permiso_id = p.id
+             WHERE r.id = ?
+             GROUP BY r.id`,
+            [id]
+        );
+
+        res.json({
+            success: true,
+            message: "Rol actualizado exitosamente",
+            data: {
+                ...actualizado[0],
+                permisos_ids: actualizado[0]?.permisos_ids
+                    ? actualizado[0].permisos_ids.split(',').map(Number)
+                    : [],
+            },
+        });
+    } catch (error) {
+        console.error("Error al actualizar rol:", error);
+        res.status(500).json({ success: false, message: "Error al actualizar rol" });
+    }
+};
+
+// DELETE /api/configuracion/roles/:id
+export const deleteRol = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        const rol: any = await query("SELECT * FROM roles WHERE id = ?", [id]);
+        if (!rol || rol.length === 0) {
+            return res.status(404).json({ success: false, message: "Rol no encontrado" });
+        }
+
+        if (rol[0].es_sistema) {
+            return res.status(403).json({
+                success: false,
+                message: "No se puede eliminar un rol del sistema",
+            });
+        }
+
+        const usuarios: any = await query(
+            "SELECT COUNT(*) as total FROM usuarios WHERE rol_id = ? AND deleted_at IS NULL",
+            [id]
+        );
+        if (usuarios[0].total > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `No se puede eliminar el rol porque tiene ${usuarios[0].total} usuario(s) asignado(s)`,
+            });
+        }
+
+        await query("DELETE FROM roles WHERE id = ?", [id]);
+
+        res.json({ success: true, message: "Rol eliminado exitosamente" });
+    } catch (error) {
+        console.error("Error al eliminar rol:", error);
+        res.status(500).json({ success: false, message: "Error al eliminar rol" });
+    }
+};
+
+// ========== PERMISOS ==========
+
+// GET /api/configuracion/permisos
+export const getPermisos = async (req: Request, res: Response) => {
+    try {
+        const result: any = await query(
+            "SELECT * FROM permisos ORDER BY categoria, descripcion ASC",
+            []
+        );
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error("Error al obtener permisos:", error);
+        res.status(500).json({ success: false, message: "Error al obtener permisos" });
+    }
+};
+
+// ========== SUCURSALES POR USUARIO ==========
+
+// GET /api/configuracion/usuarios/:id/sucursales
+export const getUsuarioSucursales = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const result: any = await query(
+            `SELECT s.id, s.nombre
+             FROM sucursales s
+             INNER JOIN usuarios_sucursales us ON s.id = us.sucursal_id
+             WHERE us.usuario_id = ? AND s.activo = 1
+             ORDER BY s.nombre ASC`,
+            [id]
+        );
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error("Error al obtener sucursales del usuario:", error);
+        res.status(500).json({ success: false, message: "Error al obtener sucursales del usuario" });
+    }
+};
+
+// PUT /api/configuracion/usuarios/:id/sucursales
+export const updateUsuarioSucursales = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { sucursal_ids } = req.body;
+
+        // Eliminar todas las asignaciones previas
+        await query("DELETE FROM usuarios_sucursales WHERE usuario_id = ?", [id]);
+
+        // Insertar las nuevas
+        if (Array.isArray(sucursal_ids) && sucursal_ids.length > 0) {
+            const placeholders = sucursal_ids.map(() => "(?, ?)").join(", ");
+            const flatParams = sucursal_ids.flatMap((sid: number) => [Number(id), sid]);
+            await query(
+                `INSERT IGNORE INTO usuarios_sucursales (usuario_id, sucursal_id) VALUES ${placeholders}`,
+                flatParams
+            );
+        }
+
+        const result: any = await query(
+            `SELECT s.id, s.nombre
+             FROM sucursales s
+             INNER JOIN usuarios_sucursales us ON s.id = us.sucursal_id
+             WHERE us.usuario_id = ?
+             ORDER BY s.nombre ASC`,
+            [id]
+        );
+
+        res.json({
+            success: true,
+            message: "Sucursales del usuario actualizadas",
+            data: result,
+        });
+    } catch (error) {
+        console.error("Error al actualizar sucursales del usuario:", error);
+        res.status(500).json({ success: false, message: "Error al actualizar sucursales" });
+    }
 };
