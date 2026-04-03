@@ -12,6 +12,7 @@ import reportesRoutes from "./routes/reportesRoutes";
 import healthRoutes from "./routes/healthRoutes";
 import cuentasBancariasRoutes from "./routes/cuentasBancariasRoutes";
 import tareasRoutes from "./routes/tareasRoutes";
+import { syncPermisos } from "./config/permisos";
 
 // Cargar variables de entorno
 dotenv.config();
@@ -89,7 +90,7 @@ app.use((req: Request, res: Response) => {
 });
 
 // Iniciar servidor
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`
   ╔═══════════════════════════════════════╗
   ║                                       ║
@@ -100,6 +101,9 @@ app.listen(PORT, () => {
   ║                                       ║
   ╚═══════════════════════════════════════╝
   `);
+
+  // Sincronizar permisos del sistema con la base de datos
+  await syncPermisos();
 });
 
 export default app;

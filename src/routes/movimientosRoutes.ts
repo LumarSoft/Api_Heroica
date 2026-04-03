@@ -19,48 +19,52 @@ import {
   downloadDocumento,
   upload,
 } from "../controllers/documentosMovimientoController";
+import { requireAuth, requirePermission } from "../middlewares/authMiddleware";
 
 const router = Router();
 
+// Todas las rutas requieren autenticación
+router.use(requireAuth);
+
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros dinámicos
 
-// Deudas inter-sucursal (debe ir antes de /:sucursalId)
-router.get("/deudas", getDeudasInterSucursal);
+// Deudas inter-sucursal
+router.get("/deudas", requirePermission("ver_movimientos"), getDeudasInterSucursal);
 
-// Crear movimiento efectivo (debe ir antes de /:sucursalId)
-router.post("/efectivo", createMovimientoEfectivo);
+// Crear movimiento efectivo
+router.post("/efectivo", requirePermission("crear_movimientos"), createMovimientoEfectivo);
 
-// Compra-venta de divisas (crea 2 movimientos: USD y ARS)
-router.post("/compra-venta-divisas", compraVentaDivisas);
+// Compra-venta de divisas
+router.post("/compra-venta-divisas", requirePermission("crear_movimientos"), compraVentaDivisas);
 
-// Mover movimiento a saldo real (debe ir antes de /:id)
-router.put("/efectivo/:id/mover-a-real", moverAReal);
+// Mover movimiento a saldo real
+router.put("/efectivo/:id/mover-a-real", requirePermission("aprobar_movimientos"), moverAReal);
 
-// Obtener totales de una sucursal (debe ir antes de /:sucursalId)
-router.get("/:sucursalId/totales", getTotalesEfectivo);
+// Obtener totales de una sucursal
+router.get("/:sucursalId/totales", requirePermission("ver_movimientos"), getTotalesEfectivo);
 
 // Obtener todos los movimientos de una sucursal
-router.get("/:sucursalId", getMovimientosBySucursal);
+router.get("/:sucursalId", requirePermission("ver_movimientos"), getMovimientosBySucursal);
 
 // Actualizar estado de movimiento
-router.put("/:id/estado", updateEstadoMovimiento);
+router.put("/:id/estado", requirePermission("aprobar_movimientos"), updateEstadoMovimiento);
 
 // Actualizar deuda de movimiento
-router.put("/:id/deuda", toggleDeudaEfectivo);
+router.put("/:id/deuda", requirePermission("editar_movimientos"), toggleDeudaEfectivo);
+
+// Mover movimiento (internamente entre sucursales)
+router.put("/:id/mover", requirePermission("editar_movimientos"), moverMovimiento);
 
 // Actualizar movimiento
-router.put("/:id", updateMovimiento);
-
-// Mover movimiento (internamente)
-router.put("/:id/mover", moverMovimiento);
+router.put("/:id", requirePermission("editar_movimientos"), updateMovimiento);
 
 // Eliminar movimiento
-router.delete("/:id", deleteMovimiento);
+router.delete("/:id", requirePermission("eliminar_movimientos"), deleteMovimiento);
 
-// Rutas para documentos de movimientos
-router.get("/:id/documentos", getDocumentos);
-router.post("/:id/documentos", upload.single("file"), uploadDocumento);
-router.get("/:movimientoId/documentos/:docId/download", downloadDocumento);
-router.delete("/:movimientoId/documentos/:docId", deleteDocumento);
+// Documentos de movimientos
+router.get("/:id/documentos", requirePermission("ver_movimientos"), getDocumentos);
+router.post("/:id/documentos", requirePermission("crear_movimientos"), upload.single("file"), uploadDocumento);
+router.get("/:movimientoId/documentos/:docId/download", requirePermission("ver_movimientos"), downloadDocumento);
+router.delete("/:movimientoId/documentos/:docId", requirePermission("eliminar_movimientos"), deleteDocumento);
 
 export default router;

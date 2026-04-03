@@ -1,35 +1,39 @@
-import { Router } from 'express';
+import { Router } from "express";
 import {
-    getPagosPendientesBySucursal,
-    getAllPagosPendientes,
-    createPagoPendiente,
-    aprobarPagoPendiente,
-    rechazarPagoPendiente,
-    deletePagoPendiente,
-    getHistorialByUser
-} from '../controllers/movimientosController';
+  getPagosPendientesBySucursal,
+  getAllPagosPendientes,
+  createPagoPendiente,
+  aprobarPagoPendiente,
+  rechazarPagoPendiente,
+  deletePagoPendiente,
+  getHistorialByUser,
+} from "../controllers/movimientosController";
+import { requireAuth, requirePermission } from "../middlewares/authMiddleware";
 
 const router = Router();
 
-// Obtener historial de un usuario
-router.get('/historial/:userId', getHistorialByUser);
+// Todas las rutas requieren autenticación
+router.use(requireAuth);
 
-// Obtener todos los pagos pendientes
-router.get('/all', getAllPagosPendientes);
+// Historial de un usuario
+router.get("/historial/:userId", requirePermission("ver_pendientes"), getHistorialByUser);
 
-// Obtener pagos pendientes de una sucursal
-router.get('/:sucursalId', getPagosPendientesBySucursal);
+// Todos los pagos pendientes (vista global)
+router.get("/all", requirePermission("ver_pendientes"), getAllPagosPendientes);
+
+// Pagos pendientes de una sucursal
+router.get("/:sucursalId", requirePermission("ver_pendientes"), getPagosPendientesBySucursal);
 
 // Crear nuevo pago pendiente
-router.post('/', createPagoPendiente);
+router.post("/", requirePermission("cargar_pendientes"), createPagoPendiente);
 
 // Aprobar pago pendiente
-router.put('/:id/aprobar', aprobarPagoPendiente);
+router.put("/:id/aprobar", requirePermission("aprobar_pendientes"), aprobarPagoPendiente);
 
 // Rechazar pago pendiente
-router.put('/:id/rechazar', rechazarPagoPendiente);
+router.put("/:id/rechazar", requirePermission("aprobar_pendientes"), rechazarPagoPendiente);
 
 // Eliminar pago pendiente
-router.delete('/:id', deletePagoPendiente);
+router.delete("/:id", requirePermission("aprobar_pendientes"), deletePagoPendiente);
 
 export default router;

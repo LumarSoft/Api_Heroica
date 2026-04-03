@@ -7,6 +7,20 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
     const { startDate, endDate, moneda = "ARS" } = req.query;
+    const user = req.user!;
+
+    // Verificar acceso a la sucursal
+    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
+    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    if (!isSuperAdmin) {
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [user.id, sucursalId]
+      );
+      if (!acceso || acceso.length === 0) {
+        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+      }
+    }
 
     let sql = `
       SELECT m.id, m.fecha, m.concepto, m.monto, m.tipo, m.tipo_movimiento as medio_pago,
