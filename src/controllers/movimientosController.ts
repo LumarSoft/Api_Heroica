@@ -32,8 +32,8 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
        FROM movimientos m
        LEFT JOIN categorias c ON m.categoria_id = c.id
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ?
-       ORDER BY m.fecha DESC`,
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ? AND m.deleted_at IS NULL
+       ORDER BY m.id DESC`,
       [sucursalId, moneda],
     );
 
@@ -83,7 +83,7 @@ export const updateMovimiento = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -146,7 +146,7 @@ export const deleteMovimiento = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -157,8 +157,8 @@ export const deleteMovimiento = async (req: Request, res: Response) => {
       });
     }
 
-    // Eliminar movimiento (hard delete)
-    await query("DELETE FROM movimientos WHERE id = ?", [id]);
+    // Soft delete
+    await query("UPDATE movimientos SET deleted_at = NOW() WHERE id = ?", [id]);
 
     res.json({
       success: true,
@@ -191,7 +191,7 @@ export const updateEstadoMovimiento = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const existingResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -349,7 +349,7 @@ export const moverAReal = async (req: Request, res: Response) => {
 
     // Verificar que existe y está en saldo_necesario
     const movResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -420,7 +420,7 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const movResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo'",
+      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
       [id],
     );
 
@@ -556,8 +556,8 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
         SUM(CASE WHEN estado = 'aprobado' AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
         MAX(updated_at) as ultima_actualizacion
-       FROM movimientos 
-       WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo' AND moneda = ?`,
+       FROM movimientos
+       WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo' AND moneda = ? AND deleted_at IS NULL`,
       [sucursalId, moneda],
     );
 
@@ -615,8 +615,8 @@ export const getMovimientosBancoBySucursal = async (
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ?
-       ORDER BY m.fecha DESC`,
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
+       ORDER BY m.id DESC`,
       [sucursalId, moneda],
     );
 
@@ -848,7 +848,7 @@ export const deleteMovimientoBanco = async (req: Request, res: Response) => {
 
     // Verificar que existe
     const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -859,9 +859,9 @@ export const deleteMovimientoBanco = async (req: Request, res: Response) => {
       });
     }
 
-    // Eliminar
+    // Soft delete
     await query(
-      "DELETE FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "UPDATE movimientos SET deleted_at = NOW() WHERE id = ? AND tipo_movimiento = 'banco'",
       [id],
     );
 
@@ -885,7 +885,7 @@ export const moverARealBanco = async (req: Request, res: Response) => {
 
     // Verificar que existe y está en saldo_necesario
     const movResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -956,7 +956,7 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
 
     // Verificar que el movimiento existe
     const movResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -1092,8 +1092,8 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
         SUM(CASE WHEN estado IN ('aprobado', 'pendiente') AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
         MAX(updated_at) as ultima_actualizacion
-       FROM movimientos 
-       WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ?`,
+       FROM movimientos
+       WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ? AND deleted_at IS NULL`,
       [sucursalId, moneda],
     );
 
@@ -1105,7 +1105,7 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
         SUM(CASE WHEN m.estado IN ('aprobado', 'pendiente') AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario
        FROM movimientos m
        LEFT JOIN bancos b ON m.banco_id = b.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ?
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
        GROUP BY b.id, b.nombre`,
       [sucursalId, moneda],
     );
@@ -1148,7 +1148,7 @@ export const updateEstadoMovimientoBanco = async (
 
     // Verificar que existe
     const existingResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
+      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
       [id],
     );
 
@@ -1228,7 +1228,7 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL)
+      WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL
     `;
 
     const params: any[] = [];
@@ -1282,7 +1282,7 @@ export const getPagosPendientesBySucursal = async (
       FROM movimientos pp
       LEFT JOIN usuarios uc ON pp.user_id = uc.id
       LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL)
+      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL
     `;
 
     const params: any[] = [sucursalId];
@@ -1635,7 +1635,7 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       queryParams.push(moneda);
     }
 
-    sql += " ORDER BY m.fecha DESC, m.created_at DESC";
+    sql += " ORDER BY m.id DESC";
 
     const result: any = await query(sql, queryParams);
 
@@ -2232,7 +2232,7 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
       params.push(`${fechaFin} 23:59:59`);
     }
 
-    sql += ` ORDER BY m.fecha DESC`;
+    sql += ` ORDER BY m.id DESC`;
 
     const result = await query(sql, params);
 
@@ -2242,5 +2242,123 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
     return res
       .status(500)
       .json({ success: false, message: "Error interno del servidor" });
+  }
+};
+
+// DELETE /api/movimientos/bulk  — Body: { ids: number[] }
+export const deleteBulkMovimientos = async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Se requiere un array de ids no vacío.",
+        });
+    }
+
+    const placeholders = ids.map(() => "?").join(", ");
+    await query(`DELETE FROM movimientos WHERE id IN (${placeholders})`, ids);
+
+    res.json({
+      success: true,
+      message: `${ids.length} movimiento(s) eliminado(s).`,
+    });
+  } catch (error) {
+    console.error("Error en deleteBulkMovimientos:", error);
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Error al eliminar movimientos en bloque.",
+      });
+  }
+};
+
+// PUT /api/movimientos/bulk/mover
+// Body: { ids, destino_sucursal_id, destino_tipo_movimiento, destino_saldo, banco_id?, medio_pago_id?, numero_cheque?, banco?, cuenta?, cbu?, tipo_operacion? }
+export const moverBulkMovimientos = async (req: Request, res: Response) => {
+  try {
+    const {
+      ids,
+      destino_sucursal_id,
+      destino_tipo_movimiento,
+      destino_saldo,
+      banco_id,
+      medio_pago_id,
+      numero_cheque,
+      banco,
+      cuenta,
+      cbu,
+      tipo_operacion,
+    } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Se requiere un array de ids no vacío.",
+        });
+    }
+    if (!destino_sucursal_id || !destino_tipo_movimiento || !destino_saldo) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Faltan datos de destino obligatorios.",
+        });
+    }
+
+    const nuevoEstado =
+      destino_saldo === "saldo_real" ? "completado" : "aprobado";
+    const placeholders = ids.map(() => "?").join(", ");
+
+    if (destino_tipo_movimiento === "efectivo") {
+      await query(
+        `UPDATE movimientos
+         SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?,
+             banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL,
+             banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+         WHERE id IN (${placeholders})`,
+        [destino_sucursal_id, destino_saldo, nuevoEstado, ...ids],
+      );
+    } else {
+      await query(
+        `UPDATE movimientos
+         SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?,
+             banco_id = ?, medio_pago_id = ?, numero_cheque = ?,
+             banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
+         WHERE id IN (${placeholders})`,
+        [
+          destino_sucursal_id,
+          destino_saldo,
+          nuevoEstado,
+          banco_id || null,
+          medio_pago_id || null,
+          numero_cheque || null,
+          banco || null,
+          cuenta || null,
+          cbu || null,
+          tipo_operacion || null,
+          ...ids,
+        ],
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `${ids.length} movimiento(s) movido(s).`,
+    });
+  } catch (error) {
+    console.error("Error en moverBulkMovimientos:", error);
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Error al mover movimientos en bloque.",
+      });
   }
 };

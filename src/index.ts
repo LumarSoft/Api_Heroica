@@ -19,7 +19,9 @@ dotenv.config();
 
 // Verificar variables de entorno críticas al arranque
 if (!process.env.JWT_SECRET) {
-  console.error("FATAL: La variable de entorno JWT_SECRET no está definida. El servidor no puede iniciar.");
+  console.error(
+    "FATAL: La variable de entorno JWT_SECRET no está definida. El servidor no puede iniciar.",
+  );
   process.exit(1);
 }
 
@@ -35,7 +37,8 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Demasiados intentos de inicio de sesión. Intente nuevamente en 15 minutos.",
+    message:
+      "Demasiados intentos de inicio de sesión. Intente nuevamente en 15 minutos.",
   },
 });
 

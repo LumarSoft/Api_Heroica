@@ -25,6 +25,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
     "@types/node": "^20.19.37",
+    "@types/speakeasy": "^2.0.10",
     "@vercel/blob": "2.3.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
@@ -34,8 +35,13 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "mysql2": "^3.16.1",
+    "qrcode": "^1.5.4",
     "react-is": "^19.2.4",
+    "speakeasy": "^2.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6"
   }
 }

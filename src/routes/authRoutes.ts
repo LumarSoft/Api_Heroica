@@ -1,16 +1,25 @@
 import { Router } from "express";
-import { login, verifyToken, changePassword } from "../controllers/authController";
+import {
+  login,
+  verifyToken,
+  changePassword,
+  verify2FA,
+  enable2FA,
+  confirm2FA,
+  disable2FA,
+  reset2FA,
+} from "../controllers/authController";
 import { requireAuth } from "../middlewares/authMiddleware";
 
 const router = Router();
 
-// Login: público (no requiere auth)
 router.post("/login", login);
-
-// Verificar token: público (es el endpoint que comprueba si hay sesión activa)
 router.post("/verify", verifyToken);
-
-// Cambiar contraseña propia: requiere estar autenticado
+router.post("/verify-2fa", verify2FA);
+router.post("/enable-2fa", enable2FA);
+router.post("/confirm-2fa", confirm2FA);
+router.post("/disable-2fa", disable2FA);
+router.post("/reset-2fa", reset2FA);
 router.put("/change-password", requireAuth, changePassword);
 
 export default router;

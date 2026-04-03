@@ -14,11 +14,13 @@ npm install
 ## ⚙️ Configuración
 
 1. Copia el archivo `.env.example` a `.env`:
+
 ```bash
 cp .env.example .env
 ```
 
 2. Edita el archivo `.env` con tus credenciales de base de datos:
+
 ```env
 PORT=3001
 DATABASE_URL=postgresql://usuario:contraseña@localhost:5432/heroica
@@ -36,6 +38,7 @@ psql -U usuario -d heroica -f database/schema.sql
 ## 🏃‍♂️ Ejecutar
 
 ### Modo desarrollo (con hot reload)
+
 ```bash
 pnpm dev
 # o
@@ -43,6 +46,7 @@ npm run dev
 ```
 
 ### Modo producción
+
 ```bash
 # Compilar TypeScript
 pnpm build
@@ -56,9 +60,11 @@ pnpm start
 ### Autenticación
 
 #### POST `/api/auth/login`
+
 Login de usuario
 
 **Request:**
+
 ```json
 {
   "email": "admin@heroica.com",
@@ -67,6 +73,7 @@ Login de usuario
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -84,14 +91,17 @@ Login de usuario
 ```
 
 #### POST `/api/auth/verify`
+
 Verificar token JWT
 
 **Headers:**
+
 ```
 Authorization: Bearer <token>
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
