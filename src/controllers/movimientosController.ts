@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { query } from "../config/database";
 
-
 function normalizarFecha(fecha: string): string {
   if (!fecha) return fecha;
   // Extraer solo la parte de la fecha (YYYY-MM-DD)
@@ -10,10 +9,9 @@ function normalizarFecha(fecha: string): string {
   return `${soloFecha} 12:00:00`;
 }
 
-
 function formatearFechaRespuesta(fecha: any): string | null {
   if (!fecha) return null;
-  
+
   // Si es un objeto Date
   if (fecha instanceof Date) {
     const year = fecha.getFullYear();
@@ -21,18 +19,18 @@ function formatearFechaRespuesta(fecha: any): string | null {
     const day = String(fecha.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   }
-  
+
   // Si es un string, extraer solo la fecha
   const fechaStr = String(fecha);
   if (fechaStr.includes("T")) {
     return fechaStr.split("T")[0];
   }
-  
+
   // Si ya está en formato YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(fechaStr)) {
     return fechaStr.substring(0, 10);
   }
-  
+
   return null;
 }
 
@@ -44,15 +42,21 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
     const user = req.user!;
 
     // Verificar acceso a la sucursal
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === "superadmin";
     if (!isSuperAdmin) {
       const acceso: any = await query(
         `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId]
+        [user.id, sucursalId],
       );
       if (!acceso || acceso.length === 0) {
-        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+        return res
+          .status(403)
+          .json({ success: false, message: "No tenés acceso a esta sucursal" });
       }
     }
 
@@ -76,12 +80,16 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
     const resultFormatted = result.map((m: any) => ({
       ...m,
       fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+      fecha_original_vencimiento: m.fecha_original_vencimiento
+        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
+        : null,
     }));
 
     // Agrupar por tipo de movimiento (que mapea a 'saldo' real o necesario)
     const movimientos = {
-      saldo_real: resultFormatted.filter((m: any) => m.tipo_movimiento === "saldo_real"),
+      saldo_real: resultFormatted.filter(
+        (m: any) => m.tipo_movimiento === "saldo_real",
+      ),
       saldo_necesario: resultFormatted.filter(
         (m: any) => m.tipo_movimiento === "saldo_necesario",
       ),
@@ -479,7 +487,12 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
       // Activar deuda: guardar fecha original de vencimiento
       await query(
         `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'efectivo'`,
-        [fecha_original_vencimiento ? normalizarFecha(fecha_original_vencimiento) : mov.fecha, id],
+        [
+          fecha_original_vencimiento
+            ? normalizarFecha(fecha_original_vencimiento)
+            : mov.fecha,
+          id,
+        ],
       );
     } else {
       // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
@@ -581,15 +594,21 @@ export const getTotalesEfectivo = async (req: Request, res: Response) => {
     const user = req.user!;
 
     // Verificar acceso a la sucursal
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === "superadmin";
     if (!isSuperAdmin) {
       const acceso: any = await query(
         `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId]
+        [user.id, sucursalId],
       );
       if (!acceso || acceso.length === 0) {
-        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+        return res
+          .status(403)
+          .json({ success: false, message: "No tenés acceso a esta sucursal" });
       }
     }
 
@@ -631,15 +650,21 @@ export const getMovimientosBancoBySucursal = async (
     const user = req.user!;
 
     // Verificar acceso a la sucursal
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === "superadmin";
     if (!isSuperAdmin) {
       const acceso: any = await query(
         `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId]
+        [user.id, sucursalId],
       );
       if (!acceso || acceso.length === 0) {
-        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+        return res
+          .status(403)
+          .json({ success: false, message: "No tenés acceso a esta sucursal" });
       }
     }
 
@@ -666,12 +691,16 @@ export const getMovimientosBancoBySucursal = async (
     const resultFormatted = result.map((m: any) => ({
       ...m,
       fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+      fecha_original_vencimiento: m.fecha_original_vencimiento
+        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
+        : null,
     }));
 
     // Agrupar por tipo de movimiento (saldo real/necesario)
     const movimientos = {
-      saldo_real: resultFormatted.filter((m: any) => m.tipo_movimiento === "saldo_real"),
+      saldo_real: resultFormatted.filter(
+        (m: any) => m.tipo_movimiento === "saldo_real",
+      ),
       saldo_necesario: resultFormatted.filter(
         (m: any) => m.tipo_movimiento === "saldo_necesario",
       ),
@@ -927,6 +956,102 @@ export const deleteMovimientoBanco = async (req: Request, res: Response) => {
   }
 };
 
+// POST /api/caja-banco/transferencia-interna
+export const transferenciaInternaBanco = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const {
+      sucursal_id,
+      user_id,
+      fecha,
+      concepto,
+      descripcion,
+      monto,
+      banco_origen_id,
+      banco_destino_id,
+      moneda,
+    } = req.body;
+
+    if (
+      !sucursal_id ||
+      !user_id ||
+      !fecha ||
+      monto === undefined ||
+      !banco_origen_id ||
+      !banco_destino_id
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Faltan campos requeridos: sucursal_id, user_id, fecha, monto, banco_origen_id, banco_destino_id",
+      });
+    }
+
+    if (banco_origen_id === banco_destino_id) {
+      return res.status(400).json({
+        success: false,
+        message: "El banco origen y destino no pueden ser el mismo",
+      });
+    }
+
+    const montoAbs = Math.abs(monto);
+    const monedaFinal = moneda || "ARS";
+    const conceptoBase = concepto || "Transferencia interna entre bancos";
+    const descripcionBase = descripcion || null;
+
+    // 1. Crear egreso en banco origen (saldo_real / completado)
+    const egreso: any = await query(
+      `INSERT INTO movimientos 
+       (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, estado, tipo, banco_id, moneda) 
+       VALUES (?, ?, ?, ?, ?, ?, 'banco', 'saldo_real', 'completado', 'egreso', ?, ?)`,
+      [
+        sucursal_id,
+        user_id,
+        normalizarFecha(fecha),
+        `${conceptoBase} (Egreso)`,
+        descripcionBase,
+        -montoAbs,
+        banco_origen_id,
+        monedaFinal,
+      ],
+    );
+
+    // 2. Crear ingreso en banco destino (saldo_real / completado)
+    const ingreso: any = await query(
+      `INSERT INTO movimientos 
+       (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, estado, tipo, banco_id, moneda) 
+       VALUES (?, ?, ?, ?, ?, ?, 'banco', 'saldo_real', 'completado', 'ingreso', ?, ?)`,
+      [
+        sucursal_id,
+        user_id,
+        normalizarFecha(fecha),
+        `${conceptoBase} (Ingreso)`,
+        descripcionBase,
+        montoAbs,
+        banco_destino_id,
+        monedaFinal,
+      ],
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Transferencia interna realizada exitosamente",
+      data: {
+        egreso_id: egreso.insertId,
+        ingreso_id: ingreso.insertId,
+      },
+    });
+  } catch (error) {
+    console.error("Error al realizar transferencia interna:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al realizar transferencia interna",
+    });
+  }
+};
+
 // PUT /api/caja-banco/:id/mover-a-real
 export const moverARealBanco = async (req: Request, res: Response) => {
   try {
@@ -1022,7 +1147,12 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
       // Activar deuda
       await query(
         `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'banco'`,
-        [fecha_original_vencimiento ? normalizarFecha(fecha_original_vencimiento) : mov.fecha, id],
+        [
+          fecha_original_vencimiento
+            ? normalizarFecha(fecha_original_vencimiento)
+            : mov.fecha,
+          id,
+        ],
       );
     } else {
       // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
@@ -1124,15 +1254,21 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
     const user = req.user!;
 
     // Verificar acceso a la sucursal
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === "superadmin";
     if (!isSuperAdmin) {
       const acceso: any = await query(
         `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId]
+        [user.id, sucursalId],
       );
       if (!acceso || acceso.length === 0) {
-        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+        return res
+          .status(403)
+          .json({ success: false, message: "No tenés acceso a esta sucursal" });
       }
     }
 
@@ -1304,8 +1440,12 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
     const resultFormatted = result.map((m: any) => ({
       ...m,
       fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
-      fecha_revision: m.fecha_revision ? formatearFechaRespuesta(m.fecha_revision) : null,
+      fecha_original_vencimiento: m.fecha_original_vencimiento
+        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
+        : null,
+      fecha_revision: m.fecha_revision
+        ? formatearFechaRespuesta(m.fecha_revision)
+        : null,
     }));
 
     res.json({
@@ -1365,8 +1505,12 @@ export const getPagosPendientesBySucursal = async (
     const resultFormatted = result.map((m: any) => ({
       ...m,
       fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
-      fecha_revision: m.fecha_revision ? formatearFechaRespuesta(m.fecha_revision) : null,
+      fecha_original_vencimiento: m.fecha_original_vencimiento
+        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
+        : null,
+      fecha_revision: m.fecha_revision
+        ? formatearFechaRespuesta(m.fecha_revision)
+        : null,
     }));
 
     res.json({
@@ -1708,8 +1852,12 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
     const resultFormatted = result.map((m: any) => ({
       ...m,
       fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
-      fecha_revision: m.fecha_revision ? formatearFechaRespuesta(m.fecha_revision) : null,
+      fecha_original_vencimiento: m.fecha_original_vencimiento
+        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
+        : null,
+      fecha_revision: m.fecha_revision
+        ? formatearFechaRespuesta(m.fecha_revision)
+        : null,
     }));
 
     res.json({
@@ -2313,7 +2461,9 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
     const resultFormatted = result.map((m: any) => ({
       ...m,
       fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+      fecha_original_vencimiento: m.fecha_original_vencimiento
+        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
+        : null,
     }));
 
     return res.json({ success: true, data: resultFormatted });
@@ -2331,12 +2481,10 @@ export const deleteBulkMovimientos = async (req: Request, res: Response) => {
     const { ids } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Se requiere un array de ids no vacío.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Se requiere un array de ids no vacío.",
+      });
     }
 
     const placeholders = ids.map(() => "?").join(", ");
@@ -2348,12 +2496,10 @@ export const deleteBulkMovimientos = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error en deleteBulkMovimientos:", error);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Error al eliminar movimientos en bloque.",
-      });
+    res.status(500).json({
+      success: false,
+      message: "Error al eliminar movimientos en bloque.",
+    });
   }
 };
 
@@ -2376,20 +2522,16 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
     } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Se requiere un array de ids no vacío.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Se requiere un array de ids no vacío.",
+      });
     }
     if (!destino_sucursal_id || !destino_tipo_movimiento || !destino_saldo) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Faltan datos de destino obligatorios.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Faltan datos de destino obligatorios.",
+      });
     }
 
     const nuevoEstado =
@@ -2434,11 +2576,9 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error en moverBulkMovimientos:", error);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Error al mover movimientos en bloque.",
-      });
+    res.status(500).json({
+      success: false,
+      message: "Error al mover movimientos en bloque.",
+    });
   }
 };

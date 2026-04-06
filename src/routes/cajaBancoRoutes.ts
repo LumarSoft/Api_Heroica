@@ -10,6 +10,7 @@ import {
   toggleDeudaBanco,
   deleteBulkMovimientos,
   moverBulkMovimientos,
+  transferenciaInternaBanco,
 } from "../controllers/movimientosController";
 import {
   getDocumentos,
@@ -37,6 +38,9 @@ router.get("/:sucursalId/totales", requirePermission("ver_movimientos"), getTota
 
 // Crear movimiento banco
 router.post("/", requirePermission("crear_movimientos"), createMovimientoBanco);
+
+// Transferencia interna entre bancos (misma sucursal)
+router.post("/transferencia-interna", requirePermission("crear_movimientos"), transferenciaInternaBanco);
 
 // Actualizar movimiento banco
 router.put("/:id", requirePermission("editar_movimientos"), updateMovimientoBanco);
