@@ -4,8 +4,36 @@ import { query } from "../config/database";
 
 function normalizarFecha(fecha: string): string {
   if (!fecha) return fecha;
+  // Extraer solo la parte de la fecha (YYYY-MM-DD)
   const soloFecha = fecha.split("T")[0];
+  // Retornar con hora del mediodía para evitar problemas de zona horaria
   return `${soloFecha} 12:00:00`;
+}
+
+
+function formatearFechaRespuesta(fecha: any): string | null {
+  if (!fecha) return null;
+  
+  // Si es un objeto Date
+  if (fecha instanceof Date) {
+    const year = fecha.getFullYear();
+    const month = String(fecha.getMonth() + 1).padStart(2, "0");
+    const day = String(fecha.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  
+  // Si es un string, extraer solo la fecha
+  const fechaStr = String(fecha);
+  if (fechaStr.includes("T")) {
+    return fechaStr.split("T")[0];
+  }
+  
+  // Si ya está en formato YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(fechaStr)) {
+    return fechaStr.substring(0, 10);
+  }
+  
+  return null;
 }
 
 // GET /api/movimientos/:sucursalId
@@ -44,10 +72,17 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
       [sucursalId, moneda],
     );
 
+    // Formatear fechas en la respuesta
+    const resultFormatted = result.map((m: any) => ({
+      ...m,
+      fecha: formatearFechaRespuesta(m.fecha),
+      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+    }));
+
     // Agrupar por tipo de movimiento (que mapea a 'saldo' real o necesario)
     const movimientos = {
-      saldo_real: result.filter((m: any) => m.tipo_movimiento === "saldo_real"),
-      saldo_necesario: result.filter(
+      saldo_real: resultFormatted.filter((m: any) => m.tipo_movimiento === "saldo_real"),
+      saldo_necesario: resultFormatted.filter(
         (m: any) => m.tipo_movimiento === "saldo_necesario",
       ),
     };
@@ -627,10 +662,17 @@ export const getMovimientosBancoBySucursal = async (
       [sucursalId, moneda],
     );
 
+    // Formatear fechas en la respuesta
+    const resultFormatted = result.map((m: any) => ({
+      ...m,
+      fecha: formatearFechaRespuesta(m.fecha),
+      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+    }));
+
     // Agrupar por tipo de movimiento (saldo real/necesario)
     const movimientos = {
-      saldo_real: result.filter((m: any) => m.tipo_movimiento === "saldo_real"),
-      saldo_necesario: result.filter(
+      saldo_real: resultFormatted.filter((m: any) => m.tipo_movimiento === "saldo_real"),
+      saldo_necesario: resultFormatted.filter(
         (m: any) => m.tipo_movimiento === "saldo_necesario",
       ),
     };
@@ -1258,9 +1300,17 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
 
     const result: any = await query(sql, params);
 
+    // Formatear fechas en la respuesta
+    const resultFormatted = result.map((m: any) => ({
+      ...m,
+      fecha: formatearFechaRespuesta(m.fecha),
+      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+      fecha_revision: m.fecha_revision ? formatearFechaRespuesta(m.fecha_revision) : null,
+    }));
+
     res.json({
       success: true,
-      data: result,
+      data: resultFormatted,
     });
   } catch (error) {
     console.error("Error al obtener todos los pagos pendientes:", error);
@@ -1311,9 +1361,17 @@ export const getPagosPendientesBySucursal = async (
 
     const result: any = await query(sql, params);
 
+    // Formatear fechas en la respuesta
+    const resultFormatted = result.map((m: any) => ({
+      ...m,
+      fecha: formatearFechaRespuesta(m.fecha),
+      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+      fecha_revision: m.fecha_revision ? formatearFechaRespuesta(m.fecha_revision) : null,
+    }));
+
     res.json({
       success: true,
-      data: result,
+      data: resultFormatted,
     });
   } catch (error) {
     console.error("Error al obtener pagos pendientes:", error);
@@ -1646,9 +1704,17 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
 
     const result: any = await query(sql, queryParams);
 
+    // Formatear fechas en la respuesta
+    const resultFormatted = result.map((m: any) => ({
+      ...m,
+      fecha: formatearFechaRespuesta(m.fecha),
+      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+      fecha_revision: m.fecha_revision ? formatearFechaRespuesta(m.fecha_revision) : null,
+    }));
+
     res.json({
       success: true,
-      data: result,
+      data: resultFormatted,
     });
   } catch (error) {
     console.error("Error al obtener historial de pagos pendientes:", error);
@@ -2241,9 +2307,16 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
 
     sql += ` ORDER BY m.id DESC`;
 
-    const result = await query(sql, params);
+    const result: any = await query(sql, params);
 
-    return res.json({ success: true, data: result });
+    // Formatear fechas en la respuesta
+    const resultFormatted = result.map((m: any) => ({
+      ...m,
+      fecha: formatearFechaRespuesta(m.fecha),
+      fecha_original_vencimiento: m.fecha_original_vencimiento ? formatearFechaRespuesta(m.fecha_original_vencimiento) : null,
+    }));
+
+    return res.json({ success: true, data: resultFormatted });
   } catch (error) {
     console.error("Error en getDeudasInterSucursal:", error);
     return res
