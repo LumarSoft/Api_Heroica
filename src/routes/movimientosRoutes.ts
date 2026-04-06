@@ -13,6 +13,7 @@ import {
   getDeudasInterSucursal,
   deleteBulkMovimientos,
   moverBulkMovimientos,
+  updateComentarioEfectivo,
 } from "../controllers/movimientosController";
 import {
   getDocumentos,
@@ -63,6 +64,9 @@ router.put("/:id/mover", requirePermission("editar_movimientos"), moverMovimient
 
 // Actualizar movimiento
 router.put("/:id", requirePermission("editar_movimientos"), updateMovimiento);
+
+// Actualizar solo comentario
+router.patch("/:id/comentario", requirePermission("agregar_comentarios"), updateComentarioEfectivo);
 
 // Eliminar movimiento
 router.delete("/:id", requirePermission("eliminar_movimientos"), deleteMovimiento);

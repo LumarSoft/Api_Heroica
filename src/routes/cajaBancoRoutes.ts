@@ -11,6 +11,7 @@ import {
   deleteBulkMovimientos,
   moverBulkMovimientos,
   transferenciaInternaBanco,
+  updateComentarioBanco,
 } from "../controllers/movimientosController";
 import {
   getDocumentos,
@@ -56,6 +57,9 @@ router.put("/:id/deuda", requirePermission("editar_movimientos"), toggleDeudaBan
 
 // Eliminar movimiento banco
 router.delete("/:id", requirePermission("eliminar_movimientos"), deleteMovimientoBanco);
+
+// Actualizar solo el comentario
+router.patch("/:id/comentario", requirePermission("agregar_comentarios"), updateComentarioBanco);
 
 // Documentos de movimientos banco
 router.get("/:id/documentos", requirePermission("ver_movimientos"), getDocumentos);

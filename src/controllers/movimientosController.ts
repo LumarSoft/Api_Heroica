@@ -223,6 +223,30 @@ export const deleteMovimiento = async (req: Request, res: Response) => {
   }
 };
 
+// PATCH /api/movimientos/:id/comentario
+export const updateComentarioEfectivo = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { descripcion } = req.body;
+
+    await query(
+      "UPDATE movimientos SET descripcion = ? WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
+      [descripcion, id],
+    );
+
+    res.json({
+      success: true,
+      message: "Comentario actualizado exitosamente",
+    });
+  } catch (error) {
+    console.error("Error al actualizar comentario:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al actualizar comentario",
+    });
+  }
+};
+
 // PUT /api/movimientos/:id/estado
 export const updateEstadoMovimiento = async (req: Request, res: Response) => {
   try {
@@ -915,6 +939,30 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Error al actualizar movimiento banco",
+    });
+  }
+};
+
+// PATCH /api/caja-banco/:id/comentario
+export const updateComentarioBanco = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { descripcion } = req.body;
+
+    await query(
+      "UPDATE movimientos SET descripcion = ? WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
+      [descripcion, id],
+    );
+
+    res.json({
+      success: true,
+      message: "Comentario actualizado exitosamente",
+    });
+  } catch (error) {
+    console.error("Error al actualizar comentario banco:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error al actualizar comentario",
     });
   }
 };

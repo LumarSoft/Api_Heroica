@@ -5,7 +5,7 @@ import { query } from "../config/database";
 export const getTareas = async (_req: Request, res: Response) => {
   try {
     const result = await query(
-      `SELECT t.id, t.codigo, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, u.nombre AS creado_por_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
@@ -29,7 +29,7 @@ export const getTareas = async (_req: Request, res: Response) => {
 // POST /api/tareas
 export const createTarea = async (req: Request, res: Response) => {
   try {
-    const { titulo, descripcion, tipo, prioridad, creado_por } = req.body;
+    const { titulo, descripcion, tipo, prioridad, version, creado_por } = req.body;
 
     if (!titulo || !tipo || !prioridad) {
       return res.status(400).json({
@@ -65,10 +65,11 @@ export const createTarea = async (req: Request, res: Response) => {
     }
 
     const result: any = await query(
-      `INSERT INTO tareas (codigo, titulo, descripcion, tipo, prioridad, estado, creado_por)
-       VALUES (?, ?, ?, ?, ?, 'pendiente', ?)`,
+      `INSERT INTO tareas (codigo, version, titulo, descripcion, tipo, prioridad, estado, creado_por)
+       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
       [
         nuevoCodigo,
+        version || null,
         titulo,
         descripcion || null,
         tipo,
@@ -78,7 +79,7 @@ export const createTarea = async (req: Request, res: Response) => {
     );
 
     const newTarea: any = await query(
-      `SELECT t.id, t.codigo, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, u.nombre AS creado_por_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
@@ -98,7 +99,7 @@ export const createTarea = async (req: Request, res: Response) => {
 export const updateTarea = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { titulo, descripcion, tipo, prioridad } = req.body;
+    const { titulo, descripcion, tipo, prioridad, version } = req.body;
 
     if (!titulo || !tipo || !prioridad) {
       return res.status(400).json({
@@ -118,13 +119,13 @@ export const updateTarea = async (req: Request, res: Response) => {
     }
 
     await query(
-      `UPDATE tareas SET titulo = ?, descripcion = ?, tipo = ?, prioridad = ?, updated_at = NOW()
+      `UPDATE tareas SET titulo = ?, descripcion = ?, tipo = ?, prioridad = ?, version = ?, updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
-      [titulo, descripcion || null, tipo, prioridad, id],
+      [titulo, descripcion || null, tipo, prioridad, version || null, id],
     );
 
     const updated: any = await query(
-      `SELECT t.id, t.codigo, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, u.nombre AS creado_por_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
@@ -178,7 +179,7 @@ export const updateEstadoTarea = async (req: Request, res: Response) => {
     );
 
     const updated: any = await query(
-      `SELECT t.id, t.codigo, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, u.nombre AS creado_por_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
