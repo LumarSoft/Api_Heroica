@@ -1,6 +1,13 @@
 import { Request, Response } from "express";
 import { query } from "../config/database";
 
+
+function normalizarFecha(fecha: string): string {
+  if (!fecha) return fecha;
+  const soloFecha = fecha.split("T")[0];
+  return `${soloFecha} 12:00:00`;
+}
+
 // GET /api/movimientos/:sucursalId
 export const getMovimientosBySucursal = async (req: Request, res: Response) => {
   try {
@@ -103,7 +110,7 @@ export const updateMovimiento = async (req: Request, res: Response) => {
        SET fecha = ?, concepto = ?, monto = ?, descripcion = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, tipo = ? 
        WHERE id = ? AND tipo_movimiento = 'efectivo'`,
       [
-        fecha,
+        normalizarFecha(fecha),
         concepto,
         adjustedMonto,
         descripcion || null,
@@ -307,7 +314,7 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       [
         sucursal_id,
         user_id,
-        fecha,
+        normalizarFecha(fecha),
         concepto,
         descripcion || null,
         adjustedMonto,
@@ -437,7 +444,7 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
       // Activar deuda: guardar fecha original de vencimiento
       await query(
         `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'efectivo'`,
-        [fecha_original_vencimiento || mov.fecha, id],
+        [fecha_original_vencimiento ? normalizarFecha(fecha_original_vencimiento) : mov.fecha, id],
       );
     } else {
       // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
@@ -703,7 +710,7 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       [
         sucursal_id,
         user_id,
-        fecha,
+        normalizarFecha(fecha),
         concepto,
         comprobante || null,
         descripcion || null,
@@ -801,7 +808,7 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
            categoria_id = ?, subcategoria_id = ?, banco_id = ?, medio_pago_id = ?
        WHERE id = ? AND tipo_movimiento = 'banco'`,
       [
-        fecha,
+        normalizarFecha(fecha),
         concepto,
         comprobante || null,
         adjustedMonto,
@@ -973,7 +980,7 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
       // Activar deuda
       await query(
         `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'banco'`,
-        [fecha_original_vencimiento || mov.fecha, id],
+        [fecha_original_vencimiento ? normalizarFecha(fecha_original_vencimiento) : mov.fecha, id],
       );
     } else {
       // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
@@ -1360,7 +1367,7 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
       [
         sucursal_id,
         user_id,
-        fecha,
+        normalizarFecha(fecha),
         concepto,
         descripcion || null,
         adjustedMonto,
@@ -1461,7 +1468,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
       [
         usuario_revisor_id,
         newTipoMovimiento,
-        fecha || null,
+        fecha ? normalizarFecha(fecha) : null,
         banco_id || null,
         medio_pago_id || null,
         nuevaDescripcion,
@@ -2107,7 +2114,7 @@ export const compraVentaDivisas = async (req: Request, res: Response) => {
       });
     }
 
-    const fechaOp = fecha;
+    const fechaOp = normalizarFecha(fecha);
     const conceptoFinal =
       concepto ||
       (operacion === "compra"
