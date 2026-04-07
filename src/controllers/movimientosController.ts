@@ -1,2485 +1,27 @@
 import { Request, Response } from 'express';
 import { query } from '../config/database';
-
-function normalizarFecha(fecha: string): string {
-  if (!fecha) return fecha;
-  // Extraer solo la parte de la fecha (YYYY-MM-DD)
-  const soloFecha = fecha.split('T')[0];
-  // Retornar con hora del mediodía para evitar problemas de zona horaria
-  return `${soloFecha} 12:00:00`;
-}
-
-function formatearFechaRespuesta(fecha: any): string | null {
-  if (!fecha) return null;
-
-  // Si es un objeto Date
-  if (fecha instanceof Date) {
-    const year = fecha.getFullYear();
-    const month = String(fecha.getMonth() + 1).padStart(2, '0');
-    const day = String(fecha.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  // Si es un string, extraer solo la fecha
-  const fechaStr = String(fecha);
-  if (fechaStr.includes('T')) {
-    return fechaStr.split('T')[0];
-  }
-
-  // Si ya está en formato YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}/.test(fechaStr)) {
-    return fechaStr.substring(0, 10);
-  }
-
-  return null;
-}
-
-// GET /api/movimientos/:sucursalId
-export const getMovimientosBySucursal = async (req: Request, res: Response) => {
-  try {
-    const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
-    const user = req.user!;
-
-    // Verificar acceso a la sucursal
-    const rolResult: any = await query(
-      `SELECT nombre FROM roles WHERE id = ?`,
-      [user.rol_id],
-    );
-    const isSuperAdmin =
-      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
-    if (!isSuperAdmin) {
-      const acceso: any = await query(
-        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId],
-      );
-      if (!acceso || acceso.length === 0) {
-        return res
-          .status(403)
-          .json({ success: false, message: 'No tenés acceso a esta sucursal' });
-      }
-    }
-
-    // Obtener todos los movimientos de la sucursal
-    const result: any = await query(
-      `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.descripcion, m.prioridad, 
-              m.saldo as tipo_movimiento, m.estado, m.categoria_id, m.subcategoria_id, 
-              m.tipo, m.es_deuda, m.fecha_original_vencimiento,
-              m.moneda, m.tipo_cambio,
-              c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
-              m.created_at, m.updated_at 
-       FROM movimientos m
-       LEFT JOIN categorias c ON m.categoria_id = c.id
-       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ? AND m.deleted_at IS NULL
-       ORDER BY m.id DESC`,
-      [sucursalId, moneda],
-    );
-
-    // Formatear fechas en la respuesta
-    const resultFormatted = result.map((m: any) => ({
-      ...m,
-      fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento
-        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
-        : null,
-    }));
-
-    // Agrupar por tipo de movimiento (que mapea a 'saldo' real o necesario)
-    const movimientos = {
-      saldo_real: resultFormatted.filter(
-        (m: any) => m.tipo_movimiento === 'saldo_real',
-      ),
-      saldo_necesario: resultFormatted.filter(
-        (m: any) => m.tipo_movimiento === 'saldo_necesario',
-      ),
-    };
-
-    res.json({
-      success: true,
-      data: movimientos,
-    });
-  } catch (error) {
-    console.error('Error al obtener movimientos:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener movimientos',
-    });
-  }
-};
-
-// PUT /api/movimientos/:id
-export const updateMovimiento = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const {
-      fecha,
-      concepto,
-      monto,
-      descripcion,
-      prioridad,
-      categoria_id,
-      subcategoria_id,
-      tipo,
-    } = req.body;
-
-    // Validación
-    if (!fecha || !concepto || monto === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: 'Fecha, concepto y monto son requeridos',
-      });
-    }
-
-    // Verificar que el movimiento existe
-    const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(existingResult) || existingResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    // Actualizar movimiento
-    const adjustedMonto =
-      tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);
-
-    await query(
-      `UPDATE movimientos 
-       SET fecha = ?, concepto = ?, monto = ?, descripcion = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, tipo = ? 
-       WHERE id = ? AND tipo_movimiento = 'efectivo'`,
-      [
-        normalizarFecha(fecha),
-        concepto,
-        adjustedMonto,
-        descripcion || null,
-        prioridad || 'media',
-        categoria_id || null,
-        subcategoria_id || null,
-        tipo || 'ingreso',
-        id,
-      ],
-    );
-
-    // Obtener el movimiento actualizado
-    const updatedResult: any = await query(
-      `SELECT m.*, c.nombre as categoria_nombre, s.nombre as subcategoria_nombre 
-       FROM movimientos m
-       LEFT JOIN categorias c ON m.categoria_id = c.id
-       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
-       WHERE m.id = ?`,
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Movimiento actualizado exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al actualizar movimiento:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar movimiento',
-    });
-  }
-};
-
-// DELETE /api/movimientos/:id
-export const deleteMovimiento = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    // Verificar que el movimiento existe
-    const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(existingResult) || existingResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    // Soft delete
-    await query('UPDATE movimientos SET deleted_at = NOW() WHERE id = ?', [id]);
-
-    res.json({
-      success: true,
-      message: 'Movimiento eliminado exitosamente',
-    });
-  } catch (error) {
-    console.error('Error al eliminar movimiento:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al eliminar movimiento',
-    });
-  }
-};
-
-// PATCH /api/movimientos/:id/comentario
-export const updateComentarioEfectivo = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { descripcion } = req.body;
-
-    await query(
-      "UPDATE movimientos SET descripcion = ? WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
-      [descripcion, id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Comentario actualizado exitosamente',
-    });
-  } catch (error) {
-    console.error('Error al actualizar comentario:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar comentario',
-    });
-  }
-};
-
-// PUT /api/movimientos/:id/estado
-export const updateEstadoMovimiento = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { estado } = req.body;
-
-    // Validación
-    const estadosValidos = ['pendiente', 'aprobado', 'rechazado', 'completado'];
-    if (!estado || !estadosValidos.includes(estado)) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Estado inválido. Debe ser: pendiente, aprobado, rechazado o completado',
-      });
-    }
-
-    // Verificar que el movimiento existe
-    const existingResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(existingResult) || existingResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    const mov = existingResult[0];
-
-    // Si cambia a pendiente
-    if (mov.estado !== 'pendiente' && estado === 'pendiente') {
-      await query(
-        `UPDATE movimientos SET estado = 'pendiente', saldo = 'saldo_necesario' WHERE id = ?`,
-        [id],
-      );
-
-      return res.json({
-        success: true,
-        message: 'Movimiento marcado como pendiente exitosamente',
-        data: { ...mov, estado: 'pendiente' },
-      });
-    }
-
-    // Actualizar estado normalmente
-    await query('UPDATE movimientos SET estado = ? WHERE id = ?', [estado, id]);
-
-    // Si pasa a completado y es una deuda con contraparte vinculada,
-    // completar y acreditar automáticamente la deuda espejo en la sucursal acreedora
-    if (
-      estado === 'completado' &&
-      mov.es_deuda &&
-      mov.movimiento_contraparte_id
-    ) {
-      await query(
-        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
-        [mov.movimiento_contraparte_id],
-      );
-    }
-
-    // Obtener el movimiento actualizado
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Estado actualizado exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al actualizar estado:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar estado',
-    });
-  }
-};
-
-// POST /api/movimientos/efectivo
-export const createMovimientoEfectivo = async (req: Request, res: Response) => {
-  try {
-    const {
-      sucursal_id,
-      user_id,
-      fecha,
-      concepto,
-      descripcion,
-      monto,
-      prioridad,
-      estado,
-      categoria_id,
-      subcategoria_id,
-      tipo,
-      moneda,
-      tipo_cambio,
-    } = req.body;
-
-    // Validación
-    if (
-      !sucursal_id ||
-      !user_id ||
-      !fecha ||
-      !concepto ||
-      monto === undefined
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto',
-      });
-    }
-
-    // Determinar saldo basado en el estado
-    const estadoFinal = estado || 'aprobado';
-    const saldo =
-      estadoFinal === 'completado' ? 'saldo_real' : 'saldo_necesario';
-
-    // Crear movimiento
-    const adjustedMonto =
-      tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);
-
-    const monedaFinal = moneda || 'ARS';
-    const tipoCambioFinal = monedaFinal === 'USD' ? tipo_cambio || null : null;
-
-    const result: any = await query(
-      `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        sucursal_id,
-        user_id,
-        normalizarFecha(fecha),
-        concepto,
-        descripcion || null,
-        adjustedMonto,
-        saldo,
-        prioridad || 'media',
-        estadoFinal,
-        categoria_id || null,
-        subcategoria_id || null,
-        tipo || 'ingreso',
-        monedaFinal,
-        tipoCambioFinal,
-      ],
-    );
-
-    // Obtener el movimiento creado
-    const createdMovimiento: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [result.insertId],
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Movimiento creado exitosamente',
-      data: createdMovimiento[0],
-    });
-  } catch (error) {
-    console.error('Error al crear movimiento:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al crear movimiento',
-    });
-  }
-};
-
-// PUT /api/movimientos/efectivo/:id/mover-a-real
-export const moverAReal = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    // Verificar que existe y está en saldo_necesario
-    const movResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(movResult) || movResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    if (movResult[0].tipo_movimiento !== 'saldo_necesario') {
-      return res.status(400).json({
-        success: false,
-        message: 'El movimiento no está en saldo necesario',
-      });
-    }
-
-    const mov = movResult[0];
-
-    // Mover a saldo real
-    await query(
-      `UPDATE movimientos 
-       SET saldo = 'saldo_real', estado = 'completado' 
-       WHERE id = ?`,
-      [id],
-    );
-
-    // Si es una deuda con contraparte vinculada, completar y acreditar la deuda espejo
-    if (mov.es_deuda && mov.movimiento_contraparte_id) {
-      await query(
-        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
-        [mov.movimiento_contraparte_id],
-      );
-    }
-
-    // Obtener el movimiento actualizado
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Movimiento movido a saldo real exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al mover movimiento:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al mover movimiento',
-    });
-  }
-};
-
-// PUT /api/movimientos/:id/deuda
-export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { es_deuda, fecha_original_vencimiento } = req.body;
-
-    if (es_deuda === undefined || (es_deuda !== 0 && es_deuda !== 1)) {
-      return res.status(400).json({
-        success: false,
-        message: 'es_deuda debe ser 0 o 1',
-      });
-    }
-
-    // Verificar que el movimiento existe
-    const movResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(movResult) || movResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    const mov = movResult[0];
-
-    if (es_deuda === 1) {
-      // Activar deuda: guardar fecha original de vencimiento
-      await query(
-        `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'efectivo'`,
-        [
-          fecha_original_vencimiento
-            ? normalizarFecha(fecha_original_vencimiento)
-            : mov.fecha,
-          id,
-        ],
-      );
-    } else {
-      // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
-      await query(
-        `UPDATE movimientos SET estado = 'completado' WHERE id = ? AND tipo_movimiento = 'efectivo'`,
-        [id],
-      );
-
-      // 2. Si tiene contraparte vinculada, también la completamos y la pasamos a saldo_real
-      if (mov.movimiento_contraparte_id) {
-        const contraparteResult: any = await query(
-          'SELECT * FROM movimientos WHERE id = ?',
-          [mov.movimiento_contraparte_id],
-        );
-        if (Array.isArray(contraparteResult) && contraparteResult.length > 0) {
-          await query(
-            `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
-            [mov.movimiento_contraparte_id],
-          );
-        }
-      }
-
-      // 3. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
-      const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha;
-      let nuevaDescripcion = mov.descripcion || '';
-      if (fechaOriginal) {
-        const partes = fechaOriginal.toString().split('T')[0].split('-');
-        const fechaFormateada =
-          partes.length === 3
-            ? `${partes[2]}/${partes[1]}/${partes[0]}`
-            : fechaOriginal;
-        const nota = `[Pago de deuda original del: ${fechaFormateada}]`;
-        nuevaDescripcion = nuevaDescripcion
-          ? `${nuevaDescripcion} ${nota}`
-          : nota;
-      }
-
-      const fechaPago = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      const adjustedMonto = -Math.abs(mov.monto); // Aseguramos que sea egreso en caja
-
-      await query(
-        `INSERT INTO movimientos 
-         (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
-          numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo,
-          es_deuda, fecha_original_vencimiento, moneda, tipo_cambio) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL, ?, ?)`,
-        [
-          mov.sucursal_id,
-          mov.user_id,
-          fechaPago,
-          mov.concepto,
-          mov.comprobante,
-          nuevaDescripcion,
-          adjustedMonto,
-          mov.saldo,
-          mov.prioridad,
-          mov.numero_cheque,
-          mov.banco,
-          mov.cuenta,
-          mov.cbu,
-          mov.tipo_operacion,
-          mov.categoria_id,
-          mov.subcategoria_id,
-          mov.banco_id,
-          mov.medio_pago_id,
-          mov.moneda || 'ARS',
-          mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
-        ],
-      );
-    }
-
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message:
-        es_deuda === 1
-          ? 'Deuda activada exitosamente'
-          : 'Deuda desactivada exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al actualizar deuda (efectivo):', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar estado de deuda',
-    });
-  }
-};
-
-// GET /api/movimientos/efectivo/:sucursalId/totales
-export const getTotalesEfectivo = async (req: Request, res: Response) => {
-  try {
-    const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
-    const user = req.user!;
-
-    // Verificar acceso a la sucursal
-    const rolResult: any = await query(
-      `SELECT nombre FROM roles WHERE id = ?`,
-      [user.rol_id],
-    );
-    const isSuperAdmin =
-      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
-    if (!isSuperAdmin) {
-      const acceso: any = await query(
-        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId],
-      );
-      if (!acceso || acceso.length === 0) {
-        return res
-          .status(403)
-          .json({ success: false, message: 'No tenés acceso a esta sucursal' });
-      }
-    }
-
-    const result: any = await query(
-      `SELECT 
-        SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN estado = 'aprobado' AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
-        MAX(updated_at) as ultima_actualizacion
-       FROM movimientos
-       WHERE sucursal_id = ? AND tipo_movimiento = 'efectivo' AND moneda = ? AND deleted_at IS NULL`,
-      [sucursalId, moneda],
-    );
-
-    res.json({
-      success: true,
-      data: {
-        total_real: result[0]?.total_real || 0,
-        total_necesario: result[0]?.total_necesario || 0,
-        ultima_actualizacion: result[0]?.ultima_actualizacion || null,
-      },
-    });
-  } catch (error) {
-    console.error('Error al obtener totales:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener totales',
-    });
-  }
-};
-
-// GET /api/caja-banco/:sucursalId
-export const getMovimientosBancoBySucursal = async (
-  req: Request,
-  res: Response,
-) => {
-  try {
-    const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
-    const user = req.user!;
-
-    // Verificar acceso a la sucursal
-    const rolResult: any = await query(
-      `SELECT nombre FROM roles WHERE id = ?`,
-      [user.rol_id],
-    );
-    const isSuperAdmin =
-      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
-    if (!isSuperAdmin) {
-      const acceso: any = await query(
-        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId],
-      );
-      if (!acceso || acceso.length === 0) {
-        return res
-          .status(403)
-          .json({ success: false, message: 'No tenés acceso a esta sucursal' });
-      }
-    }
-
-    const result: any = await query(
-      `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.comprobante, m.monto, m.descripcion, m.prioridad, 
-              m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu, 
-              m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.banco_id, m.medio_pago_id,
-              m.es_deuda, m.fecha_original_vencimiento,
-              m.moneda, m.tipo_cambio,
-              c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
-              b.nombre as banco_nombre, mp.nombre as medio_pago_nombre,
-              m.created_at, m.updated_at 
-       FROM movimientos m
-       LEFT JOIN categorias c ON m.categoria_id = c.id
-       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
-       LEFT JOIN bancos b ON m.banco_id = b.id
-       LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
-       ORDER BY m.id DESC`,
-      [sucursalId, moneda],
-    );
-
-    // Formatear fechas en la respuesta
-    const resultFormatted = result.map((m: any) => ({
-      ...m,
-      fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento
-        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
-        : null,
-    }));
-
-    // Agrupar por tipo de movimiento (saldo real/necesario)
-    const movimientos = {
-      saldo_real: resultFormatted.filter(
-        (m: any) => m.tipo_movimiento === 'saldo_real',
-      ),
-      saldo_necesario: resultFormatted.filter(
-        (m: any) => m.tipo_movimiento === 'saldo_necesario',
-      ),
-    };
-
-    res.json({
-      success: true,
-      data: movimientos,
-    });
-  } catch (error) {
-    console.error('Error al obtener movimientos banco:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener movimientos banco',
-    });
-  }
-};
-
-// POST /api/caja-banco
-export const createMovimientoBanco = async (req: Request, res: Response) => {
-  try {
-    const {
-      sucursal_id,
-      user_id,
-      fecha,
-      concepto,
-      comprobante,
-      descripcion,
-      monto,
-      prioridad,
-      estado,
-      categoria_id,
-      subcategoria_id,
-      banco_id,
-      medio_pago_id,
-      numero_cheque,
-      banco,
-      cuenta,
-      cbu,
-      tipo_operacion,
-      tipo,
-      moneda,
-      tipo_cambio,
-    } = req.body;
-
-    // Validación
-    if (
-      !sucursal_id ||
-      !user_id ||
-      !fecha ||
-      !concepto ||
-      monto === undefined
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto',
-      });
-    }
-
-    // Determinar saldo basado en el estado
-    const estadoFinal = estado || 'aprobado';
-    const saldo =
-      estadoFinal === 'completado' ? 'saldo_real' : 'saldo_necesario';
-
-    // Crear movimiento
-    const adjustedMonto =
-      tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);
-
-    const monedaFinal = moneda || 'ARS';
-    const tipoCambioFinal = monedaFinal === 'USD' ? tipo_cambio || null : null;
-
-    const result: any = await query(
-      `INSERT INTO movimientos 
-       (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
-        numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo, moneda, tipo_cambio) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        sucursal_id,
-        user_id,
-        normalizarFecha(fecha),
-        concepto,
-        comprobante || null,
-        descripcion || null,
-        adjustedMonto,
-        saldo,
-        prioridad || 'media',
-        numero_cheque || null,
-        banco || null,
-        cuenta || null,
-        cbu || null,
-        tipo_operacion || null,
-        estadoFinal,
-        categoria_id || null,
-        subcategoria_id || null,
-        banco_id || null,
-        medio_pago_id || null,
-        tipo || 'ingreso',
-        monedaFinal,
-        tipoCambioFinal,
-      ],
-    );
-
-    // Obtener el movimiento creado
-    const createdMovimiento: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [result.insertId],
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Movimiento creado exitosamente',
-      data: createdMovimiento[0],
-    });
-  } catch (error) {
-    console.error('Error al crear movimiento banco:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al crear movimiento banco',
-    });
-  }
-};
-
-// PUT /api/caja-banco/:id
-export const updateMovimientoBanco = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const {
-      fecha,
-      concepto,
-      comprobante,
-      monto,
-      descripcion,
-      prioridad,
-      categoria_id,
-      subcategoria_id,
-      banco_id,
-      medio_pago_id,
-      numero_cheque,
-      banco,
-      cuenta,
-      cbu,
-      tipo_operacion,
-      tipo,
-    } = req.body;
-
-    // Validación
-    if (!fecha || !concepto || monto === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: 'Fecha, concepto y monto son requeridos',
-      });
-    }
-
-    // Verificar que existe
-    const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'",
-      [id],
-    );
-
-    if (!Array.isArray(existingResult) || existingResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    // Actualizar
-    const adjustedMonto =
-      tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);
-
-    await query(
-      `UPDATE movimientos 
-       SET fecha = ?, concepto = ?, comprobante = ?, monto = ?, descripcion = ?, prioridad = ?,
-           numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?, tipo = ?,
-           categoria_id = ?, subcategoria_id = ?, banco_id = ?, medio_pago_id = ?
-       WHERE id = ? AND tipo_movimiento = 'banco'`,
-      [
-        normalizarFecha(fecha),
-        concepto,
-        comprobante || null,
-        adjustedMonto,
-        descripcion || null,
-        prioridad || 'media',
-        numero_cheque || null,
-        banco || null,
-        cuenta || null,
-        cbu || null,
-        tipo_operacion || null,
-        tipo || 'ingreso',
-        categoria_id || null,
-        subcategoria_id || null,
-        banco_id || null,
-        medio_pago_id || null,
-        id,
-      ],
-    );
-
-    // Obtener el movimiento actualizado
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Movimiento actualizado exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al actualizar movimiento banco:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar movimiento banco',
-    });
-  }
-};
-
-// PATCH /api/caja-banco/:id/comentario
-export const updateComentarioBanco = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { descripcion } = req.body;
-
-    await query(
-      "UPDATE movimientos SET descripcion = ? WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
-      [descripcion, id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Comentario actualizado exitosamente',
-    });
-  } catch (error) {
-    console.error('Error al actualizar comentario banco:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar comentario',
-    });
-  }
-};
-
-// DELETE /api/caja-banco/:id
-export const deleteMovimientoBanco = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    // Verificar que existe
-    const existingResult: any = await query(
-      "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(existingResult) || existingResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    // Soft delete
-    await query(
-      "UPDATE movimientos SET deleted_at = NOW() WHERE id = ? AND tipo_movimiento = 'banco'",
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Movimiento eliminado exitosamente',
-    });
-  } catch (error) {
-    console.error('Error al eliminar movimiento banco:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al eliminar movimiento banco',
-    });
-  }
-};
-
-// POST /api/caja-banco/transferencia-interna
-export const transferenciaInternaBanco = async (
-  req: Request,
-  res: Response,
-) => {
-  try {
-    const {
-      sucursal_id,
-      user_id,
-      fecha,
-      concepto,
-      descripcion,
-      monto,
-      banco_origen_id,
-      banco_destino_id,
-      moneda,
-    } = req.body;
-
-    if (
-      !sucursal_id ||
-      !user_id ||
-      !fecha ||
-      monto === undefined ||
-      !banco_origen_id ||
-      !banco_destino_id
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Faltan campos requeridos: sucursal_id, user_id, fecha, monto, banco_origen_id, banco_destino_id',
-      });
-    }
-
-    if (banco_origen_id === banco_destino_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'El banco origen y destino no pueden ser el mismo',
-      });
-    }
-
-    const montoAbs = Math.abs(monto);
-    const monedaFinal = moneda || 'ARS';
-    const conceptoBase = concepto || 'Transferencia interna entre bancos';
-    const descripcionBase = descripcion || null;
-
-    // 1. Crear egreso en banco origen (saldo_real / completado)
-    const egreso: any = await query(
-      `INSERT INTO movimientos 
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, estado, tipo, banco_id, moneda) 
-       VALUES (?, ?, ?, ?, ?, ?, 'banco', 'saldo_real', 'completado', 'egreso', ?, ?)`,
-      [
-        sucursal_id,
-        user_id,
-        normalizarFecha(fecha),
-        `${conceptoBase} (Egreso)`,
-        descripcionBase,
-        -montoAbs,
-        banco_origen_id,
-        monedaFinal,
-      ],
-    );
-
-    // 2. Crear ingreso en banco destino (saldo_real / completado)
-    const ingreso: any = await query(
-      `INSERT INTO movimientos 
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, estado, tipo, banco_id, moneda) 
-       VALUES (?, ?, ?, ?, ?, ?, 'banco', 'saldo_real', 'completado', 'ingreso', ?, ?)`,
-      [
-        sucursal_id,
-        user_id,
-        normalizarFecha(fecha),
-        `${conceptoBase} (Ingreso)`,
-        descripcionBase,
-        montoAbs,
-        banco_destino_id,
-        monedaFinal,
-      ],
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Transferencia interna realizada exitosamente',
-      data: {
-        egreso_id: egreso.insertId,
-        ingreso_id: ingreso.insertId,
-      },
-    });
-  } catch (error) {
-    console.error('Error al realizar transferencia interna:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al realizar transferencia interna',
-    });
-  }
-};
-
-// PUT /api/caja-banco/:id/mover-a-real
-export const moverARealBanco = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    // Verificar que existe y está en saldo_necesario
-    const movResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(movResult) || movResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    if (movResult[0].tipo_movimiento !== 'saldo_necesario') {
-      return res.status(400).json({
-        success: false,
-        message: 'El movimiento no está en saldo necesario',
-      });
-    }
-
-    const mov = movResult[0];
-
-    // Mover a saldo real
-    await query(
-      `UPDATE movimientos 
-       SET saldo = 'saldo_real', estado = 'completado' 
-       WHERE id = ? AND tipo_movimiento = 'banco'`,
-      [id],
-    );
-
-    // Si es una deuda con contraparte vinculada, completar y acreditar la deuda espejo
-    if (mov.es_deuda && mov.movimiento_contraparte_id) {
-      await query(
-        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
-        [mov.movimiento_contraparte_id],
-      );
-    }
-
-    // Obtener el movimiento actualizado
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Movimiento movido a saldo real exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al mover movimiento:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al mover movimiento',
-    });
-  }
-};
-
-// PUT /api/caja-banco/:id/deuda
-export const toggleDeudaBanco = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { es_deuda, fecha_original_vencimiento } = req.body;
-
-    if (es_deuda === undefined || (es_deuda !== 0 && es_deuda !== 1)) {
-      return res.status(400).json({
-        success: false,
-        message: 'es_deuda debe ser 0 o 1',
-      });
-    }
-
-    // Verificar que el movimiento existe
-    const movResult: any = await query(
-      "SELECT * FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(movResult) || movResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    const mov = movResult[0];
-
-    if (es_deuda === 1) {
-      // Activar deuda
-      await query(
-        `UPDATE movimientos SET es_deuda = 1, fecha_original_vencimiento = ? WHERE id = ? AND tipo_movimiento = 'banco'`,
-        [
-          fecha_original_vencimiento
-            ? normalizarFecha(fecha_original_vencimiento)
-            : mov.fecha,
-          id,
-        ],
-      );
-    } else {
-      // 1. Mantenemos la deuda original intacta históricamente, pero la pasamos a "completado"
-      await query(
-        `UPDATE movimientos SET estado = 'completado' WHERE id = ? AND tipo_movimiento = 'banco'`,
-        [id],
-      );
-
-      // 2. Si tiene contraparte vinculada, también la completamos y la pasamos a saldo_real
-      if (mov.movimiento_contraparte_id) {
-        const contraparteResult: any = await query(
-          'SELECT * FROM movimientos WHERE id = ?',
-          [mov.movimiento_contraparte_id],
-        );
-        if (Array.isArray(contraparteResult) && contraparteResult.length > 0) {
-          await query(
-            `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
-            [mov.movimiento_contraparte_id],
-          );
-        }
-      }
-
-      // 3. Clonamos este registro como un Egreso en el día de la fecha (Pago real)
-      const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha;
-      let nuevaDescripcion = mov.descripcion || '';
-      if (fechaOriginal) {
-        const partes = fechaOriginal.toString().split('T')[0].split('-');
-        const fechaFormateada =
-          partes.length === 3
-            ? `${partes[2]}/${partes[1]}/${partes[0]}`
-            : fechaOriginal;
-        const nota = `[Pago de deuda original del: ${fechaFormateada}]`;
-        nuevaDescripcion = nuevaDescripcion
-          ? `${nuevaDescripcion} ${nota}`
-          : nota;
-      }
-
-      const fechaPago = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      const adjustedMonto = -Math.abs(mov.monto); // Aseguramos que sea egreso en banco
-
-      await query(
-        `INSERT INTO movimientos 
-         (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
-          numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo,
-          es_deuda, fecha_original_vencimiento, moneda, tipo_cambio) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL, ?, ?)`,
-        [
-          mov.sucursal_id,
-          mov.user_id,
-          fechaPago,
-          mov.concepto,
-          mov.comprobante,
-          nuevaDescripcion,
-          adjustedMonto,
-          mov.saldo,
-          mov.prioridad,
-          mov.numero_cheque,
-          mov.banco,
-          mov.cuenta,
-          mov.cbu,
-          mov.tipo_operacion,
-          mov.categoria_id,
-          mov.subcategoria_id,
-          mov.banco_id,
-          mov.medio_pago_id,
-          mov.moneda || 'ARS',
-          mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
-        ],
-      );
-    }
-
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message:
-        es_deuda === 1
-          ? 'Deuda activada exitosamente'
-          : 'Deuda desactivada exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al actualizar deuda (banco):', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar estado de deuda',
-    });
-  }
-};
-
-// GET /api/caja-banco/:sucursalId/totales
-export const getTotalesBanco = async (req: Request, res: Response) => {
-  try {
-    const { sucursalId } = req.params;
-    const moneda = (req.query.moneda as string) || 'ARS';
-    const user = req.user!;
-
-    // Verificar acceso a la sucursal
-    const rolResult: any = await query(
-      `SELECT nombre FROM roles WHERE id = ?`,
-      [user.rol_id],
-    );
-    const isSuperAdmin =
-      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
-    if (!isSuperAdmin) {
-      const acceso: any = await query(
-        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId],
-      );
-      if (!acceso || acceso.length === 0) {
-        return res
-          .status(403)
-          .json({ success: false, message: 'No tenés acceso a esta sucursal' });
-      }
-    }
-
-    const result: any = await query(
-      `SELECT 
-        SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN estado IN ('aprobado', 'pendiente') AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
-        MAX(updated_at) as ultima_actualizacion
-       FROM movimientos
-       WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ? AND deleted_at IS NULL`,
-      [sucursalId, moneda],
-    );
-
-    const parcialesResult: any = await query(
-      `SELECT 
-        b.id as banco_id,
-        b.nombre as banco_nombre,
-        SUM(CASE WHEN m.estado = 'completado' THEN m.monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN m.estado IN ('aprobado', 'pendiente') AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario
-       FROM movimientos m
-       LEFT JOIN bancos b ON m.banco_id = b.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
-       GROUP BY b.id, b.nombre`,
-      [sucursalId, moneda],
-    );
-
-    res.json({
-      success: true,
-      data: {
-        total_real: result[0]?.total_real || 0,
-        total_necesario: result[0]?.total_necesario || 0,
-        ultima_actualizacion: result[0]?.ultima_actualizacion || null,
-        parciales: parcialesResult || [],
-      },
-    });
-  } catch (error) {
-    console.error('Error al obtener totales banco:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener totales banco',
-    });
-  }
-};
-
-// PUT /api/caja-banco/:id/estado
-export const updateEstadoMovimientoBanco = async (
-  req: Request,
-  res: Response,
-) => {
-  try {
-    const { id } = req.params;
-    const { estado } = req.body;
-
-    // Validación
-    const estadosValidos = ['pendiente', 'aprobado', 'rechazado', 'completado'];
-    if (!estado || !estadosValidos.includes(estado)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Estado inválido',
-      });
-    }
-
-    // Verificar que existe
-    const existingResult: any = await query(
-      "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
-      [id],
-    );
-
-    if (!Array.isArray(existingResult) || existingResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    const mov = existingResult[0];
-
-    // Si cambia a pendiente
-    if (mov.estado !== 'pendiente' && estado === 'pendiente') {
-      await query(
-        `UPDATE movimientos SET estado = 'pendiente', saldo = 'saldo_necesario' WHERE id = ? AND tipo_movimiento = 'banco'`,
-        [id],
-      );
-
-      return res.json({
-        success: true,
-        message: 'Movimiento marcado como pendiente exitosamente',
-        data: { ...mov, estado: 'pendiente' },
-      });
-    }
-
-    // Actualizar estado
-    await query(
-      "UPDATE movimientos SET estado = ? WHERE id = ? AND tipo_movimiento = 'banco'",
-      [estado, id],
-    );
-
-    // Si pasa a completado y es una deuda con contraparte vinculada,
-    // completar y acreditar automáticamente la deuda espejo en la sucursal acreedora
-    if (
-      estado === 'completado' &&
-      mov.es_deuda &&
-      mov.movimiento_contraparte_id
-    ) {
-      await query(
-        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`,
-        [mov.movimiento_contraparte_id],
-      );
-    }
-
-    // Obtener el movimiento actualizado
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Estado actualizado exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al actualizar estado:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar estado',
-    });
-  }
-};
-
-// GET /api/pagos-pendientes/all
-export const getAllPagosPendientes = async (req: Request, res: Response) => {
-  try {
-    const { estado, moneda } = req.query; // Filtro opcional por estado y moneda
-
-    let sql = `
-      SELECT 
-        pp.*,
-        pp.tipo,
-        uc.nombre as usuario_creador_nombre,
-        ur.nombre as usuario_revisor_nombre
-      FROM movimientos pp
-      LEFT JOIN usuarios uc ON pp.user_id = uc.id
-      LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL
-    `;
-
-    const params: any[] = [];
-
-    /**
-     * Comentado porque ahora la query ya trae SOLO los que tienen pp.estado = 'pendiente'
-     * Si necesitas filtrar por OTRO estado en el futuro, habría que reestructurarlo.
-    if (estado) {
-      sql += " AND pp.estado = ?";
-      params.push(estado);
-    }
-    */
-
-    if (moneda) {
-      sql += ' AND pp.moneda = ?';
-      params.push(moneda);
-    }
-
-    sql += ' ORDER BY pp.fecha DESC';
-
-    const result: any = await query(sql, params);
-
-    // Formatear fechas en la respuesta
-    const resultFormatted = result.map((m: any) => ({
-      ...m,
-      fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento
-        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
-        : null,
-      fecha_revision: m.fecha_revision
-        ? formatearFechaRespuesta(m.fecha_revision)
-        : null,
-    }));
-
-    res.json({
-      success: true,
-      data: resultFormatted,
-    });
-  } catch (error) {
-    console.error('Error al obtener todos los pagos pendientes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener todos los pagos pendientes',
-    });
-  }
-};
-
-// GET /api/pagos-pendientes/:sucursalId
-export const getPagosPendientesBySucursal = async (
-  req: Request,
-  res: Response,
-) => {
-  try {
-    const { sucursalId } = req.params;
-    const { estado, moneda } = req.query; // Filtro opcional por estado y moneda
-
-    let sql = `
-      SELECT 
-        pp.*,
-        pp.tipo,
-        uc.nombre as usuario_creador_nombre,
-        ur.nombre as usuario_revisor_nombre
-      FROM movimientos pp
-      LEFT JOIN usuarios uc ON pp.user_id = uc.id
-      LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
-      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL
-    `;
-
-    const params: any[] = [sucursalId];
-
-    /**
-     * Comentado porque la base de la query ya trae los que son estado='pendiente'
-    if (estado) {
-      sql += " AND pp.estado = ?";
-      params.push(estado);
-    }
-    */
-
-    if (moneda) {
-      sql += ' AND pp.moneda = ?';
-      params.push(moneda);
-    }
-
-    sql += ' ORDER BY pp.fecha DESC';
-
-    const result: any = await query(sql, params);
-
-    // Formatear fechas en la respuesta
-    const resultFormatted = result.map((m: any) => ({
-      ...m,
-      fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento
-        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
-        : null,
-      fecha_revision: m.fecha_revision
-        ? formatearFechaRespuesta(m.fecha_revision)
-        : null,
-    }));
-
-    res.json({
-      success: true,
-      data: resultFormatted,
-    });
-  } catch (error) {
-    console.error('Error al obtener pagos pendientes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener pagos pendientes',
-    });
-  }
-};
-
-// POST /api/pagos-pendientes
-export const createPagoPendiente = async (req: Request, res: Response) => {
-  try {
-    const {
-      sucursal_id,
-      user_id,
-      fecha,
-      concepto,
-      descripcion,
-      monto,
-      tipo_movimiento,
-      prioridad,
-      tipo,
-    } = req.body;
-
-    // Validación
-    if (
-      !sucursal_id ||
-      !user_id ||
-      !fecha ||
-      !concepto ||
-      monto === undefined ||
-      !tipo_movimiento
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Faltan campos requeridos',
-      });
-    }
-
-    const destinoCaja = tipo_movimiento === 'banco' ? 'banco' : 'efectivo';
-
-    // Crear pago pendiente (usando el estado 'pendiente' y el tipo de caja)
-    const adjustedMonto =
-      tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);
-
-    const result: any = await query(
-      `INSERT INTO movimientos 
-             (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, prioridad, estado, tipo) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?)`,
-      [
-        sucursal_id,
-        user_id,
-        normalizarFecha(fecha),
-        concepto,
-        descripcion || null,
-        adjustedMonto,
-        destinoCaja,
-        prioridad || 'media',
-        tipo || 'egreso',
-      ],
-    );
-
-    // Obtener el pago creado
-    const createdPago: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [result.insertId],
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Pago pendiente creado exitosamente',
-      data: createdPago[0],
-    });
-  } catch (error) {
-    console.error('Error al crear pago pendiente:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al crear pago pendiente',
-    });
-  }
-};
-
-// PUT /api/pagos-pendientes/:id/aprobar
-export const aprobarPagoPendiente = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { usuario_revisor_id, tipo_caja, fecha, banco_id, medio_pago_id } =
-      req.body;
-
-    // Validación
-    if (!usuario_revisor_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'ID de usuario revisor es requerido',
-      });
-    }
-
-    // Obtener el pago pendiente
-    const pagoResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Pago pendiente no encontrado',
-      });
-    }
-
-    const pago = pagoResult[0];
-
-    // Verificar que esté pendiente
-    if (pago.estado !== 'pendiente') {
-      return res.status(400).json({
-        success: false,
-        message: 'El pago ya fue procesado',
-      });
-    }
-
-    // Determinar destino (se asume que si el body mandó tipo_caja, se prioriza)
-    let newTipoMovimiento = pago.tipo_movimiento;
-    if (tipo_caja) {
-      newTipoMovimiento = tipo_caja === 'efectivo' ? 'efectivo' : 'banco';
-    }
-
-    // Verificar si la fecha fue modificada
-    let nuevaDescripcion = pago.descripcion || '';
-    if (fecha && pago.fecha) {
-      // pago.fecha puede ser un Date object desde la BD
-      const fechaOriginal = new Date(pago.fecha).toISOString().split('T')[0];
-      if (fechaOriginal !== fecha) {
-        const partsOriginal = fechaOriginal.split('-');
-        const fechaOriginalFormat = `${partsOriginal[2]}/${partsOriginal[1]}/${partsOriginal[0]}`;
-        const partsNueva = fecha.split('-');
-        const fechaNuevaFormat = `${partsNueva[2]}/${partsNueva[1]}/${partsNueva[0]}`;
-
-        const nota = `\n[Nota del sistema: El administrador modificó la fecha de pago de ${fechaOriginalFormat} a ${fechaNuevaFormat}]`;
-        nuevaDescripcion = nuevaDescripcion
-          ? `${nuevaDescripcion}${nota}`
-          : nota;
-      }
-    }
-
-    // Actualizar estado del pago pendiente: lo pasamos a aprobado y confirmamos la caja
-    await query(
-      `UPDATE movimientos 
-             SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario',
-             fecha = COALESCE(?, fecha), banco_id = ?, medio_pago_id = ?, descripcion = ?
-             WHERE id = ?`,
-      [
-        usuario_revisor_id,
-        newTipoMovimiento,
-        fecha ? normalizarFecha(fecha) : null,
-        banco_id || null,
-        medio_pago_id || null,
-        nuevaDescripcion,
-        id,
-      ],
-    );
-
-    // Obtener el pago actualizado
-    const updatedPago: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Pago aprobado y programado exitosamente',
-      data: updatedPago[0],
-    });
-  } catch (error) {
-    console.error('Error al aprobar pago:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al aprobar pago',
-    });
-  }
-};
-
-// PUT /api/pagos-pendientes/:id/rechazar
-export const rechazarPagoPendiente = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { usuario_revisor_id, motivo_rechazo } = req.body;
-
-    // Validación
-    if (!usuario_revisor_id || !motivo_rechazo) {
-      return res.status(400).json({
-        success: false,
-        message: 'Usuario revisor y motivo de rechazo son requeridos',
-      });
-    }
-
-    // Verificar que el pago existe y está pendiente
-    const pagoResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Pago pendiente no encontrado',
-      });
-    }
-
-    if (pagoResult[0].estado !== 'pendiente') {
-      return res.status(400).json({
-        success: false,
-        message: 'El pago ya fue procesado',
-      });
-    }
-
-    // Actualizar estado
-    await query(
-      `UPDATE movimientos 
-       SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?
-       WHERE id = ?`,
-      [usuario_revisor_id, motivo_rechazo, id],
-    );
-
-    // Obtener el pago actualizado
-    const updatedPago: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Pago rechazado exitosamente',
-      data: updatedPago[0],
-    });
-  } catch (error) {
-    console.error('Error al rechazar pago:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al rechazar pago',
-    });
-  }
-};
-
-// DELETE /api/pagos-pendientes/:id
-export const deletePagoPendiente = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    // Verificar que existe
-    const pagoResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Pago pendiente no encontrado',
-      });
-    }
-
-    // Solo se puede eliminar si está pendiente
-    if (pagoResult[0].estado !== 'pendiente') {
-      return res.status(400).json({
-        success: false,
-        message: 'Solo se pueden eliminar pagos pendientes',
-      });
-    }
-
-    // Eliminar
-    await query('DELETE FROM movimientos WHERE id = ?', [id]);
-
-    res.json({
-      success: true,
-      message: 'Pago pendiente eliminado exitosamente',
-    });
-  } catch (error) {
-    console.error('Error al eliminar pago pendiente:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al eliminar pago pendiente',
-    });
-  }
-};
-// GET /api/pagos-pendientes/historial/:userId
-export const getHistorialByUser = async (req: Request, res: Response) => {
-  try {
-    const { userId } = req.params;
-    const { sucursal_id, moneda } = req.query;
-
-    const userResult: any = await query(
-      'SELECT r.nombre as rol FROM usuarios u LEFT JOIN roles r ON u.rol_id = r.id WHERE u.id = ?',
-      [userId],
-    );
-    const rol =
-      userResult && userResult.length > 0 ? userResult[0].rol : 'empleado';
-
-    let sql = `
-      SELECT 
-        m.*,
-        uc.nombre as usuario_creador_nombre,
-        ur.nombre as usuario_revisor_nombre
-      FROM movimientos m
-      LEFT JOIN usuarios uc ON m.user_id = uc.id
-      LEFT JOIN usuarios ur ON m.usuario_revisor_id = ur.id
-      WHERE m.estado IN ('aprobado', 'rechazado', 'completado')
-        AND (m.tipo = 'egreso' OR m.tipo IS NULL)
-        AND m.usuario_revisor_id IS NOT NULL
-    `;
-
-    const queryParams: any[] = [];
-
-    if (rol !== 'admin' && rol !== 'superadmin') {
-      sql += ' AND m.user_id = ?';
-      queryParams.push(userId);
-    }
-
-    if (sucursal_id) {
-      sql += ' AND m.sucursal_id = ?';
-      queryParams.push(sucursal_id);
-    }
-
-    if (moneda) {
-      sql += ' AND m.moneda = ?';
-      queryParams.push(moneda);
-    }
-
-    sql += ' ORDER BY m.id DESC';
-
-    const result: any = await query(sql, queryParams);
-
-    // Formatear fechas en la respuesta
-    const resultFormatted = result.map((m: any) => ({
-      ...m,
-      fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento
-        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
-        : null,
-      fecha_revision: m.fecha_revision
-        ? formatearFechaRespuesta(m.fecha_revision)
-        : null,
-    }));
-
-    res.json({
-      success: true,
-      data: resultFormatted,
-    });
-  } catch (error) {
-    console.error('Error al obtener historial de pagos pendientes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener historial',
-    });
-  }
-};
-
-// PUT /api/movimientos/:id/mover
-export const moverMovimiento = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const {
-      destino_tipo_movimiento,
-      destino_saldo,
-      destino_sucursal_id,
-      banco_id,
-      medio_pago_id,
-      numero_cheque,
-      banco,
-      cuenta,
-      cbu,
-      tipo_operacion,
-      nota_descripcion,
-      es_credito,
-    } = req.body;
-
-    // Validación básica
-    if (!destino_tipo_movimiento || !destino_saldo || !destino_sucursal_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Faltan datos de destino obligatorios.',
-      });
-    }
-
-    // Verificar que el movimiento existe
-    const movResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    if (!Array.isArray(movResult) || movResult.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Movimiento no encontrado',
-      });
-    }
-
-    const mov = movResult[0];
-
-    const isDifferentSucursal =
-      String(mov.sucursal_id) !== String(destino_sucursal_id);
-    const createDebts = es_credito && isDifferentSucursal;
-
-    // Obtener nombres de sucursales para las descripciones de deuda
-    const [sucOrigenResult, sucDestinoResult]: any[] = await Promise.all([
-      query('SELECT nombre FROM sucursales WHERE id = ?', [mov.sucursal_id]),
-      query('SELECT nombre FROM sucursales WHERE id = ?', [
-        destino_sucursal_id,
-      ]),
-    ]);
-    const nombreOrigen =
-      sucOrigenResult?.[0]?.nombre ?? `Sucursal ${mov.sucursal_id}`;
-    const nombreDestino =
-      sucDestinoResult?.[0]?.nombre ?? `Sucursal ${destino_sucursal_id}`;
-
-    // Preparar campos a actualizar
-    let nuevaDescripcion = mov.descripcion || '';
-    if (nota_descripcion) {
-      // Limpiar notas de movimiento previas para evitar un "choclo" de texto acumulado
-      const separador = '\n📌 Nota interna: ';
-      if (nuevaDescripcion.includes(separador)) {
-        nuevaDescripcion = nuevaDescripcion.split(separador)[0].trim();
-      }
-
-      nuevaDescripcion = nuevaDescripcion
-        ? `${nuevaDescripcion}${separador}${nota_descripcion}`
-        : `${nota_descripcion}`;
-    }
-
-    // Si es crédito, invertimos el tipo para la sucursal de destino.
-    // Ej: Si era egreso en origen, ingresa a destino.
-    let nuevoTipo = mov.tipo;
-    if (createDebts) {
-      nuevoTipo = mov.tipo === 'ingreso' ? 'egreso' : 'ingreso';
-    }
-
-    const nuevoEstado =
-      destino_saldo === 'saldo_real' ? 'completado' : 'aprobado';
-
-    if (createDebts) {
-      // SI ES CRÉDITO: EL REGISTRO ORIGINAL NO SE "MUEVE" SINO QUE SE CLONA/COMPENSA.
-      // 1. El registro original (ingreso/egreso) se queda en la sucursal origen.
-      // Pero si era un INGRESO que movemos, significa que estamos mandando esa plata a otra lado,
-      //  -> El registro en origen se convierte en EGRESO (salió la plata).
-      //  -> El registro en destino será INGRESO (entró la plata).
-      // Si era un EGRESO que movemos (estamos asumiendo un gasto de otra sucursal),
-      //  -> El origen asume el gasto: se queda como EGRESO.
-      //  -> El destino recibe el beneficio: ingresa dinero ficticio para compensar? (esto lo detalla luego el user)
-      // ASUMIENDO REGLAS BÁSICAS SEGÚN CONTEXTO DEL USUARIO:
-      let tipoOrigenActualizado: 'ingreso' | 'egreso' = 'egreso';
-      let tipoDestinoReal: 'ingreso' | 'egreso' = 'ingreso';
-      let tipoOrigenDeuda: 'ingreso' | 'egreso' = 'ingreso';
-      let tipoDestinoDeuda: 'ingreso' | 'egreso' = 'egreso';
-
-      if (mov.tipo === 'ingreso') {
-        // CASO 1: MUEVO UN INGRESO (plata que tengo) a otra sucursal
-        // Salió plata real mía (egreso) -> Entra plata real al destino (ingreso).
-        tipoOrigenActualizado = 'egreso';
-        tipoDestinoReal = 'ingreso';
-        // Origen asume ingreso a futuro (A Cobrar / deuda a favor)
-        tipoOrigenDeuda = 'ingreso';
-        // Destino asume egreso a futuro (A Pagar / deuda en contra)
-        tipoDestinoDeuda = 'egreso';
-      } else {
-        // CASO 2: MUEVO UN EGRESO (un gasto ajeno que pagué yo) a otra sucursal
-        // El Origen asume el "Mover" como que ese gasto ya se delegó (el registro queda como Egreso, pero la deuda será distinta).
-        // Actualizamos origen (queda el egreso real).
-        tipoOrigenActualizado = 'egreso';
-
-        // El Destino asume el consumo (Egreso Real).
-        tipoDestinoReal = 'egreso';
-
-        // El Origen (que garpó) ahora tiene una Deuda A FAVOR (Ingreso futuro).
-        tipoOrigenDeuda = 'ingreso';
-        // El Destino (el gastador original) tiene una Deuda EN CONTRA (Egreso que debe compensar, aunque el user pidió Deuda en contra).
-        // Aclaración del User: "..crear la deuda a favor (para nosotros, origen) y en contra (para destino)".
-        // Wait, review user's message:
-        // "En la caja origen.. se genera.. un registro como DEUDA (el cual actualmente lo esta creando, pero positivo, cuando deberia ser negativo) en el saldo necesario."
-        // Let's re-read the prompt exactly for EGRESO.
-        // Origen: Muevo egreso -> el registro se va?. "Lo unico que tiene que hacer es mover el consumo a la sucursal destino, y generar un registro como DEUDA... en negativo"
-        // Destino: "Crear el registro que me enviaron para pagar (negativo). .. Ademas debo crear un registro extra como deuda a favor (positivo) porque en algun momento vamos a cobrar.."
-
-        // Ok, inverted roles completely requested by user for EGRESO:
-        // ORIGEN: NO hay registro real, se MUEVE al destino literal. Pero queda la DEUDA EN CONTRA (egreso). "generar un registro como DEUDA (negativo) en necesario".
-        // DESTINO: Obtiene el consumo real (egreso), Y ADEMÁS obtiene una deuda a favor (ingreso). "Ademas debo crear un registro extra como deuda a favor (positivo)".
-      }
-
-      // We need to implement this branching fully above the UPDATE/INSERTs.
-      const getSignedMonto = (t: string, m: number) =>
-        t === 'egreso' ? -Math.abs(m) : Math.abs(m);
-
-      if (mov.tipo === 'ingreso') {
-        // --- CASO 1: MUEVO UN INGRESO ---
-        const tipoOrigenActualizado = 'egreso';
-        const tipoDestinoReal = 'ingreso';
-        const tipoOrigenDeuda = 'ingreso';
-        const tipoDestinoDeuda = 'egreso';
-
-        // Actualizamos el registro original en su MISMA sucursal para que refleje la salida real del dinero
-        await query(
-          `UPDATE movimientos 
-           SET tipo = ?, estado = ?, descripcion = ?, monto = ?
-           WHERE id = ?`,
-          [
-            tipoOrigenActualizado,
-            'completado',
-            nuevaDescripcion,
-            getSignedMonto(tipoOrigenActualizado, mov.monto),
-            id,
-          ],
-        );
-
-        // Creamos el registro real en la sucursal de destino
-        await query(
-          `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-            tipo, tipo_movimiento, saldo, estado, banco_id, medio_pago_id, 
-            numero_cheque, banco, cuenta, cbu, tipo_operacion
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            destino_sucursal_id,
-            mov.user_id,
-            mov.concepto,
-            getSignedMonto(tipoDestinoReal, mov.monto),
-            nuevaDescripcion,
-            tipoDestinoReal,
-            destino_tipo_movimiento,
-            destino_saldo,
-            nuevoEstado,
-            destino_tipo_movimiento === 'banco'
-              ? banco_id || mov.banco_id || null
-              : null,
-            destino_tipo_movimiento === 'banco'
-              ? medio_pago_id || mov.medio_pago_id || null
-              : null,
-            destino_tipo_movimiento === 'banco'
-              ? numero_cheque || mov.numero_cheque || null
-              : null,
-            destino_tipo_movimiento === 'banco'
-              ? banco || mov.banco || null
-              : null,
-            destino_tipo_movimiento === 'banco'
-              ? cuenta || mov.cuenta || null
-              : null,
-            destino_tipo_movimiento === 'banco' ? cbu || mov.cbu || null : null,
-            destino_tipo_movimiento === 'banco'
-              ? tipo_operacion || mov.tipo_operacion || null
-              : null,
-          ],
-        );
-
-        // Creamos la deuda a favor en el Origen
-        const insertOrigenDeuda: any = await query(
-          `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [
-            mov.sucursal_id, // Origen
-            mov.user_id,
-            mov.concepto + ' [DEUDA]',
-            getSignedMonto(tipoOrigenDeuda, mov.monto),
-            `Crédito auto-generado por movimiento hacia ${nombreDestino}`,
-            tipoOrigenDeuda,
-            mov.tipo_movimiento,
-          ],
-        );
-
-        // Creamos la deuda en contra en el Destino
-        const insertDestinoDeuda: any = await query(
-          `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [
-            destino_sucursal_id, // Destino
-            mov.user_id,
-            mov.concepto + ' [DEUDA]',
-            getSignedMonto(tipoDestinoDeuda, mov.monto),
-            `Deuda auto-generada recibida de ${nombreOrigen}`,
-            tipoDestinoDeuda,
-            destino_tipo_movimiento,
-          ],
-        );
-
-        // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
-        const idOrigenDeuda = insertOrigenDeuda.insertId;
-        const idDestinoDeuda = insertDestinoDeuda.insertId;
-        await query(
-          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idDestinoDeuda, idOrigenDeuda],
-        );
-        await query(
-          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idOrigenDeuda, idDestinoDeuda],
-        );
-      } else {
-        // --- CASO 2: MUEVO UN EGRESO ---
-        // Según usuario:
-        // 1. Origen: Desaparece el consumo real (Movemos el original al destino).
-        // 2. Destino: Carga el consumo enviado (El original modificado).
-        //             (Aclaración: El "movimiento que desaparece de Origen y se carga a Destino" es directamente hacer el flujo habitual,
-        //             donde al UPDATE se le cambia la `sucursal_id` de Origen -> Destino).
-        // 3. Origen (Deuda): Generar un registro como DEUDA (en negativo) -> tipo = "egreso", es_deuda = 1.
-        // 4. Destino (Deuda Extra): Generar registro extra, DEUDA a favor (positivo) -> tipo = "ingreso", es_deuda = 1.
-
-        // Mover el consumo / registro hacia la sucursal de Destino (el "Mover" habitual).
-        // Nótese que asume el destino_tipo_movimiento, por lo que copiamos lógica normal.
-        const tipoDestinoReal = 'egreso';
-
-        if (destino_tipo_movimiento === 'efectivo') {
-          await query(
-            `UPDATE movimientos 
-             SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
-                 banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
-             WHERE id = ?`,
-            [
-              destino_sucursal_id,
-              destino_saldo,
-              nuevoEstado,
-              nuevaDescripcion,
-              tipoDestinoReal,
-              getSignedMonto(tipoDestinoReal, mov.monto),
-              id,
-            ],
-          );
-        } else {
-          await query(
-            `UPDATE movimientos 
-             SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
-                 banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
-             WHERE id = ?`,
-            [
-              destino_sucursal_id,
-              destino_saldo,
-              nuevoEstado,
-              nuevaDescripcion,
-              tipoDestinoReal,
-              getSignedMonto(tipoDestinoReal, mov.monto),
-              banco_id || mov.banco_id || null,
-              medio_pago_id || mov.medio_pago_id || null,
-              numero_cheque || mov.numero_cheque || null,
-              banco || mov.banco || null,
-              cuenta || mov.cuenta || null,
-              cbu || mov.cbu || null,
-              tipo_operacion || mov.tipo_operacion || null,
-              id,
-            ],
-          );
-        }
-
-        // Creamos la DEUDA EN CONTRA (egreso) en el ORIGEN (porque nos cobraron desde el destino el favor).
-        const tipoOrigenDeuda = 'egreso';
-        const insertOrigenDeuda2: any = await query(
-          `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [
-            mov.sucursal_id, // Origen original (ahora ausente del primer registro modificado)
-            mov.user_id,
-            mov.concepto + ' [DEUDA]',
-            getSignedMonto(tipoOrigenDeuda, mov.monto),
-            `Deuda auto-generada por mover consumo (egreso) a ${nombreDestino}`,
-            tipoOrigenDeuda,
-            mov.tipo_movimiento,
-          ],
-        );
-
-        // Creamos la DEUDA A FAVOR (ingreso) en el DESTINO (porque nos pagaron u asumimos el costo a cobrar).
-        const tipoDestinoDeuda = 'ingreso';
-        const insertDestinoDeuda2: any = await query(
-          `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion, 
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [
-            destino_sucursal_id, // Destino
-            mov.user_id,
-            mov.concepto + ' [DEUDA]',
-            getSignedMonto(tipoDestinoDeuda, mov.monto),
-            `Crédito a cobrar generado al asumir consumo (egreso) desde ${nombreOrigen}`,
-            tipoDestinoDeuda,
-            destino_tipo_movimiento,
-          ],
-        );
-
-        // Vinculamos ambas deudas mutuamente para que el pago de una dispare la otra
-        const idOrigenDeuda2 = insertOrigenDeuda2.insertId;
-        const idDestinoDeuda2 = insertDestinoDeuda2.insertId;
-        await query(
-          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idDestinoDeuda2, idOrigenDeuda2],
-        );
-        await query(
-          `UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`,
-          [idOrigenDeuda2, idDestinoDeuda2],
-        );
-      }
-    } else {
-      // FLUJO NORMAL: Solo lo movemos de sucursal
-      if (destino_tipo_movimiento === 'efectivo') {
-        // Mover a efectivo: limpiar datos bancarios
-        await query(
-          `UPDATE movimientos 
-           SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?,
-               banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
-           WHERE id = ?`,
-          [
-            destino_sucursal_id,
-            destino_saldo,
-            nuevoEstado,
-            nuevaDescripcion,
-            nuevoTipo,
-            id,
-          ],
-        );
-      } else {
-        // Mover a banco: asignar nuevos datos bancarios si vienen
-        await query(
-          `UPDATE movimientos 
-           SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?, 
-               banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
-           WHERE id = ?`,
-          [
-            destino_sucursal_id,
-            destino_saldo,
-            nuevoEstado,
-            nuevaDescripcion,
-            nuevoTipo,
-            banco_id || mov.banco_id || null,
-            medio_pago_id || mov.medio_pago_id || null,
-            numero_cheque || mov.numero_cheque || null,
-            banco || mov.banco || null,
-            cuenta || mov.cuenta || null,
-            cbu || mov.cbu || null,
-            tipo_operacion || mov.tipo_operacion || null,
-            id,
-          ],
-        );
-      }
-    }
-
-    // Obtener movimiento actualizado
-    const updatedResult: any = await query(
-      'SELECT * FROM movimientos WHERE id = ?',
-      [id],
-    );
-
-    res.json({
-      success: true,
-      message: 'Movimiento movido exitosamente',
-      data: updatedResult[0],
-    });
-  } catch (error) {
-    console.error('Error al mover movimiento:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al mover movimiento',
-    });
-  }
-};
-
-// POST /api/movimientos/compra-venta-divisas
-// operacion: "compra" | "venta"
-// compra: ingresa USD en caja USD, egresa ARS de caja ARS
-// venta:  egresa USD de caja USD, ingresa ARS en caja ARS
-export const compraVentaDivisas = async (req: Request, res: Response) => {
-  try {
-    const {
-      sucursal_id,
-      user_id,
-      fecha,
-      cantidad_usd,
-      cotizacion,
-      operacion, // "compra" | "venta"
-      concepto,
-      descripcion,
-    } = req.body;
-
-    if (
-      !sucursal_id ||
-      !user_id ||
-      !fecha ||
-      cantidad_usd === undefined ||
-      cotizacion === undefined ||
-      !operacion
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Faltan campos requeridos: sucursal_id, user_id, fecha, cantidad_usd, cotizacion, operacion',
-      });
-    }
-
-    if (operacion !== 'compra' && operacion !== 'venta') {
-      return res.status(400).json({
-        success: false,
-        message: 'operacion debe ser "compra" o "venta"',
-      });
-    }
-
-    const montoUsd = Math.abs(Number(cantidad_usd));
-    const montoArs = montoUsd * Math.abs(Number(cotizacion));
-
-    if (isNaN(montoUsd) || isNaN(montoArs) || montoUsd <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'cantidad_usd y cotizacion deben ser números positivos',
-      });
-    }
-
-    const fechaOp = normalizarFecha(fecha);
-    const conceptoFinal =
-      concepto ||
-      (operacion === 'compra'
-        ? 'Compra de divisas (USD)'
-        : 'Venta de divisas (USD)');
-    const descripcionFinal = descripcion || null;
-    const prioridad = 'media';
-    const estado = 'completado';
-    const saldo = 'saldo_real';
-
-    // Lógica de signos por operación:
-    //   Venta USD: se SACAN dólares (egreso USD) y se INGRESAN pesos (ingreso ARS)
-    //   Compra USD: se INGRESAN dólares (ingreso USD) y se SACAN pesos (egreso ARS)
-    const montoUsdMovimiento = operacion === 'venta' ? -montoUsd : montoUsd;
-    const montoArsMovimiento = operacion === 'venta' ? montoArs : -montoArs;
-    const tipoUsd = operacion === 'venta' ? 'egreso' : 'ingreso';
-    const tipoArs = operacion === 'venta' ? 'ingreso' : 'egreso';
-
-    // Movimiento en caja USD (efectivo, moneda USD)
-    const resultUsd: any = await query(
-      `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, 'USD', ?)`,
-      [
-        sucursal_id,
-        user_id,
-        fechaOp,
-        conceptoFinal,
-        descripcionFinal,
-        montoUsdMovimiento,
-        saldo,
-        prioridad,
-        estado,
-        tipoUsd,
-        Number(cotizacion),
-      ],
-    );
-
-    // Movimiento en caja ARS (efectivo, moneda ARS)
-    const resultArs: any = await query(
-      `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, 'ARS', NULL)`,
-      [
-        sucursal_id,
-        user_id,
-        fechaOp,
-        conceptoFinal,
-        descripcionFinal,
-        montoArsMovimiento,
-        saldo,
-        prioridad,
-        estado,
-        tipoArs,
-      ],
-    );
-
-    const [movUsd, movArs]: any[] = await Promise.all([
-      query('SELECT * FROM movimientos WHERE id = ?', [resultUsd.insertId]),
-      query('SELECT * FROM movimientos WHERE id = ?', [resultArs.insertId]),
-    ]);
-
-    res.status(201).json({
-      success: true,
-      message: `Operación de ${operacion} de divisas registrada exitosamente`,
-      data: {
-        movimiento_usd: (movUsd as any[])[0],
-        movimiento_ars: (movArs as any[])[0],
-        resumen: {
-          operacion,
-          cantidad_usd: montoUsd,
-          cotizacion: Number(cotizacion),
-          monto_ars: montoArs,
-        },
-      },
-    });
-  } catch (error) {
-    console.error('Error en compra-venta de divisas:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al registrar la operación de compra-venta de divisas',
-    });
-  }
-};
-
-// POST /api/movimientos/compra-venta-divisas
-// operacion: "compra" | "venta"
-// compra: ingresa USD en caja USD, egresa ARS de caja ARS
-// venta:  egresa USD de caja USD, ingresa ARS en caja ARS
+import { normalizarFecha, formatearFechaRespuesta } from '../utils/movimientosHelpers';
+
+// Re-exports para que las rutas no necesiten cambiar
+export * from './movimientos/efectivoController';
+export * from './movimientos/bancoController';
+export * from './movimientos/pagosPendientesController';
 
 // GET /api/movimientos/deudas?sucursalId=&fechaInicio=&fechaFin=
 export const getDeudasInterSucursal = async (req: Request, res: Response) => {
   try {
-    const { sucursalId, fechaInicio, fechaFin } = req.query;
+    const { sucursalId, fechaInicio, fechaFin } = req.query as {
+      sucursalId?: string;
+      fechaInicio?: string;
+      fechaFin?: string;
+    };
 
     if (!sucursalId) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'sucursalId es requerido' });
+      return res.status(400).json({ success: false, message: 'sucursalId es requerido' });
     }
 
     let sql = `
-      SELECT 
+      SELECT
         m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.descripcion,
         m.tipo, m.tipo_movimiento, m.saldo, m.estado, m.es_deuda,
         m.fecha_original_vencimiento, m.moneda,
@@ -2492,20 +34,11 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
     `;
     const params: (string | number)[] = [String(sucursalId)];
 
-    if (fechaInicio) {
-      sql += ` AND m.fecha >= ?`;
-      params.push(`${fechaInicio} 00:00:00`);
-    }
-    if (fechaFin) {
-      sql += ` AND m.fecha <= ?`;
-      params.push(`${fechaFin} 23:59:59`);
-    }
-
+    if (fechaInicio) { sql += ` AND m.fecha >= ?`; params.push(`${fechaInicio} 00:00:00`); }
+    if (fechaFin) { sql += ` AND m.fecha <= ?`; params.push(`${fechaFin} 23:59:59`); }
     sql += ` ORDER BY m.id DESC`;
 
     const result: any = await query(sql, params);
-
-    // Formatear fechas en la respuesta
     const resultFormatted = result.map((m: any) => ({
       ...m,
       fecha: formatearFechaRespuesta(m.fecha),
@@ -2517,9 +50,7 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
     return res.json({ success: true, data: resultFormatted });
   } catch (error) {
     console.error('Error en getDeudasInterSucursal:', error);
-    return res
-      .status(500)
-      .json({ success: false, message: 'Error interno del servidor' });
+    return res.status(500).json({ success: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -2529,61 +60,34 @@ export const deleteBulkMovimientos = async (req: Request, res: Response) => {
     const { ids } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere un array de ids no vacío.',
-      });
+      return res.status(400).json({ success: false, message: 'Se requiere un array de ids no vacío.' });
     }
 
     const placeholders = ids.map(() => '?').join(', ');
     await query(`DELETE FROM movimientos WHERE id IN (${placeholders})`, ids);
-
-    res.json({
-      success: true,
-      message: `${ids.length} movimiento(s) eliminado(s).`,
-    });
+    res.json({ success: true, message: `${ids.length} movimiento(s) eliminado(s).` });
   } catch (error) {
     console.error('Error en deleteBulkMovimientos:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al eliminar movimientos en bloque.',
-    });
+    res.status(500).json({ success: false, message: 'Error al eliminar movimientos en bloque.' });
   }
 };
 
 // PUT /api/movimientos/bulk/mover
-// Body: { ids, destino_sucursal_id, destino_tipo_movimiento, destino_saldo, banco_id?, medio_pago_id?, numero_cheque?, banco?, cuenta?, cbu?, tipo_operacion? }
 export const moverBulkMovimientos = async (req: Request, res: Response) => {
   try {
     const {
-      ids,
-      destino_sucursal_id,
-      destino_tipo_movimiento,
-      destino_saldo,
-      banco_id,
-      medio_pago_id,
-      numero_cheque,
-      banco,
-      cuenta,
-      cbu,
-      tipo_operacion,
+      ids, destino_sucursal_id, destino_tipo_movimiento, destino_saldo,
+      banco_id, medio_pago_id, numero_cheque, banco, cuenta, cbu, tipo_operacion,
     } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere un array de ids no vacío.',
-      });
+      return res.status(400).json({ success: false, message: 'Se requiere un array de ids no vacío.' });
     }
     if (!destino_sucursal_id || !destino_tipo_movimiento || !destino_saldo) {
-      return res.status(400).json({
-        success: false,
-        message: 'Faltan datos de destino obligatorios.',
-      });
+      return res.status(400).json({ success: false, message: 'Faltan datos de destino obligatorios.' });
     }
 
-    const nuevoEstado =
-      destino_saldo === 'saldo_real' ? 'completado' : 'aprobado';
+    const nuevoEstado = destino_saldo === 'saldo_real' ? 'completado' : 'aprobado';
     const placeholders = ids.map(() => '?').join(', ');
 
     if (destino_tipo_movimiento === 'efectivo') {
@@ -2603,30 +107,266 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
              banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
          WHERE id IN (${placeholders})`,
         [
-          destino_sucursal_id,
-          destino_saldo,
-          nuevoEstado,
-          banco_id || null,
-          medio_pago_id || null,
-          numero_cheque || null,
-          banco || null,
-          cuenta || null,
-          cbu || null,
-          tipo_operacion || null,
+          destino_sucursal_id, destino_saldo, nuevoEstado,
+          banco_id || null, medio_pago_id || null, numero_cheque || null,
+          banco || null, cuenta || null, cbu || null, tipo_operacion || null,
           ...ids,
         ],
       );
     }
 
-    res.json({
-      success: true,
-      message: `${ids.length} movimiento(s) movido(s).`,
-    });
+    res.json({ success: true, message: `${ids.length} movimiento(s) movido(s).` });
   } catch (error) {
     console.error('Error en moverBulkMovimientos:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al mover movimientos en bloque.',
+    res.status(500).json({ success: false, message: 'Error al mover movimientos en bloque.' });
+  }
+};
+
+// POST /api/movimientos/compra-venta-divisas
+// compra: ingresa USD, egresa ARS | venta: egresa USD, ingresa ARS
+export const compraVentaDivisas = async (req: Request, res: Response) => {
+  try {
+    const { sucursal_id, user_id, fecha, cantidad_usd, cotizacion, operacion, concepto, descripcion } = req.body;
+
+    if (!sucursal_id || !user_id || !fecha || cantidad_usd === undefined || cotizacion === undefined || !operacion) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, cantidad_usd, cotizacion, operacion',
+      });
+    }
+
+    if (operacion !== 'compra' && operacion !== 'venta') {
+      return res.status(400).json({ success: false, message: 'operacion debe ser "compra" o "venta"' });
+    }
+
+    const montoUsd = Math.abs(Number(cantidad_usd));
+    const montoArs = montoUsd * Math.abs(Number(cotizacion));
+
+    if (isNaN(montoUsd) || isNaN(montoArs) || montoUsd <= 0) {
+      return res.status(400).json({ success: false, message: 'cantidad_usd y cotizacion deben ser números positivos' });
+    }
+
+    const fechaOp = normalizarFecha(fecha);
+    const conceptoFinal = concepto || (operacion === 'compra' ? 'Compra de divisas (USD)' : 'Venta de divisas (USD)');
+    const descripcionFinal = descripcion || null;
+
+    // Venta: egresa USD, ingresa ARS — Compra: ingresa USD, egresa ARS
+    const montoUsdMovimiento = operacion === 'venta' ? -montoUsd : montoUsd;
+    const montoArsMovimiento = operacion === 'venta' ? montoArs : -montoArs;
+    const tipoUsd = operacion === 'venta' ? 'egreso' : 'ingreso';
+    const tipoArs = operacion === 'venta' ? 'ingreso' : 'egreso';
+
+    const resultUsd: any = await query(
+      `INSERT INTO movimientos
+       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, 'saldo_real', 'efectivo', 'media', 'completado', ?, 'USD', ?)`,
+      [sucursal_id, user_id, fechaOp, conceptoFinal, descripcionFinal, montoUsdMovimiento, tipoUsd, Number(cotizacion)],
+    );
+
+    const resultArs: any = await query(
+      `INSERT INTO movimientos
+       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, 'saldo_real', 'efectivo', 'media', 'completado', ?, 'ARS', NULL)`,
+      [sucursal_id, user_id, fechaOp, conceptoFinal, descripcionFinal, montoArsMovimiento, tipoArs],
+    );
+
+    const [movUsd, movArs]: any[] = await Promise.all([
+      query('SELECT * FROM movimientos WHERE id = ?', [resultUsd.insertId]),
+      query('SELECT * FROM movimientos WHERE id = ?', [resultArs.insertId]),
+    ]);
+
+    res.status(201).json({
+      success: true,
+      message: `Operación de ${operacion} de divisas registrada exitosamente`,
+      data: {
+        movimiento_usd: (movUsd as any[])[0],
+        movimiento_ars: (movArs as any[])[0],
+        resumen: { operacion, cantidad_usd: montoUsd, cotizacion: Number(cotizacion), monto_ars: montoArs },
+      },
     });
+  } catch (error) {
+    console.error('Error en compra-venta de divisas:', error);
+    res.status(500).json({ success: false, message: 'Error al registrar la operación de compra-venta de divisas' });
+  }
+};
+
+// PUT /api/movimientos/:id/mover
+export const moverMovimiento = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      destino_tipo_movimiento, destino_saldo, destino_sucursal_id,
+      banco_id, medio_pago_id, numero_cheque, banco, cuenta, cbu, tipo_operacion,
+      nota_descripcion, es_credito,
+    } = req.body;
+
+    if (!destino_tipo_movimiento || !destino_saldo || !destino_sucursal_id) {
+      return res.status(400).json({ success: false, message: 'Faltan datos de destino obligatorios.' });
+    }
+
+    const movResult: any = await query('SELECT * FROM movimientos WHERE id = ?', [id]);
+    if (!Array.isArray(movResult) || movResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Movimiento no encontrado' });
+    }
+
+    const mov = movResult[0];
+    const isDifferentSucursal = String(mov.sucursal_id) !== String(destino_sucursal_id);
+    const createDebts = es_credito && isDifferentSucursal;
+
+    const [sucOrigenResult, sucDestinoResult]: any[] = await Promise.all([
+      query('SELECT nombre FROM sucursales WHERE id = ?', [mov.sucursal_id]),
+      query('SELECT nombre FROM sucursales WHERE id = ?', [destino_sucursal_id]),
+    ]);
+    const nombreOrigen = sucOrigenResult?.[0]?.nombre ?? `Sucursal ${mov.sucursal_id}`;
+    const nombreDestino = sucDestinoResult?.[0]?.nombre ?? `Sucursal ${destino_sucursal_id}`;
+
+    let nuevaDescripcion = mov.descripcion || '';
+    if (nota_descripcion) {
+      const separador = '\n📌 Nota interna: ';
+      if (nuevaDescripcion.includes(separador)) {
+        nuevaDescripcion = nuevaDescripcion.split(separador)[0].trim();
+      }
+      nuevaDescripcion = nuevaDescripcion
+        ? `${nuevaDescripcion}${separador}${nota_descripcion}`
+        : `${nota_descripcion}`;
+    }
+
+    const nuevoTipo = createDebts
+      ? (mov.tipo === 'ingreso' ? 'egreso' : 'ingreso')
+      : mov.tipo;
+    const nuevoEstado = destino_saldo === 'saldo_real' ? 'completado' : 'aprobado';
+
+    const getSignedMonto = (t: string, m: number) => (t === 'egreso' ? -Math.abs(m) : Math.abs(m));
+
+    const camposBanco = (overrides: Record<string, any> = {}) => ({
+      banco_id: overrides.banco_id ?? banco_id ?? mov.banco_id ?? null,
+      medio_pago_id: overrides.medio_pago_id ?? medio_pago_id ?? mov.medio_pago_id ?? null,
+      numero_cheque: overrides.numero_cheque ?? numero_cheque ?? mov.numero_cheque ?? null,
+      banco: overrides.banco ?? banco ?? mov.banco ?? null,
+      cuenta: overrides.cuenta ?? cuenta ?? mov.cuenta ?? null,
+      cbu: overrides.cbu ?? cbu ?? mov.cbu ?? null,
+      tipo_operacion: overrides.tipo_operacion ?? tipo_operacion ?? mov.tipo_operacion ?? null,
+    });
+
+    if (createDebts) {
+      if (mov.tipo === 'ingreso') {
+        // CASO 1: Muevo un ingreso → Egreso real en origen, Ingreso real en destino, deudas cruzadas
+        await query(
+          `UPDATE movimientos SET tipo = ?, estado = 'completado', descripcion = ?, monto = ? WHERE id = ?`,
+          ['egreso', nuevaDescripcion, getSignedMonto('egreso', mov.monto), id],
+        );
+
+        const cb = camposBanco();
+        await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            tipo, tipo_movimiento, saldo, estado, banco_id, medio_pago_id,
+            numero_cheque, banco, cuenta, cbu, tipo_operacion
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            destino_sucursal_id, mov.user_id, mov.concepto,
+            getSignedMonto('ingreso', mov.monto), nuevaDescripcion, 'ingreso',
+            destino_tipo_movimiento, destino_saldo, nuevoEstado,
+            destino_tipo_movimiento === 'banco' ? cb.banco_id : null,
+            destino_tipo_movimiento === 'banco' ? cb.medio_pago_id : null,
+            destino_tipo_movimiento === 'banco' ? cb.numero_cheque : null,
+            destino_tipo_movimiento === 'banco' ? cb.banco : null,
+            destino_tipo_movimiento === 'banco' ? cb.cuenta : null,
+            destino_tipo_movimiento === 'banco' ? cb.cbu : null,
+            destino_tipo_movimiento === 'banco' ? cb.tipo_operacion : null,
+          ],
+        );
+
+        const insertOrigenDeuda: any = await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [mov.sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+           getSignedMonto('ingreso', mov.monto), `Crédito auto-generado por movimiento hacia ${nombreDestino}`, 'ingreso', mov.tipo_movimiento],
+        );
+
+        const insertDestinoDeuda: any = await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [destino_sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+           getSignedMonto('egreso', mov.monto), `Deuda auto-generada recibida de ${nombreOrigen}`, 'egreso', destino_tipo_movimiento],
+        );
+
+        await query(`UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`, [insertDestinoDeuda.insertId, insertOrigenDeuda.insertId]);
+        await query(`UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`, [insertOrigenDeuda.insertId, insertDestinoDeuda.insertId]);
+      } else {
+        // CASO 2: Muevo un egreso → Muevo el registro al destino, deudas cruzadas
+        if (destino_tipo_movimiento === 'efectivo') {
+          await query(
+            `UPDATE movimientos
+             SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
+                 banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+             WHERE id = ?`,
+            [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, 'egreso', getSignedMonto('egreso', mov.monto), id],
+          );
+        } else {
+          const cb = camposBanco();
+          await query(
+            `UPDATE movimientos
+             SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
+                 banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
+             WHERE id = ?`,
+            [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, 'egreso', getSignedMonto('egreso', mov.monto),
+             cb.banco_id, cb.medio_pago_id, cb.numero_cheque, cb.banco, cb.cuenta, cb.cbu, cb.tipo_operacion, id],
+          );
+        }
+
+        const insertOrigenDeuda2: any = await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [mov.sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+           getSignedMonto('egreso', mov.monto), `Deuda auto-generada por mover consumo (egreso) a ${nombreDestino}`, 'egreso', mov.tipo_movimiento],
+        );
+
+        const insertDestinoDeuda2: any = await query(
+          `INSERT INTO movimientos (
+            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            tipo, tipo_movimiento, saldo, estado, es_deuda
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+          [destino_sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+           getSignedMonto('ingreso', mov.monto), `Crédito a cobrar generado al asumir consumo (egreso) desde ${nombreOrigen}`, 'ingreso', destino_tipo_movimiento],
+        );
+
+        await query(`UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`, [insertDestinoDeuda2.insertId, insertOrigenDeuda2.insertId]);
+        await query(`UPDATE movimientos SET movimiento_contraparte_id = ? WHERE id = ?`, [insertOrigenDeuda2.insertId, insertDestinoDeuda2.insertId]);
+      }
+    } else {
+      // FLUJO NORMAL: Solo mover de sucursal
+      if (destino_tipo_movimiento === 'efectivo') {
+        await query(
+          `UPDATE movimientos
+           SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?,
+               banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
+           WHERE id = ?`,
+          [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, nuevoTipo, id],
+        );
+      } else {
+        const cb = camposBanco();
+        await query(
+          `UPDATE movimientos
+           SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?,
+               banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
+           WHERE id = ?`,
+          [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, nuevoTipo,
+           cb.banco_id, cb.medio_pago_id, cb.numero_cheque, cb.banco, cb.cuenta, cb.cbu, cb.tipo_operacion, id],
+        );
+      }
+    }
+
+    const updatedResult: any = await query('SELECT * FROM movimientos WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Movimiento movido exitosamente', data: updatedResult[0] });
+  } catch (error) {
+    console.error('Error al mover movimiento:', error);
+    res.status(500).json({ success: false, message: 'Error al mover movimiento' });
   }
 };
