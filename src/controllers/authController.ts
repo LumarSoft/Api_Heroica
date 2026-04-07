@@ -1,9 +1,9 @@
-import { Request, Response } from "express";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import speakeasy from "speakeasy";
-import QRCode from "qrcode";
-import { query } from "../config/database";
+import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
+import { query } from '../config/database';
 
 interface User {
   id: number;
@@ -24,7 +24,7 @@ export const login = async (req: Request, res: Response) => {
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: "Email y contraseña son requeridos",
+        message: 'Email y contraseña son requeridos',
       });
     }
 
@@ -39,7 +39,7 @@ export const login = async (req: Request, res: Response) => {
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(401).json({
         success: false,
-        message: "Credenciales inválidas",
+        message: 'Credenciales inválidas',
       });
     }
 
@@ -50,7 +50,7 @@ export const login = async (req: Request, res: Response) => {
     if (!passwordValida) {
       return res.status(401).json({
         success: false,
-        message: "Credenciales inválidas",
+        message: 'Credenciales inválidas',
       });
     }
 
@@ -66,39 +66,39 @@ export const login = async (req: Request, res: Response) => {
           rol: user.rol_nombre,
           rol_id: user.rol_id,
         },
-        message: "Debes configurar autenticación de doble factor",
+        message: 'Debes configurar autenticación de doble factor',
       });
     }
 
     const tempToken = jwt.sign(
       { id: user.id, email: user.email, temp2fa: true },
       process.env.JWT_SECRET as string,
-      { expiresIn: "5m" },
+      { expiresIn: '5m' },
     );
 
     return res.json({
       success: true,
       requires2FA: true,
       tempToken,
-      message: "Se requiere código de verificación",
+      message: 'Se requiere código de verificación',
     });
   } catch (error) {
-    console.error("Error en login:", error);
+    console.error('Error en login:', error);
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
+      message: 'Error interno del servidor',
     });
   }
 };
 
 export const verifyToken = async (req: Request, res: Response) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1];
+    const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Token no proporcionado",
+        message: 'Token no proporcionado',
       });
     }
 
@@ -111,7 +111,7 @@ export const verifyToken = async (req: Request, res: Response) => {
   } catch (error) {
     res.status(401).json({
       success: false,
-      message: "Token inválido o expirado",
+      message: 'Token inválido o expirado',
     });
   }
 };
@@ -123,7 +123,7 @@ export const verify2FA = async (req: Request, res: Response) => {
     if (!tempToken || !code) {
       return res.status(400).json({
         success: false,
-        message: "Token temporal y código son requeridos",
+        message: 'Token temporal y código son requeridos',
       });
     }
 
@@ -135,7 +135,7 @@ export const verify2FA = async (req: Request, res: Response) => {
     if (!decoded.temp2fa) {
       return res.status(401).json({
         success: false,
-        message: "Token inválido",
+        message: 'Token inválido',
       });
     }
 
@@ -150,7 +150,7 @@ export const verify2FA = async (req: Request, res: Response) => {
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(401).json({
         success: false,
-        message: "Usuario no encontrado",
+        message: 'Usuario no encontrado',
       });
     }
 
@@ -159,13 +159,13 @@ export const verify2FA = async (req: Request, res: Response) => {
     if (!user.two_factor_enabled || !user.two_factor_secret) {
       return res.status(400).json({
         success: false,
-        message: "2FA no está habilitado para este usuario",
+        message: '2FA no está habilitado para este usuario',
       });
     }
 
     const verified = speakeasy.totp.verify({
       secret: user.two_factor_secret,
-      encoding: "base32",
+      encoding: 'base32',
       token: code,
       window: 2,
     });
@@ -173,7 +173,7 @@ export const verify2FA = async (req: Request, res: Response) => {
     if (!verified) {
       return res.status(401).json({
         success: false,
-        message: "Código de verificación inválido",
+        message: 'Código de verificación inválido',
       });
     }
 
@@ -185,7 +185,7 @@ export const verify2FA = async (req: Request, res: Response) => {
         rol: user.rol_nombre,
       },
       process.env.JWT_SECRET as string,
-      { expiresIn: "24h" },
+      { expiresIn: '24h' },
     );
 
     // Obtener permisos del rol
@@ -194,14 +194,14 @@ export const verify2FA = async (req: Request, res: Response) => {
        FROM permisos p
        INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
        WHERE rp.rol_id = ?`,
-      [user.rol_id]
+      [user.rol_id],
     );
     const permisos: string[] = permisosResult.map((p: any) => p.clave);
 
     // Respuesta exitosa
     res.json({
       success: true,
-      message: "Verificación exitosa",
+      message: 'Verificación exitosa',
       data: {
         token,
         user: {
@@ -216,10 +216,10 @@ export const verify2FA = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Error en verify2FA:", error);
+    console.error('Error en verify2FA:', error);
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
+      message: 'Error interno del servidor',
     });
   }
 };
@@ -231,7 +231,7 @@ export const enable2FA = async (req: Request, res: Response) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "userId es requerido",
+        message: 'userId es requerido',
       });
     }
 
@@ -255,10 +255,10 @@ export const enable2FA = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Error en enable2FA:", error);
+    console.error('Error en enable2FA:', error);
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
+      message: 'Error interno del servidor',
     });
   }
 };
@@ -270,7 +270,7 @@ export const confirm2FA = async (req: Request, res: Response) => {
     if (!userId || !code) {
       return res.status(400).json({
         success: false,
-        message: "userId y código son requeridos",
+        message: 'userId y código son requeridos',
       });
     }
 
@@ -285,7 +285,7 @@ export const confirm2FA = async (req: Request, res: Response) => {
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Usuario no encontrado",
+        message: 'Usuario no encontrado',
       });
     }
 
@@ -294,13 +294,13 @@ export const confirm2FA = async (req: Request, res: Response) => {
     if (!user.two_factor_secret) {
       return res.status(400).json({
         success: false,
-        message: "2FA no está configurado",
+        message: '2FA no está configurado',
       });
     }
 
     const verified = speakeasy.totp.verify({
       secret: user.two_factor_secret,
-      encoding: "base32",
+      encoding: 'base32',
       token: code,
       window: 2,
     });
@@ -308,7 +308,7 @@ export const confirm2FA = async (req: Request, res: Response) => {
     if (!verified) {
       return res.status(401).json({
         success: false,
-        message: "Código de verificación inválido",
+        message: 'Código de verificación inválido',
       });
     }
 
@@ -319,19 +319,19 @@ export const confirm2FA = async (req: Request, res: Response) => {
     const tempToken = jwt.sign(
       { id: user.id, email: user.email, temp2fa: true },
       process.env.JWT_SECRET as string,
-      { expiresIn: "5m" },
+      { expiresIn: '5m' },
     );
 
     res.json({
       success: true,
-      message: "2FA habilitado exitosamente",
+      message: '2FA habilitado exitosamente',
       tempToken,
     });
   } catch (error) {
-    console.error("Error en confirm2FA:", error);
+    console.error('Error en confirm2FA:', error);
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
+      message: 'Error interno del servidor',
     });
   }
 };
@@ -343,7 +343,7 @@ export const disable2FA = async (req: Request, res: Response) => {
     if (!userId || !password) {
       return res.status(400).json({
         success: false,
-        message: "userId y contraseña son requeridos",
+        message: 'userId y contraseña son requeridos',
       });
     }
 
@@ -355,7 +355,7 @@ export const disable2FA = async (req: Request, res: Response) => {
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Usuario no encontrado",
+        message: 'Usuario no encontrado',
       });
     }
 
@@ -365,7 +365,7 @@ export const disable2FA = async (req: Request, res: Response) => {
     if (!passwordValida) {
       return res.status(401).json({
         success: false,
-        message: "Contraseña incorrecta",
+        message: 'Contraseña incorrecta',
       });
     }
 
@@ -376,13 +376,13 @@ export const disable2FA = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: "2FA deshabilitado exitosamente",
+      message: '2FA deshabilitado exitosamente',
     });
   } catch (error) {
-    console.error("Error en disable2FA:", error);
+    console.error('Error en disable2FA:', error);
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
+      message: 'Error interno del servidor',
     });
   }
 };
@@ -394,7 +394,7 @@ export const reset2FA = async (req: Request, res: Response) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: "userId es requerido",
+        message: 'userId es requerido',
       });
     }
 
@@ -406,13 +406,13 @@ export const reset2FA = async (req: Request, res: Response) => {
     res.json({
       success: true,
       message:
-        "2FA reseteado. El usuario deberá configurarlo en su próximo login",
+        '2FA reseteado. El usuario deberá configurarlo en su próximo login',
     });
   } catch (error) {
-    console.error("Error en reset2FA:", error);
+    console.error('Error en reset2FA:', error);
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
+      message: 'Error interno del servidor',
     });
   }
 };
@@ -422,21 +422,21 @@ export const reset2FA = async (req: Request, res: Response) => {
 export const changePassword = async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
-        message: "Token no proporcionado",
+        message: 'Token no proporcionado',
       });
     }
 
-    const token = authHeader.split(" ")[1];
+    const token = authHeader.split(' ')[1];
     let decoded: any;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET as string);
     } catch {
       return res.status(401).json({
         success: false,
-        message: "Token inválido o expirado",
+        message: 'Token inválido o expirado',
       });
     }
 
@@ -446,61 +446,64 @@ export const changePassword = async (req: Request, res: Response) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: "La contraseña actual y la nueva son requeridas",
+        message: 'La contraseña actual y la nueva son requeridas',
       });
     }
 
     if (newPassword.length < 6) {
       return res.status(400).json({
         success: false,
-        message: "La nueva contraseña debe tener al menos 6 caracteres",
+        message: 'La nueva contraseña debe tener al menos 6 caracteres',
       });
     }
 
     // Obtener contraseña actual del usuario
     const result: any = await query(
-      "SELECT password FROM usuarios WHERE id = ? AND activo = TRUE",
-      [userId]
+      'SELECT password FROM usuarios WHERE id = ? AND activo = TRUE',
+      [userId],
     );
 
     if (!result || result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Usuario no encontrado",
+        message: 'Usuario no encontrado',
       });
     }
 
-    const passwordValida = await bcrypt.compare(currentPassword, result[0].password);
+    const passwordValida = await bcrypt.compare(
+      currentPassword,
+      result[0].password,
+    );
     if (!passwordValida) {
       return res.status(400).json({
         success: false,
-        message: "La contraseña actual es incorrecta",
+        message: 'La contraseña actual es incorrecta',
       });
     }
 
     if (currentPassword === newPassword) {
       return res.status(400).json({
         success: false,
-        message: "La nueva contraseña debe ser diferente a la actual",
+        message: 'La nueva contraseña debe ser diferente a la actual',
       });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     await query(
-      "UPDATE usuarios SET password = ?, must_change_password = 0 WHERE id = ?",
-      [hashedPassword, userId]
+      'UPDATE usuarios SET password = ?, must_change_password = 0 WHERE id = ?',
+      [hashedPassword, userId],
     );
 
     res.json({
       success: true,
-      message: "Contraseña actualizada exitosamente",
+      message: 'Contraseña actualizada exitosamente',
     });
   } catch (error) {
-    console.error("Error al cambiar contraseña:", error);
+    console.error('Error al cambiar contraseña:', error);
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
+      message: 'Error interno del servidor',
     });
   }
 };

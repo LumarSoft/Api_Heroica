@@ -1,12 +1,12 @@
-import { Router } from "express";
+import { Router } from 'express';
 import {
   getTareas,
   createTarea,
   updateTarea,
   updateEstadoTarea,
   deleteTarea,
-} from "../controllers/tareasController";
-import { requireAuth } from "../middlewares/authMiddleware";
+} from '../controllers/tareasController';
+import { requireAuth } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -15,10 +15,10 @@ const router = Router();
 // Al agregar el módulo de tareas con permisos granulares, actualizar aquí y en permisos.ts.
 router.use(requireAuth);
 
-router.get("/", getTareas);
-router.post("/", createTarea);
-router.put("/:id", updateTarea);
-router.patch("/:id/estado", updateEstadoTarea);
-router.delete("/:id", deleteTarea);
+router.get('/', getTareas);
+router.post('/', createTarea);
+router.put('/:id', updateTarea);
+router.patch('/:id/estado', updateEstadoTarea);
+router.delete('/:id', deleteTarea);
 
 export default router;

@@ -1,24 +1,30 @@
-import { Request, Response } from "express";
-import { query } from "../config/database";
+import { Request, Response } from 'express';
+import { query } from '../config/database';
 
 // GET /api/reportes/:sucursalId
 // Query params opcionales: startDate, endDate
 export const getReportesBySucursal = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params;
-    const { startDate, endDate, moneda = "ARS" } = req.query;
+    const { startDate, endDate, moneda = 'ARS' } = req.query;
     const user = req.user!;
 
     // Verificar acceso a la sucursal
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
     if (!isSuperAdmin) {
       const acceso: any = await query(
         `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, sucursalId]
+        [user.id, sucursalId],
       );
       if (!acceso || acceso.length === 0) {
-        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' });
+        return res
+          .status(403)
+          .json({ success: false, message: 'No tenés acceso a esta sucursal' });
       }
     }
 
@@ -65,7 +71,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       params.push(endDate, endDate);
     }
 
-    sql += " ORDER BY m.fecha DESC";
+    sql += ' ORDER BY m.fecha DESC';
 
     const movimientos: any = await query(sql, params);
 
@@ -86,15 +92,15 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
 
     movimientos.forEach((mov: any) => {
       // Si el movimiento es el pago de una deuda, usamos la fecha de pago (updated_at)
-      if (mov.es_deuda === 1 && mov.estado === "completado" && mov.updated_at) {
+      if (mov.es_deuda === 1 && mov.estado === 'completado' && mov.updated_at) {
         mov.fecha = mov.updated_at;
       }
 
       const monto = Number(mov.monto);
-      const catNombre = mov.categoria_nombre || "Sin Categoría";
-      const subCatNombre = mov.subcategoria_nombre || "Sin Subcategoría";
+      const catNombre = mov.categoria_nombre || 'Sin Categoría';
+      const subCatNombre = mov.subcategoria_nombre || 'Sin Subcategoría';
 
-      if (mov.tipo === "ingreso") {
+      if (mov.tipo === 'ingreso') {
         ingresosTotales += monto;
 
         if (!ingresosPorCategoria[catNombre]) {
@@ -106,7 +112,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
           monto;
 
         ingresosList.push(mov);
-      } else if (mov.tipo === "egreso") {
+      } else if (mov.tipo === 'egreso') {
         const montoAbs = Math.abs(monto);
         egresosTotales += montoAbs;
 
@@ -154,7 +160,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     const deudasParams: any[] = [sucursalId, moneda];
 
     if (endDate) {
-      sqlDeudas += " AND m.fecha <= ?";
+      sqlDeudas += ' AND m.fecha <= ?';
       deudasParams.push(endDate);
 
       // Si el mes consultado es anterior al pago de la deuda, la deuda debe seguir mostrándose como activa en ese mes
@@ -164,7 +170,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       sqlDeudas += " AND m.estado != 'completado'";
     }
 
-    sqlDeudas += " ORDER BY m.fecha DESC";
+    sqlDeudas += ' ORDER BY m.fecha DESC';
 
     const deudasList: any = await query(sqlDeudas, deudasParams);
     const deudasTotales = deudasList.reduce(
@@ -191,10 +197,10 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Error al obtener reportes:", error);
+    console.error('Error al obtener reportes:', error);
     res.status(500).json({
       success: false,
-      message: "Error al obtener reportes",
+      message: 'Error al obtener reportes',
     });
   }
 };

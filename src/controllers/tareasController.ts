@@ -1,5 +1,5 @@
-import { Request, Response } from "express";
-import { query } from "../config/database";
+import { Request, Response } from 'express';
+import { query } from '../config/database';
 
 // GET /api/tareas
 export const getTareas = async (_req: Request, res: Response) => {
@@ -19,49 +19,50 @@ export const getTareas = async (_req: Request, res: Response) => {
 
     res.json({ success: true, data: result });
   } catch (error) {
-    console.error("Error al obtener tareas:", error);
+    console.error('Error al obtener tareas:', error);
     res
       .status(500)
-      .json({ success: false, message: "Error al obtener tareas" });
+      .json({ success: false, message: 'Error al obtener tareas' });
   }
 };
 
 // POST /api/tareas
 export const createTarea = async (req: Request, res: Response) => {
   try {
-    const { titulo, descripcion, tipo, prioridad, version, creado_por } = req.body;
+    const { titulo, descripcion, tipo, prioridad, version, creado_por } =
+      req.body;
 
     if (!titulo || !tipo || !prioridad) {
       return res.status(400).json({
         success: false,
-        message: "Título, tipo y prioridad son requeridos",
+        message: 'Título, tipo y prioridad son requeridos',
       });
     }
 
-    const tiposValidos = ["bug", "mejora", "implementacion", "otro"];
-    const prioridadesValidas = ["alta", "media", "baja"];
+    const tiposValidos = ['bug', 'mejora', 'implementacion', 'otro'];
+    const prioridadesValidas = ['alta', 'media', 'baja'];
 
     if (!tiposValidos.includes(tipo)) {
-      return res.status(400).json({ success: false, message: "Tipo inválido" });
+      return res.status(400).json({ success: false, message: 'Tipo inválido' });
     }
     if (!prioridadesValidas.includes(prioridad)) {
       return res
         .status(400)
-        .json({ success: false, message: "Prioridad inválida" });
+        .json({ success: false, message: 'Prioridad inválida' });
     }
 
     const lastTarea: any = await query(
       `SELECT codigo FROM tareas ORDER BY id DESC LIMIT 1`,
     );
 
-    let nuevoCodigo = "TE-01";
+    let nuevoCodigo = 'TE-01';
     if (
       Array.isArray(lastTarea) &&
       lastTarea.length > 0 &&
       lastTarea[0].codigo
     ) {
-      const lastNumber = parseInt(lastTarea[0].codigo.split("-")[1]);
-      nuevoCodigo = `TE-${String(lastNumber + 1).padStart(2, "0")}`;
+      const lastNumber = parseInt(lastTarea[0].codigo.split('-')[1]);
+      nuevoCodigo = `TE-${String(lastNumber + 1).padStart(2, '0')}`;
     }
 
     const result: any = await query(
@@ -90,8 +91,8 @@ export const createTarea = async (req: Request, res: Response) => {
 
     res.status(201).json({ success: true, data: newTarea[0] });
   } catch (error) {
-    console.error("Error al crear tarea:", error);
-    res.status(500).json({ success: false, message: "Error al crear tarea" });
+    console.error('Error al crear tarea:', error);
+    res.status(500).json({ success: false, message: 'Error al crear tarea' });
   }
 };
 
@@ -104,18 +105,18 @@ export const updateTarea = async (req: Request, res: Response) => {
     if (!titulo || !tipo || !prioridad) {
       return res.status(400).json({
         success: false,
-        message: "Título, tipo y prioridad son requeridos",
+        message: 'Título, tipo y prioridad son requeridos',
       });
     }
 
     const existing: any = await query(
-      "SELECT id FROM tareas WHERE id = ? AND deleted_at IS NULL",
+      'SELECT id FROM tareas WHERE id = ? AND deleted_at IS NULL',
       [id],
     );
     if (!Array.isArray(existing) || existing.length === 0) {
       return res
         .status(404)
-        .json({ success: false, message: "Tarea no encontrada" });
+        .json({ success: false, message: 'Tarea no encontrada' });
     }
 
     await query(
@@ -136,10 +137,10 @@ export const updateTarea = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: updated[0] });
   } catch (error) {
-    console.error("Error al actualizar tarea:", error);
+    console.error('Error al actualizar tarea:', error);
     res
       .status(500)
-      .json({ success: false, message: "Error al actualizar tarea" });
+      .json({ success: false, message: 'Error al actualizar tarea' });
   }
 };
 
@@ -150,28 +151,28 @@ export const updateEstadoTarea = async (req: Request, res: Response) => {
     const { estado } = req.body;
 
     const estadosValidos = [
-      "pendiente",
-      "en_progreso",
-      "en_pruebas",
-      "completado",
+      'pendiente',
+      'en_progreso',
+      'en_pruebas',
+      'completado',
     ];
     if (!estado || !estadosValidos.includes(estado)) {
       return res
         .status(400)
-        .json({ success: false, message: "Estado inválido" });
+        .json({ success: false, message: 'Estado inválido' });
     }
 
     const existing: any = await query(
-      "SELECT id FROM tareas WHERE id = ? AND deleted_at IS NULL",
+      'SELECT id FROM tareas WHERE id = ? AND deleted_at IS NULL',
       [id],
     );
     if (!Array.isArray(existing) || existing.length === 0) {
       return res
         .status(404)
-        .json({ success: false, message: "Tarea no encontrada" });
+        .json({ success: false, message: 'Tarea no encontrada' });
     }
 
-    const completedAt = estado === "completado" ? "NOW()" : "NULL";
+    const completedAt = estado === 'completado' ? 'NOW()' : 'NULL';
 
     await query(
       `UPDATE tareas SET estado = ?, completed_at = ${completedAt}, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`,
@@ -190,10 +191,10 @@ export const updateEstadoTarea = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: updated[0] });
   } catch (error) {
-    console.error("Error al actualizar estado de tarea:", error);
+    console.error('Error al actualizar estado de tarea:', error);
     res
       .status(500)
-      .json({ success: false, message: "Error al actualizar estado" });
+      .json({ success: false, message: 'Error al actualizar estado' });
   }
 };
 
@@ -203,22 +204,22 @@ export const deleteTarea = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const existing: any = await query(
-      "SELECT id FROM tareas WHERE id = ? AND deleted_at IS NULL",
+      'SELECT id FROM tareas WHERE id = ? AND deleted_at IS NULL',
       [id],
     );
     if (!Array.isArray(existing) || existing.length === 0) {
       return res
         .status(404)
-        .json({ success: false, message: "Tarea no encontrada" });
+        .json({ success: false, message: 'Tarea no encontrada' });
     }
 
-    await query("UPDATE tareas SET deleted_at = NOW() WHERE id = ?", [id]);
+    await query('UPDATE tareas SET deleted_at = NOW() WHERE id = ?', [id]);
 
-    res.json({ success: true, message: "Tarea eliminada correctamente" });
+    res.json({ success: true, message: 'Tarea eliminada correctamente' });
   } catch (error) {
-    console.error("Error al eliminar tarea:", error);
+    console.error('Error al eliminar tarea:', error);
     res
       .status(500)
-      .json({ success: false, message: "Error al eliminar tarea" });
+      .json({ success: false, message: 'Error al eliminar tarea' });
   }
 };

@@ -1,14 +1,14 @@
-import { Request, Response } from "express";
-import { query } from "../config/database";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { put, del, get } from "@vercel/blob";
-import { Readable } from "stream";
+import { Request, Response } from 'express';
+import { query } from '../config/database';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { put, del, get } from '@vercel/blob';
+import { Readable } from 'stream';
 
 // Detectar si estamos en producción (Vercel)
 const isProduction =
-  process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+  process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
 
 // Configurar multer para subir archivos
 // En producción usamos memoria, en local usamos disco
@@ -16,7 +16,7 @@ const storage = isProduction
   ? multer.memoryStorage() // En producción guardamos en memoria temporalmente
   : multer.diskStorage({
       destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, "../../uploads/documentacion");
+        const uploadDir = path.join(__dirname, '../../uploads/documentacion');
 
         // Crear directorio si no existe
         if (!fs.existsSync(uploadDir)) {
@@ -26,7 +26,7 @@ const storage = isProduction
         cb(null, uploadDir);
       },
       filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
         const ext = path.extname(file.originalname);
         cb(null, `doc-${uniqueSuffix}${ext}`);
       },
@@ -34,12 +34,12 @@ const storage = isProduction
 
 const fileFilter = (req: any, file: any, cb: any) => {
   // Aceptar solo PDF y JPG
-  const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg"];
+  const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg'];
 
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Solo se permiten archivos PDF y JPG"), false);
+    cb(new Error('Solo se permiten archivos PDF y JPG'), false);
   }
 };
 
@@ -57,7 +57,7 @@ export const getDocumentos = async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const result: any = await query(
-      "SELECT * FROM documentos_sucursal WHERE sucursal_id = ? AND deleted_at IS NULL ORDER BY fecha_subida DESC",
+      'SELECT * FROM documentos_sucursal WHERE sucursal_id = ? AND deleted_at IS NULL ORDER BY fecha_subida DESC',
       [id],
     );
 
@@ -66,10 +66,10 @@ export const getDocumentos = async (req: Request, res: Response) => {
       data: result || [],
     });
   } catch (error) {
-    console.error("Error al obtener documentos:", error);
+    console.error('Error al obtener documentos:', error);
     res.status(500).json({
       success: false,
-      message: "Error al obtener documentos",
+      message: 'Error al obtener documentos',
     });
   }
 };
@@ -84,13 +84,13 @@ export const uploadDocumento = async (req: Request, res: Response) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: "No se proporcionó ningún archivo",
+        message: 'No se proporcionó ningún archivo',
       });
     }
 
     // Verificar que la sucursal existe
     const existingResult: any = await query(
-      "SELECT id FROM sucursales WHERE id = ?",
+      'SELECT id FROM sucursales WHERE id = ?',
       [id],
     );
 
@@ -101,7 +101,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
       }
       return res.status(404).json({
         success: false,
-        message: "Sucursal no encontrada",
+        message: 'Sucursal no encontrada',
       });
     }
 
@@ -111,15 +111,15 @@ export const uploadDocumento = async (req: Request, res: Response) => {
     if (isProduction) {
       // PRODUCCIÓN: Subir a Vercel Blob
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
-        throw new Error("BLOB_READ_WRITE_TOKEN no está configurado");
+        throw new Error('BLOB_READ_WRITE_TOKEN no está configurado');
       }
 
-      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
       const ext = path.extname(req.file.originalname);
       const blobFileName = `documentos/sucursal-${id}/doc-${uniqueSuffix}${ext}`;
 
       const blob = await put(blobFileName, req.file.buffer, {
-        access: "private",
+        access: 'private',
         token: process.env.BLOB_READ_WRITE_TOKEN,
       });
 
@@ -149,7 +149,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: "Documento subido exitosamente",
+      message: 'Documento subido exitosamente',
       data: {
         id: insertResult.insertId,
         nombre: req.file.originalname,
@@ -162,7 +162,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Error al subir documento:", error);
+    console.error('Error al subir documento:', error);
 
     // Eliminar el archivo si hubo error (solo en local)
     if (!isProduction && req.file && (req.file as any).path) {
@@ -171,8 +171,8 @@ export const uploadDocumento = async (req: Request, res: Response) => {
 
     res.status(500).json({
       success: false,
-      message: "Error al subir documento",
-      error: error instanceof Error ? error.message : "Error desconocido",
+      message: 'Error al subir documento',
+      error: error instanceof Error ? error.message : 'Error desconocido',
     });
   }
 };
@@ -184,14 +184,14 @@ export const deleteDocumento = async (req: Request, res: Response) => {
 
     // Obtener el documento
     const result: any = await query(
-      "SELECT * FROM documentos_sucursal WHERE id = ? AND sucursal_id = ?",
+      'SELECT * FROM documentos_sucursal WHERE id = ? AND sucursal_id = ?',
       [docId, sucursalId],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Documento no encontrado",
+        message: 'Documento no encontrado',
       });
     }
 
@@ -199,36 +199,36 @@ export const deleteDocumento = async (req: Request, res: Response) => {
 
     if (isProduction) {
       // PRODUCCIÓN: Eliminar de Vercel Blob
-      if (documento.ruta_archivo.startsWith("https://")) {
+      if (documento.ruta_archivo.startsWith('https://')) {
         try {
           await del(documento.ruta_archivo, {
             token: process.env.BLOB_READ_WRITE_TOKEN!,
           });
         } catch (error) {
-          console.error("Error al eliminar archivo de Blob:", error);
+          console.error('Error al eliminar archivo de Blob:', error);
           // Continuar aunque falle el borrado del blob
         }
       }
     } else {
       // LOCAL: Eliminar archivo físico
-      const filePath = path.join(__dirname, "../../", documento.ruta_archivo);
+      const filePath = path.join(__dirname, '../../', documento.ruta_archivo);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     }
 
     // Eliminar registro de la base de datos
-    await query("DELETE FROM documentos_sucursal WHERE id = ?", [docId]);
+    await query('DELETE FROM documentos_sucursal WHERE id = ?', [docId]);
 
     res.json({
       success: true,
-      message: "Documento eliminado exitosamente",
+      message: 'Documento eliminado exitosamente',
     });
   } catch (error) {
-    console.error("Error al eliminar documento:", error);
+    console.error('Error al eliminar documento:', error);
     res.status(500).json({
       success: false,
-      message: "Error al eliminar documento",
+      message: 'Error al eliminar documento',
     });
   }
 };
@@ -239,14 +239,14 @@ export const downloadDocumento = async (req: Request, res: Response) => {
     const { sucursalId, docId } = req.params;
 
     const result: any = await query(
-      "SELECT * FROM documentos_sucursal WHERE id = ? AND sucursal_id = ?",
+      'SELECT * FROM documentos_sucursal WHERE id = ? AND sucursal_id = ?',
       [docId, sucursalId],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Documento no encontrado",
+        message: 'Documento no encontrado',
       });
     }
 
@@ -254,69 +254,69 @@ export const downloadDocumento = async (req: Request, res: Response) => {
 
     if (isProduction) {
       // PRODUCCIÓN: Descargar de Vercel Blob (privado) usando get()
-      if (documento.ruta_archivo.startsWith("https://")) {
+      if (documento.ruta_archivo.startsWith('https://')) {
         try {
           // Usar get() del SDK para obtener blobs privados
           const blobResult = await get(documento.ruta_archivo, {
-            access: "private",
+            access: 'private',
             token: process.env.BLOB_READ_WRITE_TOKEN,
           });
 
           if (!blobResult || blobResult.statusCode !== 200) {
             return res.status(404).json({
               success: false,
-              message: "Archivo no encontrado en el almacenamiento",
+              message: 'Archivo no encontrado en el almacenamiento',
             });
           }
 
           // Configurar headers para la descarga
           res.setHeader(
-            "Content-Type",
-            documento.tipo_archivo || "application/octet-stream",
+            'Content-Type',
+            documento.tipo_archivo || 'application/octet-stream',
           );
           res.setHeader(
-            "Content-Disposition",
+            'Content-Disposition',
             `attachment; filename="${documento.nombre_archivo}"`,
           );
-          res.setHeader("X-Content-Type-Options", "nosniff");
+          res.setHeader('X-Content-Type-Options', 'nosniff');
 
           // Convertir el stream web a stream de Node.js y enviarlo
           if (blobResult.stream) {
             Readable.fromWeb(blobResult.stream as any).pipe(res);
           } else {
-            throw new Error("No se pudo obtener el stream del archivo");
+            throw new Error('No se pudo obtener el stream del archivo');
           }
         } catch (error) {
-          console.error("Error al descargar desde Blob:", error);
+          console.error('Error al descargar desde Blob:', error);
           return res.status(500).json({
             success: false,
-            message: "Error al descargar archivo desde el almacenamiento",
+            message: 'Error al descargar archivo desde el almacenamiento',
           });
         }
       } else {
         return res.status(404).json({
           success: false,
-          message: "URL del archivo no válida",
+          message: 'URL del archivo no válida',
         });
       }
     } else {
       // LOCAL: Servir desde sistema de archivos
-      const filePath = path.join(__dirname, "../../", documento.ruta_archivo);
+      const filePath = path.join(__dirname, '../../', documento.ruta_archivo);
 
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({
           success: false,
-          message: "Archivo no encontrado",
+          message: 'Archivo no encontrado',
         });
       }
 
       res.download(filePath, documento.nombre_archivo);
     }
   } catch (error) {
-    console.error("Error al descargar documento:", error);
+    console.error('Error al descargar documento:', error);
     res.status(500).json({
       success: false,
-      message: "Error al descargar documento",
+      message: 'Error al descargar documento',
     });
   }
 };

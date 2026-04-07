@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router } from 'express';
 import {
   getPagosPendientesBySucursal,
   getAllPagosPendientes,
@@ -7,8 +7,8 @@ import {
   rechazarPagoPendiente,
   deletePagoPendiente,
   getHistorialByUser,
-} from "../controllers/movimientosController";
-import { requireAuth, requirePermission } from "../middlewares/authMiddleware";
+} from '../controllers/movimientosController';
+import { requireAuth, requirePermission } from '../middlewares/authMiddleware';
 
 const router = Router();
 
@@ -16,24 +16,44 @@ const router = Router();
 router.use(requireAuth);
 
 // Historial de un usuario
-router.get("/historial/:userId", requirePermission("ver_pendientes"), getHistorialByUser);
+router.get(
+  '/historial/:userId',
+  requirePermission('ver_pendientes'),
+  getHistorialByUser,
+);
 
 // Todos los pagos pendientes (vista global)
-router.get("/all", requirePermission("ver_pendientes"), getAllPagosPendientes);
+router.get('/all', requirePermission('ver_pendientes'), getAllPagosPendientes);
 
 // Pagos pendientes de una sucursal
-router.get("/:sucursalId", requirePermission("ver_pendientes"), getPagosPendientesBySucursal);
+router.get(
+  '/:sucursalId',
+  requirePermission('ver_pendientes'),
+  getPagosPendientesBySucursal,
+);
 
 // Crear nuevo pago pendiente
-router.post("/", requirePermission("cargar_pendientes"), createPagoPendiente);
+router.post('/', requirePermission('cargar_pendientes'), createPagoPendiente);
 
 // Aprobar pago pendiente
-router.put("/:id/aprobar", requirePermission("aprobar_pendientes"), aprobarPagoPendiente);
+router.put(
+  '/:id/aprobar',
+  requirePermission('aprobar_pendientes'),
+  aprobarPagoPendiente,
+);
 
 // Rechazar pago pendiente
-router.put("/:id/rechazar", requirePermission("aprobar_pendientes"), rechazarPagoPendiente);
+router.put(
+  '/:id/rechazar',
+  requirePermission('aprobar_pendientes'),
+  rechazarPagoPendiente,
+);
 
 // Eliminar pago pendiente
-router.delete("/:id", requirePermission("aprobar_pendientes"), deletePagoPendiente);
+router.delete(
+  '/:id',
+  requirePermission('aprobar_pendientes'),
+  deletePagoPendiente,
+);
 
 export default router;

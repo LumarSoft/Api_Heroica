@@ -34,7 +34,7 @@ Create robust Express.js applications with proper routing, middleware chains, au
 Minimal working example:
 
 ```javascript
-const express = require("express");
+const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -43,8 +43,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.get("/health", (req, res) => {
-  res.json({ status: "OK", timestamp: new Date().toISOString() });
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Error handling

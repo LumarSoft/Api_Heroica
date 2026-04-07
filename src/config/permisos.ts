@@ -1,4 +1,4 @@
-import { query } from "./database";
+import { query } from './database';
 
 /**
  * ============================================================
@@ -25,82 +25,82 @@ interface PermisoDefinicion {
 export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
   // ── MÓDULO: MOVIMIENTOS DE CAJA ──────────────────────────────────────────
   {
-    clave: "ver_movimientos",
-    descripcion: "Ver movimientos de caja (efectivo y banco)",
-    categoria: "Movimientos",
+    clave: 'ver_movimientos',
+    descripcion: 'Ver movimientos de caja (efectivo y banco)',
+    categoria: 'Movimientos',
   },
   {
-    clave: "crear_movimientos",
-    descripcion: "Crear nuevos movimientos de caja",
-    categoria: "Movimientos",
+    clave: 'crear_movimientos',
+    descripcion: 'Crear nuevos movimientos de caja',
+    categoria: 'Movimientos',
   },
   {
-    clave: "editar_movimientos",
-    descripcion: "Editar movimientos de caja existentes",
-    categoria: "Movimientos",
+    clave: 'editar_movimientos',
+    descripcion: 'Editar movimientos de caja existentes',
+    categoria: 'Movimientos',
   },
   {
-    clave: "eliminar_movimientos",
-    descripcion: "Eliminar movimientos de caja",
-    categoria: "Movimientos",
+    clave: 'eliminar_movimientos',
+    descripcion: 'Eliminar movimientos de caja',
+    categoria: 'Movimientos',
   },
   {
-    clave: "aprobar_movimientos",
-    descripcion: "Aprobar o rechazar movimientos (cambiar estado)",
-    categoria: "Movimientos",
+    clave: 'aprobar_movimientos',
+    descripcion: 'Aprobar o rechazar movimientos (cambiar estado)',
+    categoria: 'Movimientos',
   },
 
   // ── MÓDULO: PAGOS PENDIENTES ─────────────────────────────────────────────
   {
-    clave: "ver_pendientes",
-    descripcion: "Ver listado de pagos pendientes",
-    categoria: "Pendientes",
+    clave: 'ver_pendientes',
+    descripcion: 'Ver listado de pagos pendientes',
+    categoria: 'Pendientes',
   },
   {
-    clave: "cargar_pendientes",
-    descripcion: "Cargar nuevas solicitudes de pago pendiente",
-    categoria: "Pendientes",
+    clave: 'cargar_pendientes',
+    descripcion: 'Cargar nuevas solicitudes de pago pendiente',
+    categoria: 'Pendientes',
   },
   {
-    clave: "aprobar_pendientes",
-    descripcion: "Aprobar o rechazar pagos pendientes",
-    categoria: "Pendientes",
+    clave: 'aprobar_pendientes',
+    descripcion: 'Aprobar o rechazar pagos pendientes',
+    categoria: 'Pendientes',
   },
 
   // ── MÓDULO: SUCURSALES ───────────────────────────────────────────────────
   {
-    clave: "ver_sucursales",
-    descripcion: "Ver el listado de sucursales",
-    categoria: "Sucursales",
+    clave: 'ver_sucursales',
+    descripcion: 'Ver el listado de sucursales',
+    categoria: 'Sucursales',
   },
   {
-    clave: "gestionar_sucursales",
-    descripcion: "Crear, editar y desactivar sucursales",
-    categoria: "Sucursales",
+    clave: 'gestionar_sucursales',
+    descripcion: 'Crear, editar y desactivar sucursales',
+    categoria: 'Sucursales',
   },
 
   // ── MÓDULO: REPORTES ─────────────────────────────────────────────────────
   {
-    clave: "ver_reportes",
-    descripcion: "Acceder al módulo de reportes y analítica",
-    categoria: "Reportes",
+    clave: 'ver_reportes',
+    descripcion: 'Acceder al módulo de reportes y analítica',
+    categoria: 'Reportes',
   },
 
   // ── MÓDULO: CONFIGURACIÓN ────────────────────────────────────────────────
   {
-    clave: "ver_configuracion",
-    descripcion: "Acceder al panel de configuración general",
-    categoria: "Configuración",
+    clave: 'ver_configuracion',
+    descripcion: 'Acceder al panel de configuración general',
+    categoria: 'Configuración',
   },
   {
-    clave: "gestionar_usuarios",
-    descripcion: "Crear, editar y desactivar usuarios",
-    categoria: "Configuración",
+    clave: 'gestionar_usuarios',
+    descripcion: 'Crear, editar y desactivar usuarios',
+    categoria: 'Configuración',
   },
   {
-    clave: "gestionar_roles",
-    descripcion: "Crear, editar y eliminar roles y sus permisos",
-    categoria: "Configuración",
+    clave: 'gestionar_roles',
+    descripcion: 'Crear, editar y eliminar roles y sus permisos',
+    categoria: 'Configuración',
   },
 
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
@@ -132,7 +132,7 @@ export async function syncPermisos(): Promise<void> {
   try {
     // Upsert: INSERT … ON DUPLICATE KEY UPDATE
     // La tabla permisos debe tener UNIQUE KEY en (clave).
-    const values = PERMISOS_DEL_SISTEMA.map(() => "(?, ?, ?)").join(", ");
+    const values = PERMISOS_DEL_SISTEMA.map(() => '(?, ?, ?)').join(', ');
     const params = PERMISOS_DEL_SISTEMA.flatMap((p) => [
       p.clave,
       p.descripcion,
@@ -145,14 +145,14 @@ export async function syncPermisos(): Promise<void> {
        ON DUPLICATE KEY UPDATE
          descripcion = VALUES(descripcion),
          categoria   = VALUES(categoria)`,
-      params
+      params,
     );
 
     console.log(
-      `  ✅ Permisos sincronizados: ${PERMISOS_DEL_SISTEMA.length} definiciones procesadas.`
+      `  ✅ Permisos sincronizados: ${PERMISOS_DEL_SISTEMA.length} definiciones procesadas.`,
     );
   } catch (error) {
-    console.error("  ❌ Error al sincronizar permisos:", error);
+    console.error('  ❌ Error al sincronizar permisos:', error);
     // No bloqueamos el arranque del servidor; solo logueamos.
   }
 }

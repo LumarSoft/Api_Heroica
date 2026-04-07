@@ -1,5 +1,5 @@
-import { Request, Response } from "express";
-import pool from "../config/database";
+import { Request, Response } from 'express';
+import pool from '../config/database';
 
 /**
  * GET /health
@@ -7,7 +7,7 @@ import pool from "../config/database";
  */
 export const liveness = (_req: Request, res: Response): void => {
   res.status(200).json({
-    status: "ok",
+    status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
@@ -22,16 +22,16 @@ export const readiness = async (
   res: Response,
 ): Promise<void> => {
   try {
-    await pool.execute("SELECT 1");
+    await pool.execute('SELECT 1');
     res.status(200).json({
-      status: "ok",
-      db: "ok",
+      status: 'ok',
+      db: 'ok',
       timestamp: new Date().toISOString(),
     });
   } catch {
     res.status(503).json({
-      status: "error",
-      db: "unavailable",
+      status: 'error',
+      db: 'unavailable',
       timestamp: new Date().toISOString(),
     });
   }

@@ -1,5 +1,5 @@
-import { Request, Response } from "express";
-import { query } from "../config/database";
+import { Request, Response } from 'express';
+import { query } from '../config/database';
 
 // GET /api/sucursales
 export const getSucursales = async (req: Request, res: Response) => {
@@ -7,15 +7,19 @@ export const getSucursales = async (req: Request, res: Response) => {
     const user = req.user!;
 
     // Verificar si el usuario es superadmin consultando su rol
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
 
     let result: any;
 
     if (isSuperAdmin) {
       // Superadmin ve todas las sucursales
       result = await query(
-        'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC'
+        'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC',
       );
     } else {
       // Usuario normal: solo ve las sucursales asignadas
@@ -25,7 +29,7 @@ export const getSucursales = async (req: Request, res: Response) => {
          INNER JOIN usuarios_sucursales us ON s.id = us.sucursal_id
          WHERE s.deleted_at IS NULL AND us.usuario_id = ?
          ORDER BY s.activo DESC, s.nombre ASC`,
-        [user.id]
+        [user.id],
       );
     }
 
@@ -34,10 +38,10 @@ export const getSucursales = async (req: Request, res: Response) => {
       data: result,
     });
   } catch (error) {
-    console.error("Error al obtener sucursales:", error);
+    console.error('Error al obtener sucursales:', error);
     res.status(500).json({
       success: false,
-      message: "Error al obtener sucursales",
+      message: 'Error al obtener sucursales',
     });
   }
 };
@@ -49,32 +53,36 @@ export const getSucursalById = async (req: Request, res: Response) => {
     const user = req.user!;
 
     // Verificar si el usuario es superadmin
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id]);
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
 
     if (!isSuperAdmin) {
       // Verificar que el usuario tiene acceso a esa sucursal
       const acceso: any = await query(
         `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
-        [user.id, id]
+        [user.id, id],
       );
       if (!acceso || acceso.length === 0) {
         return res.status(403).json({
           success: false,
-          message: 'No tenés acceso a esta sucursal'
+          message: 'No tenés acceso a esta sucursal',
         });
       }
     }
 
     const result: any = await query(
-      "SELECT * FROM sucursales WHERE id = ? AND deleted_at IS NULL",
+      'SELECT * FROM sucursales WHERE id = ? AND deleted_at IS NULL',
       [id],
     );
 
     if (!Array.isArray(result) || result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Sucursal no encontrada",
+        message: 'Sucursal no encontrada',
       });
     }
 
@@ -83,10 +91,10 @@ export const getSucursalById = async (req: Request, res: Response) => {
       data: result[0],
     });
   } catch (error) {
-    console.error("Error al obtener sucursal:", error);
+    console.error('Error al obtener sucursal:', error);
     res.status(500).json({
       success: false,
-      message: "Error al obtener sucursal",
+      message: 'Error al obtener sucursal',
     });
   }
 };
@@ -97,8 +105,8 @@ export const createSucursal = async (req: Request, res: Response) => {
     let { nombre, razon_social, cuit, direccion } = req.body;
 
     // Autocompletar guiones en CUIT si solo vienen 11 números
-    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ""))) {
-      const digits = cuit.replace(/\D/g, "");
+    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {
+      const digits = cuit.replace(/\D/g, '');
       cuit = `${digits.substring(0, 2)}-${digits.substring(2, 10)}-${digits.substring(10, 11)}`;
     }
 
@@ -106,19 +114,19 @@ export const createSucursal = async (req: Request, res: Response) => {
     if (!nombre || !razon_social || !cuit || !direccion) {
       return res.status(400).json({
         success: false,
-        message: "Todos los campos son requeridos",
+        message: 'Todos los campos son requeridos',
       });
     }
 
     // Insertar sucursal
     const result: any = await query(
-      "INSERT INTO sucursales (nombre, razon_social, cuit, direccion) VALUES (?, ?, ?, ?)",
+      'INSERT INTO sucursales (nombre, razon_social, cuit, direccion) VALUES (?, ?, ?, ?)',
       [nombre, razon_social, cuit, direccion],
     );
 
     res.status(201).json({
       success: true,
-      message: "Sucursal creada exitosamente",
+      message: 'Sucursal creada exitosamente',
       data: {
         id: result.insertId,
         nombre,
@@ -128,19 +136,19 @@ export const createSucursal = async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error("Error al crear sucursal:", error);
+    console.error('Error al crear sucursal:', error);
 
     // Error de CUIT duplicado
-    if (error.code === "ER_DUP_ENTRY") {
+    if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
         success: false,
-        message: "El CUIT ya está registrado",
+        message: 'El CUIT ya está registrado',
       });
     }
 
     res.status(500).json({
       success: false,
-      message: "Error al crear sucursal",
+      message: 'Error al crear sucursal',
     });
   }
 };
@@ -159,8 +167,8 @@ export const updateSucursal = async (req: Request, res: Response) => {
     } = req.body;
 
     // Autocompletar guiones en CUIT si solo vienen 11 números
-    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ""))) {
-      const digits = cuit.replace(/\D/g, "");
+    if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {
+      const digits = cuit.replace(/\D/g, '');
       cuit = `${digits.substring(0, 2)}-${digits.substring(2, 10)}-${digits.substring(10, 11)}`;
     }
 
@@ -168,20 +176,20 @@ export const updateSucursal = async (req: Request, res: Response) => {
     if (!nombre || !razon_social || !cuit || !direccion) {
       return res.status(400).json({
         success: false,
-        message: "Todos los campos son requeridos",
+        message: 'Todos los campos son requeridos',
       });
     }
 
     // Verificar que la sucursal existe
     const existingResult: any = await query(
-      "SELECT id, activo FROM sucursales WHERE id = ?",
+      'SELECT id, activo FROM sucursales WHERE id = ?',
       [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Sucursal no encontrada",
+        message: 'Sucursal no encontrada',
       });
     }
 
@@ -190,7 +198,7 @@ export const updateSucursal = async (req: Request, res: Response) => {
 
     // Actualizar sucursal
     await query(
-      "UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ?, email_correspondencia = ?, activo = ? WHERE id = ?",
+      'UPDATE sucursales SET nombre = ?, razon_social = ?, cuit = ?, direccion = ?, email_correspondencia = ?, activo = ? WHERE id = ?',
       [
         nombre,
         razon_social,
@@ -204,7 +212,7 @@ export const updateSucursal = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: "Sucursal actualizada exitosamente",
+      message: 'Sucursal actualizada exitosamente',
       data: {
         id: parseInt(id),
         nombre,
@@ -216,19 +224,19 @@ export const updateSucursal = async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error("Error al actualizar sucursal:", error);
+    console.error('Error al actualizar sucursal:', error);
 
     // Error de CUIT duplicado
-    if (error.code === "ER_DUP_ENTRY") {
+    if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
         success: false,
-        message: "El CUIT ya está registrado",
+        message: 'El CUIT ya está registrado',
       });
     }
 
     res.status(500).json({
       success: false,
-      message: "Error al actualizar sucursal",
+      message: 'Error al actualizar sucursal',
     });
   }
 };
@@ -240,29 +248,29 @@ export const deleteSucursal = async (req: Request, res: Response) => {
 
     // Verificar que la sucursal existe y no está eliminada
     const existingResult: any = await query(
-      "SELECT id FROM sucursales WHERE id = ? AND deleted_at IS NULL",
+      'SELECT id FROM sucursales WHERE id = ? AND deleted_at IS NULL',
       [id],
     );
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Sucursal no encontrada",
+        message: 'Sucursal no encontrada',
       });
     }
 
     // Soft delete con deleted_at
-    await query("UPDATE sucursales SET deleted_at = NOW() WHERE id = ?", [id]);
+    await query('UPDATE sucursales SET deleted_at = NOW() WHERE id = ?', [id]);
 
     res.json({
       success: true,
-      message: "Sucursal eliminada exitosamente",
+      message: 'Sucursal eliminada exitosamente',
     });
   } catch (error) {
-    console.error("Error al eliminar sucursal:", error);
+    console.error('Error al eliminar sucursal:', error);
     res.status(500).json({
       success: false,
-      message: "Error al eliminar sucursal",
+      message: 'Error al eliminar sucursal',
     });
   }
 };
