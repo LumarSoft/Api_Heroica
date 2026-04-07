@@ -13,6 +13,7 @@ import healthRoutes from "./routes/healthRoutes";
 import cuentasBancariasRoutes from "./routes/cuentasBancariasRoutes";
 import tareasRoutes from "./routes/tareasRoutes";
 import { syncPermisos } from "./config/permisos";
+import { startDbSyncCron } from "./services/dbSyncService";
 
 // Cargar variables de entorno
 dotenv.config();
@@ -107,6 +108,9 @@ app.listen(PORT, async () => {
 
   // Sincronizar permisos del sistema con la base de datos
   await syncPermisos();
+
+  // Iniciar tareas programadas
+  startDbSyncCron();
 });
 
 export default app;
