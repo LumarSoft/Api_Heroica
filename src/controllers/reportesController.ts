@@ -156,6 +156,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       WHERE m.sucursal_id = ? 
         AND m.moneda = ?
         AND m.es_deuda = 1
+        AND m.tipo = 'egreso'
     `;
     const deudasParams: any[] = [sucursalId, moneda];
 
