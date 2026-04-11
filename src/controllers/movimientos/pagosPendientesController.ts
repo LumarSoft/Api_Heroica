@@ -17,10 +17,14 @@ const PAGOS_SELECT = `
     pp.*,
     pp.tipo,
     uc.nombre as usuario_creador_nombre,
-    ur.nombre as usuario_revisor_nombre
+    ur.nombre as usuario_revisor_nombre,
+    d.nombre as descripcion_nombre,
+    p.nombre as proveedor_nombre
   FROM movimientos pp
   LEFT JOIN usuarios uc ON pp.user_id = uc.id
   LEFT JOIN usuarios ur ON pp.usuario_revisor_id = ur.id
+  LEFT JOIN descripciones d ON pp.descripcion_id = d.id
+  LEFT JOIN proveedores p ON pp.proveedor_id = p.id
 `;
 
 // GET /api/pagos-pendientes/all
@@ -71,7 +75,7 @@ export const getPagosPendientesBySucursal = async (req: Request, res: Response) 
 // POST /api/pagos-pendientes
 export const createPagoPendiente = async (req: Request, res: Response) => {
   try {
-    const { sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, prioridad, tipo } = req.body;
+    const { sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, prioridad, tipo, descripcion_id, proveedor_id } = req.body;
 
     if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined || !tipo_movimiento) {
       return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
@@ -82,9 +86,9 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, tipo_movimiento, saldo, prioridad, estado, tipo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?)`,
-      [sucursal_id, user_id, normalizarFecha(fecha), concepto, descripcion || null, adjustedMonto, destinoCaja, prioridad || 'media', tipo || 'egreso'],
+       (sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, saldo, prioridad, estado, tipo, descripcion_id, proveedor_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?, ?, ?)`,
+      [sucursal_id, user_id, normalizarFecha(fecha), concepto, comentarios || null, adjustedMonto, destinoCaja, prioridad || 'media', tipo || 'egreso', descripcion_id || null, proveedor_id || null],
     );
 
     const createdPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [result.insertId]);
@@ -99,7 +103,10 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
 export const aprobarPagoPendiente = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { usuario_revisor_id, tipo_caja, fecha, banco_id, medio_pago_id } = req.body;
+    const {
+      usuario_revisor_id, tipo_caja, fecha, concepto, comentarios, monto, prioridad,
+      categoria_id, subcategoria_id, descripcion_id, proveedor_id, banco_id, medio_pago_id
+    } = req.body;
 
     if (!usuario_revisor_id) {
       return res.status(400).json({ success: false, message: 'ID de usuario revisor es requerido' });
@@ -118,7 +125,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     let newTipoMovimiento = pago.tipo_movimiento;
     if (tipo_caja) newTipoMovimiento = tipo_caja === 'efectivo' ? 'efectivo' : 'banco';
 
-    let nuevaDescripcion = pago.descripcion || '';
+    let nuevaDescripcion = comentarios || pago.comentarios || '';
     if (fecha && pago.fecha) {
       const fechaOriginal = new Date(pago.fecha).toISOString().split('T')[0];
       if (fechaOriginal !== fecha) {
@@ -128,13 +135,31 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
         nuevaDescripcion = nuevaDescripcion ? `${nuevaDescripcion}${nota}` : nota;
       }
     }
+    const adjustedMonto = monto !== undefined ? (pago.tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto)) : pago.monto;
 
     await query(
       `UPDATE movimientos
        SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario',
-           fecha = COALESCE(?, fecha), banco_id = ?, medio_pago_id = ?, descripcion = ?
+           fecha = COALESCE(?, fecha), concepto = COALESCE(?, concepto), comentarios = ?, monto = ?, 
+           prioridad = COALESCE(?, prioridad), categoria_id = ?, subcategoria_id = ?, 
+           descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?
        WHERE id = ?`,
-      [usuario_revisor_id, newTipoMovimiento, fecha ? normalizarFecha(fecha) : null, banco_id || null, medio_pago_id || null, nuevaDescripcion, id],
+      [
+        usuario_revisor_id, 
+        newTipoMovimiento, 
+        fecha ? normalizarFecha(fecha) : null, 
+        concepto || null,
+        nuevaDescripcion, 
+        adjustedMonto,
+        prioridad || null,
+        categoria_id || null,
+        subcategoria_id || null,
+        descripcion_id || null,
+        proveedor_id || null,
+        banco_id || null, 
+        medio_pago_id || null, 
+        id
+      ],
     );
 
     const updatedPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [id]);

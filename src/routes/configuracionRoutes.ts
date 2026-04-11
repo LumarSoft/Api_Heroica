@@ -20,6 +20,16 @@ import {
   createMedioPago,
   updateMedioPago,
   deleteMedioPago,
+  // Descripciones
+  getDescripciones,
+  createDescripcion,
+  updateDescripcion,
+  deleteDescripcion,
+  // Proveedores
+  getProveedores,
+  createProveedor,
+  updateProveedor,
+  deleteProveedor,
   // Usuarios
   getUsuarios,
   createUsuario,
@@ -120,6 +130,18 @@ router.delete(
   requirePermission('gestionar_roles'),
   deleteMedioPago,
 );
+
+// ========== DESCRIPCIONES ==========
+router.get('/descripciones', requirePermission('ver_configuracion'), getDescripciones);
+router.post('/descripciones', requirePermission('gestionar_roles'), createDescripcion);
+router.put('/descripciones/:id', requirePermission('gestionar_roles'), updateDescripcion);
+router.delete('/descripciones/:id', requirePermission('gestionar_roles'), deleteDescripcion);
+
+// ========== PROVEEDORES ==========
+router.get('/proveedores', requirePermission('ver_configuracion'), getProveedores);
+router.post('/proveedores', requirePermission('gestionar_roles'), createProveedor);
+router.put('/proveedores/:id', requirePermission('gestionar_roles'), updateProveedor);
+router.delete('/proveedores/:id', requirePermission('gestionar_roles'), deleteProveedor);
 
 // ========== USUARIOS ==========
 router.get('/usuarios', requirePermission('gestionar_usuarios'), getUsuarios);

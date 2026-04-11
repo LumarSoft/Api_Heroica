@@ -31,10 +31,13 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     let sql = `
       SELECT m.id, m.fecha, m.concepto, m.monto, m.tipo, m.tipo_movimiento as medio_pago,
              m.estado, m.categoria_id, m.subcategoria_id, c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
+             d.nombre as descripcion_nombre, p.nombre as proveedor_nombre,
              m.es_deuda, m.updated_at
       FROM movimientos m
       LEFT JOIN categorias c ON m.categoria_id = c.id
       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+      LEFT JOIN descripciones d ON m.descripcion_id = d.id
+      LEFT JOIN proveedores p ON m.proveedor_id = p.id
       WHERE m.sucursal_id = ?
         AND m.moneda = ?
         AND m.deleted_at IS NULL
@@ -149,10 +152,13 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     let sqlDeudas = `
       SELECT m.id, m.fecha, m.concepto, m.monto, m.tipo, m.tipo_movimiento as medio_pago,
              m.estado, m.categoria_id, m.subcategoria_id, c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
+             d.nombre as descripcion_nombre, p.nombre as proveedor_nombre,
              m.es_deuda, m.updated_at
       FROM movimientos m
       LEFT JOIN categorias c ON m.categoria_id = c.id
       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+      LEFT JOIN descripciones d ON m.descripcion_id = d.id
+      LEFT JOIN proveedores p ON m.proveedor_id = p.id
       WHERE m.sucursal_id = ? 
         AND m.moneda = ?
         AND m.es_deuda = 1
@@ -179,6 +185,43 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       0,
     );
 
+    // CREDITOS (Respetar fecha límite del mes, si se envía)
+    let sqlCreditos = `
+      SELECT m.id, m.fecha, m.concepto, m.monto, m.tipo, m.tipo_movimiento as medio_pago,
+             m.estado, m.categoria_id, m.subcategoria_id, c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
+             d.nombre as descripcion_nombre, p.nombre as proveedor_nombre,
+             m.es_deuda, m.updated_at
+      FROM movimientos m
+      LEFT JOIN categorias c ON m.categoria_id = c.id
+      LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+      LEFT JOIN descripciones d ON m.descripcion_id = d.id
+      LEFT JOIN proveedores p ON m.proveedor_id = p.id
+      WHERE m.sucursal_id = ? 
+        AND m.moneda = ?
+        AND m.es_deuda = 1
+        AND m.tipo = 'ingreso'
+    `;
+    const creditosParams: any[] = [sucursalId, moneda];
+
+    if (endDate) {
+      sqlCreditos += ' AND m.fecha <= ?';
+      creditosParams.push(endDate);
+
+      // Si el mes consultado es anterior al cobro del crédito, el crédito debe seguir mostrándose como activo en ese mes
+      sqlCreditos += " AND (m.estado != 'completado' OR DATE(m.updated_at) > ?)";
+      creditosParams.push(endDate);
+    } else {
+      sqlCreditos += " AND m.estado != 'completado'";
+    }
+
+    sqlCreditos += ' ORDER BY m.fecha DESC';
+
+    const creditosList: any = await query(sqlCreditos, creditosParams);
+    const creditosTotales = creditosList.reduce(
+      (acc: number, mov: any) => acc + Math.abs(Number(mov.monto)),
+      0,
+    );
+
     res.json({
       success: true,
       data: {
@@ -187,6 +230,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
           egresos: egresosTotales,
           resultado: ingresosTotales - egresosTotales,
           deudas: deudasTotales,
+          creditos: creditosTotales,
         },
         ingresosBreakdown: formatBreakdown(ingresosPorCategoria),
         egresosBreakdown: formatBreakdown(egresosPorCategoria),
@@ -194,6 +238,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
           ingresos: ingresosList,
           egresos: egresosList,
           deudas: deudasList,
+          creditos: creditosList,
         },
       },
     });
