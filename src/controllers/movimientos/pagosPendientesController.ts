@@ -27,6 +27,14 @@ const PAGOS_SELECT = `
   LEFT JOIN proveedores p ON pp.proveedor_id = p.id
 `;
 
+/** Fila de moneda: ARS incluye registros legacy sin moneda (NULL / vacío). */
+const sqlMonedaClause = (alias: string, moneda: string) => {
+  if (moneda === 'ARS') {
+    return ` AND (${alias}.moneda = ? OR ${alias}.moneda IS NULL OR ${alias}.moneda = '')`;
+  }
+  return ` AND ${alias}.moneda = ?`;
+};
+
 // GET /api/pagos-pendientes/all
 export const getAllPagosPendientes = async (req: Request, res: Response) => {
   try {
@@ -36,8 +44,9 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
     let sql = PAGOS_SELECT + `WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL`;
 
     if (moneda) {
-      sql += ' AND pp.moneda = ?';
-      params.push(moneda);
+      const m = String(moneda).toUpperCase();
+      sql += sqlMonedaClause('pp', m);
+      params.push(m);
     }
     sql += ' ORDER BY pp.fecha DESC';
 
@@ -59,8 +68,9 @@ export const getPagosPendientesBySucursal = async (req: Request, res: Response) 
     let sql = PAGOS_SELECT + `WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL`;
 
     if (moneda) {
-      sql += ' AND pp.moneda = ?';
-      params.push(moneda);
+      const m = String(moneda).toUpperCase();
+      sql += sqlMonedaClause('pp', m);
+      params.push(m);
     }
     sql += ' ORDER BY pp.fecha DESC';
 
@@ -75,7 +85,21 @@ export const getPagosPendientesBySucursal = async (req: Request, res: Response) 
 // POST /api/pagos-pendientes
 export const createPagoPendiente = async (req: Request, res: Response) => {
   try {
-    const { sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, prioridad, tipo, descripcion_id, proveedor_id } = req.body;
+    const {
+      sucursal_id,
+      user_id,
+      fecha,
+      concepto,
+      comentarios,
+      monto,
+      tipo_movimiento,
+      prioridad,
+      tipo,
+      descripcion_id,
+      proveedor_id,
+      moneda: bodyMoneda,
+      tipo_cambio,
+    } = req.body;
 
     if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined || !tipo_movimiento) {
       return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
@@ -83,12 +107,31 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
 
     const destinoCaja = tipo_movimiento === 'banco' ? 'banco' : 'efectivo';
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);
+    const monedaFinal =
+      bodyMoneda != null && String(bodyMoneda).trim() !== ''
+        ? String(bodyMoneda).toUpperCase()
+        : 'ARS';
+    const tipoCambioFinal = monedaFinal === 'USD' ? tipo_cambio || null : null;
 
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, saldo, prioridad, estado, tipo, descripcion_id, proveedor_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?, ?, ?)`,
-      [sucursal_id, user_id, normalizarFecha(fecha), concepto, comentarios || null, adjustedMonto, destinoCaja, prioridad || 'media', tipo || 'egreso', descripcion_id || null, proveedor_id || null],
+       (sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, saldo, prioridad, estado, tipo, descripcion_id, proveedor_id, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?, ?, ?, ?, ?)`,
+      [
+        sucursal_id,
+        user_id,
+        normalizarFecha(fecha),
+        concepto,
+        comentarios || null,
+        adjustedMonto,
+        destinoCaja,
+        prioridad || 'media',
+        tipo || 'egreso',
+        descripcion_id || null,
+        proveedor_id || null,
+        monedaFinal,
+        tipoCambioFinal,
+      ],
     );
 
     const createdPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [result.insertId]);
@@ -225,14 +268,28 @@ export const deletePagoPendiente = async (req: Request, res: Response) => {
 // GET /api/pagos-pendientes/historial/:userId
 export const getHistorialByUser = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
+    const paramUserId = Number(req.params.userId);
+    const authUserId = req.user?.id;
     const { sucursal_id, moneda } = req.query;
 
-    const userResult: any = await query(
+    if (!Number.isFinite(paramUserId) || !authUserId) {
+      return res.status(400).json({ success: false, message: 'Solicitud inválida' });
+    }
+
+    const viewerResult: any = await query(
       'SELECT r.nombre as rol FROM usuarios u LEFT JOIN roles r ON u.rol_id = r.id WHERE u.id = ?',
-      [userId],
+      [authUserId],
     );
-    const rol = userResult && userResult.length > 0 ? userResult[0].rol : 'empleado';
+    const viewerRol = String(viewerResult[0]?.rol || 'empleado')
+      .toLowerCase()
+      .trim();
+    const isAdminOrSuper = viewerRol === 'admin' || viewerRol === 'superadmin';
+
+    if (!isAdminOrSuper) {
+      if (paramUserId !== authUserId) {
+        return res.status(403).json({ success: false, message: 'No autorizado' });
+      }
+    }
 
     let sql = `
       SELECT
@@ -245,20 +302,22 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       WHERE m.estado IN ('aprobado', 'rechazado', 'completado')
         AND (m.tipo = 'egreso' OR m.tipo IS NULL)
         AND m.usuario_revisor_id IS NOT NULL
+        AND m.deleted_at IS NULL
     `;
     const queryParams: any[] = [];
 
-    if (rol !== 'admin' && rol !== 'superadmin') {
+    if (!isAdminOrSuper) {
       sql += ' AND m.user_id = ?';
-      queryParams.push(userId);
+      queryParams.push(authUserId);
     }
     if (sucursal_id) {
       sql += ' AND m.sucursal_id = ?';
       queryParams.push(sucursal_id);
     }
     if (moneda) {
-      sql += ' AND m.moneda = ?';
-      queryParams.push(moneda);
+      const m = String(moneda).toUpperCase();
+      sql += sqlMonedaClause('m', m);
+      queryParams.push(m);
     }
     sql += ' ORDER BY m.id DESC';
 

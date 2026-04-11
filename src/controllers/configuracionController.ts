@@ -759,12 +759,49 @@ export const createUsuario = async (req: Request, res: Response) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const forcePwdChange = must_change_password ? 1 : 0;
 
-    const result: any = await query(
-      'INSERT INTO usuarios (email, password, nombre, rol_id, must_change_password) VALUES (?, ?, ?, ?, ?)',
-      [email, hashedPassword, nombre, rol_id, forcePwdChange],
+    const activo: any = await query(
+      'SELECT id FROM usuarios WHERE email = ? AND deleted_at IS NULL',
+      [email],
+    );
+    if (activo && activo.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ya existe un usuario activo con ese email',
+      });
+    }
+
+    const eliminado: any = await query(
+      'SELECT id FROM usuarios WHERE email = ? AND deleted_at IS NOT NULL',
+      [email],
     );
 
-    const newUserId = result.insertId;
+    let newUserId: number;
+
+    if (eliminado && eliminado.length > 0) {
+      newUserId = eliminado[0].id;
+      await query(
+        `UPDATE usuarios SET
+          password = ?,
+          nombre = ?,
+          rol_id = ?,
+          must_change_password = ?,
+          deleted_at = NULL,
+          activo = 1,
+          two_factor_enabled = 0,
+          two_factor_secret = NULL
+        WHERE id = ?`,
+        [hashedPassword, nombre, rol_id, forcePwdChange, newUserId],
+      );
+      await query('DELETE FROM usuarios_sucursales WHERE usuario_id = ?', [
+        newUserId,
+      ]);
+    } else {
+      const result: any = await query(
+        'INSERT INTO usuarios (email, password, nombre, rol_id, must_change_password) VALUES (?, ?, ?, ?, ?)',
+        [email, hashedPassword, nombre, rol_id, forcePwdChange],
+      );
+      newUserId = result.insertId;
+    }
 
     // Asignar sucursales si se proporcionaron
     if (Array.isArray(sucursal_ids) && sucursal_ids.length > 0) {

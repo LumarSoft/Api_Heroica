@@ -35,6 +35,7 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
+         AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)
        ORDER BY m.id DESC`,
       [sucursalId, moneda],
     );
@@ -413,7 +414,10 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
     const result: any = await query(
       `SELECT
         SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN estado IN ('aprobado', 'pendiente') AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
+        SUM(CASE WHEN (
+            estado = 'aprobado'
+            OR (estado = 'pendiente' AND categoria_id IS NOT NULL)
+          ) AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
         MAX(updated_at) as ultima_actualizacion
        FROM movimientos
        WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ? AND deleted_at IS NULL`,
@@ -425,7 +429,10 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
         b.id as banco_id,
         b.nombre as banco_nombre,
         SUM(CASE WHEN m.estado = 'completado' THEN m.monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN m.estado IN ('aprobado', 'pendiente') AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario
+        SUM(CASE WHEN (
+            m.estado = 'aprobado'
+            OR (m.estado = 'pendiente' AND m.categoria_id IS NOT NULL)
+          ) AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario
        FROM movimientos m
        LEFT JOIN bancos b ON m.banco_id = b.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
