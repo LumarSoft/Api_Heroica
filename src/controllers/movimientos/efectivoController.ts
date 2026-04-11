@@ -18,15 +18,18 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
     }
 
     const result: any = await query(
-      `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.descripcion, m.prioridad,
-              m.saldo as tipo_movimiento, m.estado, m.categoria_id, m.subcategoria_id,
+      `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.comentarios, m.prioridad,
+              m.saldo as tipo_movimiento, m.estado, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id,
               m.tipo, m.es_deuda, m.fecha_original_vencimiento,
               m.moneda, m.tipo_cambio,
               c.nombre as categoria_nombre, s.nombre as subcategoria_nombre,
+              d.nombre as descripcion_nombre, p.nombre as proveedor_nombre,
               m.created_at, m.updated_at
        FROM movimientos m
        LEFT JOIN categorias c ON m.categoria_id = c.id
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+       LEFT JOIN descripciones d ON m.descripcion_id = d.id
+       LEFT JOIN proveedores p ON m.proveedor_id = p.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ? AND m.deleted_at IS NULL
        ORDER BY m.id DESC`,
       [sucursalId, moneda],
@@ -57,8 +60,8 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
 export const createMovimientoEfectivo = async (req: Request, res: Response) => {
   try {
     const {
-      sucursal_id, user_id, fecha, concepto, descripcion, monto,
-      prioridad, estado, categoria_id, subcategoria_id, tipo, moneda, tipo_cambio,
+      sucursal_id, user_id, fecha, concepto, comentarios, monto,
+      prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio,
     } = req.body;
 
     if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined) {
@@ -76,12 +79,12 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?)`,
+       (sucursal_id, user_id, fecha, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        sucursal_id, user_id, normalizarFecha(fecha), concepto, descripcion || null,
+        sucursal_id, user_id, normalizarFecha(fecha), concepto, comentarios || null,
         adjustedMonto, saldo, prioridad || 'media', estadoFinal,
-        categoria_id || null, subcategoria_id || null, tipo || 'ingreso', monedaFinal, tipoCambioFinal,
+        categoria_id || null, subcategoria_id || null, descripcion_id || null, proveedor_id || null, tipo || 'ingreso', monedaFinal, tipoCambioFinal,
       ],
     );
 
@@ -97,7 +100,7 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
 export const updateMovimiento = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { fecha, concepto, monto, descripcion, prioridad, categoria_id, subcategoria_id, tipo } = req.body;
+    const { fecha, concepto, monto, comentarios, prioridad, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo } = req.body;
 
     if (!fecha || !concepto || monto === undefined) {
       return res.status(400).json({ success: false, message: 'Fecha, concepto y monto son requeridos' });
@@ -114,11 +117,11 @@ export const updateMovimiento = async (req: Request, res: Response) => {
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);
     await query(
       `UPDATE movimientos
-       SET fecha = ?, concepto = ?, monto = ?, descripcion = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, tipo = ?
+       SET fecha = ?, concepto = ?, monto = ?, comentarios = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, descripcion_id = ?, proveedor_id = ?, tipo = ?
        WHERE id = ? AND tipo_movimiento = 'efectivo'`,
       [
-        normalizarFecha(fecha), concepto, adjustedMonto, descripcion || null,
-        prioridad || 'media', categoria_id || null, subcategoria_id || null, tipo || 'ingreso', id,
+        normalizarFecha(fecha), concepto, adjustedMonto, comentarios || null,
+        prioridad || 'media', categoria_id || null, subcategoria_id || null, descripcion_id || null, proveedor_id || null, tipo || 'ingreso', id,
       ],
     );
 
@@ -162,10 +165,10 @@ export const deleteMovimiento = async (req: Request, res: Response) => {
 export const updateComentarioEfectivo = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { descripcion } = req.body;
+    const { comentarios } = req.body;
     await query(
-      "UPDATE movimientos SET descripcion = ? WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
-      [descripcion, id],
+      "UPDATE movimientos SET comentarios = ? WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
+      [comentarios, id],
     );
     res.json({ success: true, message: 'Comentario actualizado exitosamente' });
   } catch (error) {
@@ -291,7 +294,7 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
       }
 
       const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha;
-      let nuevaDescripcion = mov.descripcion || '';
+      let nuevaDescripcion = mov.comentarios || '';
       if (fechaOriginal) {
         const partes = fechaOriginal.toString().split('T')[0].split('-');
         const fechaFormateada =
@@ -305,15 +308,15 @@ export const toggleDeudaEfectivo = async (req: Request, res: Response) => {
 
       await query(
         `INSERT INTO movimientos
-         (sucursal_id, user_id, fecha, concepto, comprobante, descripcion, monto, tipo_movimiento, saldo, prioridad,
-          numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, banco_id, medio_pago_id, tipo,
+         (sucursal_id, user_id, fecha, concepto, comprobante, comentarios, monto, tipo_movimiento, saldo, prioridad,
+          numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, banco_id, medio_pago_id, tipo,
           es_deuda, fecha_original_vencimiento, moneda, tipo_cambio)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, 'egreso', 0, NULL, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, ?, ?, 'egreso', 0, NULL, ?, ?)`,
         [
           mov.sucursal_id, mov.user_id, fechaPago, mov.concepto, mov.comprobante,
           nuevaDescripcion, adjustedMonto, mov.saldo, mov.prioridad,
           mov.numero_cheque, mov.banco, mov.cuenta, mov.cbu, mov.tipo_operacion,
-          mov.categoria_id, mov.subcategoria_id, mov.banco_id, mov.medio_pago_id,
+          mov.categoria_id, mov.subcategoria_id, mov.descripcion_id, mov.proveedor_id, mov.banco_id, mov.medio_pago_id,
           mov.moneda || 'ARS', mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
         ],
       );

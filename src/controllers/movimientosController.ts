@@ -22,7 +22,7 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
 
     let sql = `
       SELECT
-        m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.descripcion,
+        m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.comentarios,
         m.tipo, m.tipo_movimiento, m.saldo, m.estado, m.es_deuda,
         m.fecha_original_vencimiento, m.moneda,
         suc.nombre AS sucursal_nombre
@@ -126,7 +126,7 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
 // compra: ingresa USD, egresa ARS | venta: egresa USD, ingresa ARS
 export const compraVentaDivisas = async (req: Request, res: Response) => {
   try {
-    const { sucursal_id, user_id, fecha, cantidad_usd, cotizacion, operacion, concepto, descripcion } = req.body;
+    const { sucursal_id, user_id, fecha, cantidad_usd, cotizacion, operacion, concepto, comentarios } = req.body;
 
     if (!sucursal_id || !user_id || !fecha || cantidad_usd === undefined || cotizacion === undefined || !operacion) {
       return res.status(400).json({
@@ -148,7 +148,7 @@ export const compraVentaDivisas = async (req: Request, res: Response) => {
 
     const fechaOp = normalizarFecha(fecha);
     const conceptoFinal = concepto || (operacion === 'compra' ? 'Compra de divisas (USD)' : 'Venta de divisas (USD)');
-    const descripcionFinal = descripcion || null;
+    const comentariosFinal = comentarios || null;
 
     // Venta: egresa USD, ingresa ARS — Compra: ingresa USD, egresa ARS
     const montoUsdMovimiento = operacion === 'venta' ? -montoUsd : montoUsd;
@@ -158,16 +158,16 @@ export const compraVentaDivisas = async (req: Request, res: Response) => {
 
     const resultUsd: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
+       (sucursal_id, user_id, fecha, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
        VALUES (?, ?, ?, ?, ?, ?, 'saldo_real', 'efectivo', 'media', 'completado', ?, 'USD', ?)`,
-      [sucursal_id, user_id, fechaOp, conceptoFinal, descripcionFinal, montoUsdMovimiento, tipoUsd, Number(cotizacion)],
+      [sucursal_id, user_id, fechaOp, conceptoFinal, comentariosFinal, montoUsdMovimiento, tipoUsd, Number(cotizacion)],
     );
 
     const resultArs: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, descripcion, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
+       (sucursal_id, user_id, fecha, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, tipo, moneda, tipo_cambio)
        VALUES (?, ?, ?, ?, ?, ?, 'saldo_real', 'efectivo', 'media', 'completado', ?, 'ARS', NULL)`,
-      [sucursal_id, user_id, fechaOp, conceptoFinal, descripcionFinal, montoArsMovimiento, tipoArs],
+      [sucursal_id, user_id, fechaOp, conceptoFinal, comentariosFinal, montoArsMovimiento, tipoArs],
     );
 
     const [movUsd, movArs]: any[] = await Promise.all([
@@ -220,7 +220,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
     const nombreOrigen = sucOrigenResult?.[0]?.nombre ?? `Sucursal ${mov.sucursal_id}`;
     const nombreDestino = sucDestinoResult?.[0]?.nombre ?? `Sucursal ${destino_sucursal_id}`;
 
-    let nuevaDescripcion = mov.descripcion || '';
+    let nuevaDescripcion = mov.comentarios || '';
     if (nota_descripcion) {
       const separador = '\n📌 Nota interna: ';
       if (nuevaDescripcion.includes(separador)) {
@@ -252,14 +252,14 @@ export const moverMovimiento = async (req: Request, res: Response) => {
       if (mov.tipo === 'ingreso') {
         // CASO 1: Muevo un ingreso → Egreso real en origen, Ingreso real en destino, deudas cruzadas
         await query(
-          `UPDATE movimientos SET tipo = ?, estado = 'completado', descripcion = ?, monto = ? WHERE id = ?`,
+          `UPDATE movimientos SET tipo = ?, estado = 'completado', comentarios = ?, monto = ? WHERE id = ?`,
           ['egreso', nuevaDescripcion, getSignedMonto('egreso', mov.monto), id],
         );
 
         const cb = camposBanco();
         await query(
           `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, banco_id, medio_pago_id,
             numero_cheque, banco, cuenta, cbu, tipo_operacion
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -279,7 +279,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
         const insertOrigenDeuda: any = await query(
           `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
           [mov.sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
@@ -288,7 +288,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
         const insertDestinoDeuda: any = await query(
           `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
           [destino_sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
@@ -302,7 +302,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         if (destino_tipo_movimiento === 'efectivo') {
           await query(
             `UPDATE movimientos
-             SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
+             SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, comentarios = ?, tipo = ?, monto = ?,
                  banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
              WHERE id = ?`,
             [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, 'egreso', getSignedMonto('egreso', mov.monto), id],
@@ -311,7 +311,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
           const cb = camposBanco();
           await query(
             `UPDATE movimientos
-             SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?, monto = ?,
+             SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, comentarios = ?, tipo = ?, monto = ?,
                  banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
              WHERE id = ?`,
             [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, 'egreso', getSignedMonto('egreso', mov.monto),
@@ -321,7 +321,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
         const insertOrigenDeuda2: any = await query(
           `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
           [mov.sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
@@ -330,7 +330,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
         const insertDestinoDeuda2: any = await query(
           `INSERT INTO movimientos (
-            sucursal_id, user_id, fecha, concepto, monto, descripcion,
+            sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
           [destino_sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
@@ -345,7 +345,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
       if (destino_tipo_movimiento === 'efectivo') {
         await query(
           `UPDATE movimientos
-           SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, descripcion = ?, tipo = ?,
+           SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, comentarios = ?, tipo = ?,
                banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
            WHERE id = ?`,
           [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, nuevoTipo, id],
@@ -354,7 +354,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         const cb = camposBanco();
         await query(
           `UPDATE movimientos
-           SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, descripcion = ?, tipo = ?,
+           SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?, comentarios = ?, tipo = ?,
                banco_id = ?, medio_pago_id = ?, numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
            WHERE id = ?`,
           [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, nuevoTipo,

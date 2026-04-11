@@ -1005,6 +1005,116 @@ export const deleteRol = async (req: Request, res: Response) => {
   }
 };
 
+// ========== DESCRIPCIONES ==========
+
+export const getDescripciones = async (req: Request, res: Response) => {
+  try {
+    const { activo } = req.query;
+    let sql = 'SELECT * FROM descripciones WHERE 1=1';
+    const params: any[] = [];
+    if (activo !== undefined) {
+      sql += ' AND activo = ?';
+      params.push(activo === 'true' ? 1 : 0);
+    }
+    sql += ' ORDER BY nombre ASC';
+    const result: any = await query(sql, params);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error al obtener descripciones:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener descripciones' });
+  }
+};
+
+export const createDescripcion = async (req: Request, res: Response) => {
+  try {
+    const { nombre } = req.body;
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es requerido' });
+    const result: any = await query('INSERT INTO descripciones (nombre) VALUES (?)', [nombre]);
+    const created: any = await query('SELECT * FROM descripciones WHERE id = ?', [result.insertId]);
+    res.status(201).json({ success: true, message: 'Descripción creada', data: created[0] });
+  } catch (error: any) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ success: false, message: 'Ya existe una descripción con ese nombre' });
+    res.status(500).json({ success: false, message: 'Error al crear descripción' });
+  }
+};
+
+export const updateDescripcion = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { nombre, activo } = req.body;
+    await query('UPDATE descripciones SET nombre = ?, activo = ? WHERE id = ?', [nombre, activo !== undefined ? activo : true, id]);
+    const updated: any = await query('SELECT * FROM descripciones WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Descripción actualizada', data: updated[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error al actualizar descripción' });
+  }
+};
+
+export const deleteDescripcion = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM descripciones WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Descripción eliminada' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error al eliminar descripción' });
+  }
+};
+
+// ========== PROVEEDORES ==========
+
+export const getProveedores = async (req: Request, res: Response) => {
+  try {
+    const { activo } = req.query;
+    let sql = 'SELECT * FROM proveedores WHERE 1=1';
+    const params: any[] = [];
+    if (activo !== undefined) {
+      sql += ' AND activo = ?';
+      params.push(activo === 'true' ? 1 : 0);
+    }
+    sql += ' ORDER BY nombre ASC';
+    const result: any = await query(sql, params);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error al obtener proveedores:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener proveedores' });
+  }
+};
+
+export const createProveedor = async (req: Request, res: Response) => {
+  try {
+    const { nombre } = req.body;
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es requerido' });
+    const result: any = await query('INSERT INTO proveedores (nombre) VALUES (?)', [nombre]);
+    const created: any = await query('SELECT * FROM proveedores WHERE id = ?', [result.insertId]);
+    res.status(201).json({ success: true, message: 'Proveedor creado', data: created[0] });
+  } catch (error: any) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ success: false, message: 'Ya existe un proveedor con ese nombre' });
+    res.status(500).json({ success: false, message: 'Error al crear proveedor' });
+  }
+};
+
+export const updateProveedor = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { nombre, activo } = req.body;
+    await query('UPDATE proveedores SET nombre = ?, activo = ? WHERE id = ?', [nombre, activo !== undefined ? activo : true, id]);
+    const updated: any = await query('SELECT * FROM proveedores WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Proveedor actualizado', data: updated[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error al actualizar proveedor' });
+  }
+};
+
+export const deleteProveedor = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await query('DELETE FROM proveedores WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Proveedor eliminado' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error al eliminar proveedor' });
+  }
+};
+
 // ========== PERMISOS ==========
 
 // GET /api/configuracion/permisos
