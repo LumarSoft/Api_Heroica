@@ -210,6 +210,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
     }
 
     const mov = movResult[0];
+    const conceptoDeudaBase = mov.concepto || 'Sin concepto';
     const isDifferentSucursal = String(mov.sucursal_id) !== String(destino_sucursal_id);
     const createDebts = es_credito && isDifferentSucursal;
 
@@ -282,7 +283,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [mov.sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+          [mov.sucursal_id, mov.user_id, `${conceptoDeudaBase} [DEUDA]`,
            getSignedMonto('ingreso', mov.monto), `Crédito auto-generado por movimiento hacia ${nombreDestino}`, 'ingreso', mov.tipo_movimiento],
         );
 
@@ -291,7 +292,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [destino_sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+          [destino_sucursal_id, mov.user_id, `${conceptoDeudaBase} [DEUDA]`,
            getSignedMonto('egreso', mov.monto), `Deuda auto-generada recibida de ${nombreOrigen}`, 'egreso', destino_tipo_movimiento],
         );
 
@@ -324,7 +325,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [mov.sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+          [mov.sucursal_id, mov.user_id, `${conceptoDeudaBase} [DEUDA]`,
            getSignedMonto('egreso', mov.monto), `Deuda auto-generada por mover consumo (egreso) a ${nombreDestino}`, 'egreso', mov.tipo_movimiento],
         );
 
@@ -333,7 +334,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, es_deuda
           ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
-          [destino_sucursal_id, mov.user_id, mov.concepto + ' [DEUDA]',
+          [destino_sucursal_id, mov.user_id, `${conceptoDeudaBase} [DEUDA]`,
            getSignedMonto('ingreso', mov.monto), `Crédito a cobrar generado al asumir consumo (egreso) desde ${nombreOrigen}`, 'ingreso', destino_tipo_movimiento],
         );
 

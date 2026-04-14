@@ -70,10 +70,10 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       numero_cheque, banco, cuenta, cbu, tipo_operacion, tipo, moneda, tipo_cambio,
     } = req.body;
 
-    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined) {
+    if (!sucursal_id || !user_id || !fecha || monto === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto',
+        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, monto',
       });
     }
 
@@ -89,7 +89,7 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
         numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, banco_id, medio_pago_id, tipo, moneda, tipo_cambio)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        sucursal_id, user_id, normalizarFecha(fecha), concepto, comprobante || null,
+        sucursal_id, user_id, normalizarFecha(fecha), concepto ?? '', comprobante || null,
         comentarios || null, adjustedMonto, saldo, prioridad || 'media',
         numero_cheque || null, banco || null, cuenta || null, cbu || null, tipo_operacion || null,
         estadoFinal, categoria_id || null, subcategoria_id || null, descripcion_id || null, proveedor_id || null,
@@ -115,8 +115,8 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
       numero_cheque, banco, cuenta, cbu, tipo_operacion, tipo,
     } = req.body;
 
-    if (!fecha || !concepto || monto === undefined) {
-      return res.status(400).json({ success: false, message: 'Fecha, concepto y monto son requeridos' });
+    if (!fecha || monto === undefined) {
+      return res.status(400).json({ success: false, message: 'Fecha y monto son requeridos' });
     }
 
     const existingResult: any = await query(
@@ -135,7 +135,7 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
            categoria_id = ?, subcategoria_id = ?, descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?
        WHERE id = ? AND tipo_movimiento = 'banco'`,
       [
-        normalizarFecha(fecha), concepto, comprobante || null, adjustedMonto,
+        normalizarFecha(fecha), concepto ?? '', comprobante || null, adjustedMonto,
         comentarios || null, prioridad || 'media',
         numero_cheque || null, banco || null, cuenta || null, cbu || null, tipo_operacion || null,
         tipo || 'ingreso', categoria_id || null, subcategoria_id || null, descripcion_id || null, proveedor_id || null,
