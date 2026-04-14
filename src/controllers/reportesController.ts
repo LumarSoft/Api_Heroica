@@ -250,3 +250,89 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     });
   }
 };
+
+// GET /api/reportes/:sucursalId/anual
+// Retorna ingresos, egresos y resultado agrupados por mes (todos los meses disponibles)
+export const getReportesAnual = async (req: Request, res: Response) => {
+  try {
+    const { sucursalId } = req.params;
+    const { moneda = 'ARS' } = req.query;
+    const user = req.user!;
+
+    // Verificar acceso a la sucursal
+    const rolResult: any = await query(
+      `SELECT nombre FROM roles WHERE id = ?`,
+      [user.rol_id],
+    );
+    const isSuperAdmin =
+      rolResult.length > 0 && rolResult[0].nombre === 'superadmin';
+    if (!isSuperAdmin) {
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [user.id, sucursalId],
+      );
+      if (!acceso || acceso.length === 0) {
+        return res
+          .status(403)
+          .json({ success: false, message: 'No tenés acceso a esta sucursal' });
+      }
+    }
+
+    const [rows, catRows]: [any, any] = await Promise.all([
+      query(
+        `SELECT
+           DATE_FORMAT(m.fecha, '%Y-%m') AS mes,
+           SUM(CASE WHEN m.tipo = 'ingreso' THEN ABS(m.monto) ELSE 0 END) AS ingresos,
+           SUM(CASE WHEN m.tipo = 'egreso'  THEN ABS(m.monto) ELSE 0 END) AS egresos
+         FROM movimientos m
+         WHERE m.sucursal_id = ?
+           AND m.moneda = ?
+           AND m.deleted_at IS NULL
+           AND m.estado IN ('completado', 'aprobado')
+           AND (m.es_deuda = 0 OR m.es_deuda IS NULL OR (m.es_deuda = 1 AND m.estado = 'completado'))
+         GROUP BY mes
+         ORDER BY mes ASC`,
+        [sucursalId, moneda],
+      ),
+      query(
+        `SELECT
+           DATE_FORMAT(m.fecha, '%Y-%m') AS mes,
+           COALESCE(c.nombre, 'Sin Categoría') AS categoria,
+           m.tipo,
+           SUM(ABS(m.monto)) AS total
+         FROM movimientos m
+         LEFT JOIN categorias c ON m.categoria_id = c.id
+         WHERE m.sucursal_id = ?
+           AND m.moneda = ?
+           AND m.deleted_at IS NULL
+           AND m.estado IN ('completado', 'aprobado')
+           AND (m.es_deuda = 0 OR m.es_deuda IS NULL OR (m.es_deuda = 1 AND m.estado = 'completado'))
+         GROUP BY mes, categoria, m.tipo
+         ORDER BY mes ASC`,
+        [sucursalId, moneda],
+      ),
+    ]);
+
+    const mensual = rows.map((row: any) => ({
+      mes: row.mes as string,
+      ingresos: Number(row.ingresos),
+      egresos: Number(row.egresos),
+      resultado: Number(row.ingresos) - Number(row.egresos),
+    }));
+
+    const porCategoria = catRows.map((row: any) => ({
+      mes: row.mes as string,
+      categoria: row.categoria as string,
+      tipo: row.tipo as 'ingreso' | 'egreso',
+      total: Number(row.total),
+    }));
+
+    res.json({ success: true, data: { mensual, porCategoria } });
+  } catch (error) {
+    console.error('Error al obtener reportes anuales:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener reportes anuales',
+    });
+  }
+};
