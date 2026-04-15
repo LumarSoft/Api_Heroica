@@ -101,7 +101,7 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
       tipo_cambio,
     } = req.body;
 
-    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined || !tipo_movimiento) {
+    if (!sucursal_id || !user_id || !fecha || monto === undefined || !tipo_movimiento) {
       return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
     }
 
@@ -121,7 +121,7 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
         sucursal_id,
         user_id,
         normalizarFecha(fecha),
-        concepto,
+        concepto ?? '',
         comentarios || null,
         adjustedMonto,
         destinoCaja,

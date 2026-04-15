@@ -65,10 +65,10 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio,
     } = req.body;
 
-    if (!sucursal_id || !user_id || !fecha || !concepto || monto === undefined) {
+    if (!sucursal_id || !user_id || !fecha || monto === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, concepto, monto',
+        message: 'Faltan campos requeridos: sucursal_id, user_id, fecha, monto',
       });
     }
 
@@ -83,7 +83,7 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
        (sucursal_id, user_id, fecha, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        sucursal_id, user_id, normalizarFecha(fecha), concepto, comentarios || null,
+        sucursal_id, user_id, normalizarFecha(fecha), concepto ?? '', comentarios || null,
         adjustedMonto, saldo, prioridad || 'media', estadoFinal,
         categoria_id || null, subcategoria_id || null, descripcion_id || null, proveedor_id || null, tipo || 'ingreso', monedaFinal, tipoCambioFinal,
       ],
@@ -103,8 +103,8 @@ export const updateMovimiento = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { fecha, concepto, monto, comentarios, prioridad, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo } = req.body;
 
-    if (!fecha || !concepto || monto === undefined) {
-      return res.status(400).json({ success: false, message: 'Fecha, concepto y monto son requeridos' });
+    if (!fecha || monto === undefined) {
+      return res.status(400).json({ success: false, message: 'Fecha y monto son requeridos' });
     }
 
     const existingResult: any = await query(
@@ -121,7 +121,7 @@ export const updateMovimiento = async (req: Request, res: Response) => {
        SET fecha = ?, concepto = ?, monto = ?, comentarios = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, descripcion_id = ?, proveedor_id = ?, tipo = ?
        WHERE id = ? AND tipo_movimiento = 'efectivo'`,
       [
-        normalizarFecha(fecha), concepto, adjustedMonto, comentarios || null,
+        normalizarFecha(fecha), concepto ?? '', adjustedMonto, comentarios || null,
         prioridad || 'media', categoria_id || null, subcategoria_id || null, descripcion_id || null, proveedor_id || null, tipo || 'ingreso', id,
       ],
     );
