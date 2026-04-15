@@ -77,6 +77,28 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       });
     }
 
+    if (!categoria_id || !subcategoria_id || !descripcion_id || !proveedor_id) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Faltan campos obligatorios: categoría, subcategoría, descripción y proveedor',
+      });
+    }
+
+    if (!banco_id || !medio_pago_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan campos obligatorios: banco y medio de pago',
+      });
+    }
+
+    if (moneda === 'USD' && (!tipo_cambio || Number(tipo_cambio) <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El tipo de cambio es obligatorio para movimientos en USD',
+      });
+    }
+
     const estadoFinal = estado || 'aprobado';
     const saldo = estadoFinal === 'completado' ? 'saldo_real' : 'saldo_necesario';
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto);

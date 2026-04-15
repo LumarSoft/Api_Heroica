@@ -1119,9 +1119,53 @@ export const getProveedores = async (req: Request, res: Response) => {
 
 export const createProveedor = async (req: Request, res: Response) => {
   try {
-    const { nombre } = req.body;
-    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es requerido' });
-    const result: any = await query('INSERT INTO proveedores (nombre) VALUES (?)', [nombre]);
+    const { nombre, razon_social, cuit, cbu_alias, telefono, email, direccion } =
+      req.body;
+    const nombreLimpio = String(nombre || '').trim();
+    const razonSocialLimpia = String(razon_social || '').trim();
+    const cuitLimpio = String(cuit || '').trim();
+    const cbuAliasLimpio = String(cbu_alias || '').trim();
+    const telefonoLimpio = String(telefono || '').trim();
+    const emailLimpio = String(email || '').trim();
+    const direccionLimpia = String(direccion || '').trim();
+
+    if (!nombreLimpio) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'El nombre es requerido' });
+    }
+    if (cuitLimpio && !/^\d+$/.test(cuitLimpio)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El CUIT/CUIL debe contener solo números y sin guiones',
+      });
+    }
+    if (telefonoLimpio && !/^\d+$/.test(telefonoLimpio)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El teléfono debe contener solo números',
+      });
+    }
+    if (emailLimpio && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El email no tiene un formato válido',
+      });
+    }
+    const result: any = await query(
+      `INSERT INTO proveedores
+      (nombre, razon_social, cuit, cbu_alias, telefono, email, direccion)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nombreLimpio,
+        razonSocialLimpia || null,
+        cuitLimpio || null,
+        cbuAliasLimpio || null,
+        telefonoLimpio || null,
+        emailLimpio || null,
+        direccionLimpia || null,
+      ],
+    );
     const created: any = await query('SELECT * FROM proveedores WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, message: 'Proveedor creado', data: created[0] });
   } catch (error: any) {
@@ -1133,8 +1177,56 @@ export const createProveedor = async (req: Request, res: Response) => {
 export const updateProveedor = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { nombre, activo } = req.body;
-    await query('UPDATE proveedores SET nombre = ?, activo = ? WHERE id = ?', [nombre, activo !== undefined ? activo : true, id]);
+    const { nombre, razon_social, cuit, cbu_alias, telefono, email, direccion, activo } =
+      req.body;
+    const nombreLimpio = String(nombre || '').trim();
+    const razonSocialLimpia = String(razon_social || '').trim();
+    const cuitLimpio = String(cuit || '').trim();
+    const cbuAliasLimpio = String(cbu_alias || '').trim();
+    const telefonoLimpio = String(telefono || '').trim();
+    const emailLimpio = String(email || '').trim();
+    const direccionLimpia = String(direccion || '').trim();
+
+    if (!nombreLimpio) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'El nombre es requerido' });
+    }
+    if (cuitLimpio && !/^\d+$/.test(cuitLimpio)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El CUIT/CUIL debe contener solo números y sin guiones',
+      });
+    }
+    if (telefonoLimpio && !/^\d+$/.test(telefonoLimpio)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El teléfono debe contener solo números',
+      });
+    }
+    if (emailLimpio && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El email no tiene un formato válido',
+      });
+    }
+
+    await query(
+      `UPDATE proveedores
+      SET nombre = ?, razon_social = ?, cuit = ?, cbu_alias = ?, telefono = ?, email = ?, direccion = ?, activo = ?
+      WHERE id = ?`,
+      [
+        nombreLimpio,
+        razonSocialLimpia || null,
+        cuitLimpio || null,
+        cbuAliasLimpio || null,
+        telefonoLimpio || null,
+        emailLimpio || null,
+        direccionLimpia || null,
+        activo !== undefined ? activo : true,
+        id,
+      ],
+    );
     const updated: any = await query('SELECT * FROM proveedores WHERE id = ?', [id]);
     res.json({ success: true, message: 'Proveedor actualizado', data: updated[0] });
   } catch (error) {

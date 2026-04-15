@@ -5,16 +5,15 @@ import {
   updateTarea,
   updateEstadoTarea,
   deleteTarea,
+  getUsuariosParaTareas,
 } from '../controllers/tareasController';
 import { requireAuth } from '../middlewares/authMiddleware';
 
 const router = Router();
 
-// Todas las rutas requieren autenticación.
-// Las tareas son visibles para cualquier usuario autenticado (no tienen permiso granular propio).
-// Al agregar el módulo de tareas con permisos granulares, actualizar aquí y en permisos.ts.
 router.use(requireAuth);
 
+router.get('/usuarios', getUsuariosParaTareas);
 router.get('/', getTareas);
 router.post('/', createTarea);
 router.put('/:id', updateTarea);
