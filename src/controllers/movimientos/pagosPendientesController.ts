@@ -155,6 +155,14 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'ID de usuario revisor es requerido' });
     }
 
+    if (!categoria_id || !subcategoria_id || !descripcion_id || !proveedor_id) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Faltan campos obligatorios: categoría, subcategoría, descripción y proveedor',
+      });
+    }
+
     const pagoResult: any = await query('SELECT * FROM movimientos WHERE id = ?', [id]);
     if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
       return res.status(404).json({ success: false, message: 'Pago pendiente no encontrado' });
@@ -167,6 +175,15 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
 
     let newTipoMovimiento = pago.tipo_movimiento;
     if (tipo_caja) newTipoMovimiento = tipo_caja === 'efectivo' ? 'efectivo' : 'banco';
+
+    const bancoFinal = banco_id || pago.banco_id;
+    const medioPagoFinal = medio_pago_id || pago.medio_pago_id;
+    if (newTipoMovimiento === 'banco' && (!bancoFinal || !medioPagoFinal)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan campos obligatorios: banco y medio de pago',
+      });
+    }
 
     let nuevaDescripcion = comentarios || pago.comentarios || '';
     if (fecha && pago.fecha) {
@@ -199,8 +216,8 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
         subcategoria_id || null,
         descripcion_id || null,
         proveedor_id || null,
-        banco_id || null, 
-        medio_pago_id || null, 
+        bancoFinal || null, 
+        medioPagoFinal || null, 
         id
       ],
     );
