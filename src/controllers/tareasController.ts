@@ -1,15 +1,30 @@
 import { Request, Response } from 'express';
 import { query } from '../config/database';
 
+// GET /api/tareas/usuarios — lista básica de usuarios activos para asignar tareas
+export const getUsuariosParaTareas = async (_req: Request, res: Response) => {
+  try {
+    const result = await query(
+      `SELECT id, nombre FROM usuarios WHERE deleted_at IS NULL ORDER BY nombre ASC`,
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error al obtener usuarios:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener usuarios' });
+  }
+};
+
 // GET /api/tareas
 export const getTareas = async (_req: Request, res: Response) => {
   try {
     const result = await query(
       `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
-              t.creado_por, u.nombre AS creado_por_nombre,
+              t.creado_por, uc.nombre AS creado_por_nombre,
+              t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
-       LEFT JOIN usuarios u ON t.creado_por = u.id
+       LEFT JOIN usuarios uc ON t.creado_por = uc.id
+       LEFT JOIN usuarios ua ON t.asignado_a = ua.id
        WHERE t.deleted_at IS NULL
        ORDER BY
          FIELD(t.estado, 'pendiente', 'en_progreso', 'en_pruebas', 'completado'),
@@ -29,7 +44,7 @@ export const getTareas = async (_req: Request, res: Response) => {
 // POST /api/tareas
 export const createTarea = async (req: Request, res: Response) => {
   try {
-    const { titulo, descripcion, tipo, prioridad, version, creado_por } =
+    const { titulo, descripcion, tipo, prioridad, version, creado_por, asignado_a } =
       req.body;
 
     if (!titulo || !tipo || !prioridad) {
@@ -66,8 +81,8 @@ export const createTarea = async (req: Request, res: Response) => {
     }
 
     const result: any = await query(
-      `INSERT INTO tareas (codigo, version, titulo, descripcion, tipo, prioridad, estado, creado_por)
-       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
+      `INSERT INTO tareas (codigo, version, titulo, descripcion, tipo, prioridad, estado, creado_por, asignado_a)
+       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`,
       [
         nuevoCodigo,
         version || null,
@@ -76,15 +91,18 @@ export const createTarea = async (req: Request, res: Response) => {
         tipo,
         prioridad,
         creado_por || null,
+        asignado_a || null,
       ],
     );
 
     const newTarea: any = await query(
       `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
-              t.creado_por, u.nombre AS creado_por_nombre,
+              t.creado_por, uc.nombre AS creado_por_nombre,
+              t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
-       LEFT JOIN usuarios u ON t.creado_por = u.id
+       LEFT JOIN usuarios uc ON t.creado_por = uc.id
+       LEFT JOIN usuarios ua ON t.asignado_a = ua.id
        WHERE t.id = ?`,
       [result.insertId],
     );
@@ -100,7 +118,7 @@ export const createTarea = async (req: Request, res: Response) => {
 export const updateTarea = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { titulo, descripcion, tipo, prioridad, version } = req.body;
+    const { titulo, descripcion, tipo, prioridad, version, asignado_a } = req.body;
 
     if (!titulo || !tipo || !prioridad) {
       return res.status(400).json({
@@ -120,17 +138,19 @@ export const updateTarea = async (req: Request, res: Response) => {
     }
 
     await query(
-      `UPDATE tareas SET titulo = ?, descripcion = ?, tipo = ?, prioridad = ?, version = ?, updated_at = NOW()
+      `UPDATE tareas SET titulo = ?, descripcion = ?, tipo = ?, prioridad = ?, version = ?, asignado_a = ?, updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
-      [titulo, descripcion || null, tipo, prioridad, version || null, id],
+      [titulo, descripcion || null, tipo, prioridad, version || null, asignado_a || null, id],
     );
 
     const updated: any = await query(
       `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
-              t.creado_por, u.nombre AS creado_por_nombre,
+              t.creado_por, uc.nombre AS creado_por_nombre,
+              t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
-       LEFT JOIN usuarios u ON t.creado_por = u.id
+       LEFT JOIN usuarios uc ON t.creado_por = uc.id
+       LEFT JOIN usuarios ua ON t.asignado_a = ua.id
        WHERE t.id = ? AND t.deleted_at IS NULL`,
       [id],
     );
@@ -181,10 +201,12 @@ export const updateEstadoTarea = async (req: Request, res: Response) => {
 
     const updated: any = await query(
       `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
-              t.creado_por, u.nombre AS creado_por_nombre,
+              t.creado_por, uc.nombre AS creado_por_nombre,
+              t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at
        FROM tareas t
-       LEFT JOIN usuarios u ON t.creado_por = u.id
+       LEFT JOIN usuarios uc ON t.creado_por = uc.id
+       LEFT JOIN usuarios ua ON t.asignado_a = ua.id
        WHERE t.id = ? AND t.deleted_at IS NULL`,
       [id],
     );
