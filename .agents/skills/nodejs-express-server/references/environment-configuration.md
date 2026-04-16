@@ -3,7 +3,7 @@
 ## Environment Configuration
 
 ```javascript
-require('dotenv').config();
+require('dotenv').config()
 
 const config = {
   port: process.env.PORT || 3000,
@@ -19,7 +19,7 @@ const config = {
   cors: {
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   },
-};
+}
 
-module.exports = config;
+module.exports = config
 ```

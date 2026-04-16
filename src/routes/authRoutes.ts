@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from 'express'
 import {
   login,
   verifyToken,
@@ -8,18 +8,18 @@ import {
   confirm2FA,
   disable2FA,
   reset2FA,
-} from '../controllers/authController';
-import { requireAuth } from '../middlewares/authMiddleware';
+} from '../controllers/authController'
+import { requireAuth } from '../middlewares/authMiddleware'
 
-const router = Router();
+const router = Router()
 
-router.post('/login', login);
-router.post('/verify', verifyToken);
-router.post('/verify-2fa', verify2FA);
-router.post('/enable-2fa', enable2FA);
-router.post('/confirm-2fa', confirm2FA);
-router.post('/disable-2fa', disable2FA);
-router.post('/reset-2fa', reset2FA);
-router.put('/change-password', requireAuth, changePassword);
+router.post('/login', login)
+router.post('/verify', verifyToken)
+router.post('/verify-2fa', verify2FA)
+router.post('/enable-2fa', enable2FA)
+router.post('/confirm-2fa', confirm2FA)
+router.post('/disable-2fa', disable2FA)
+router.post('/reset-2fa', reset2FA)
+router.put('/change-password', requireAuth, changePassword)
 
-export default router;
+export default router

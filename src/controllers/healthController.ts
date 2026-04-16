@@ -1,5 +1,5 @@
-import { Request, Response } from 'express';
-import pool from '../config/database';
+import { Request, Response } from 'express'
+import pool from '../config/database'
 
 /**
  * GET /health
@@ -10,29 +10,26 @@ export const liveness = (_req: Request, res: Response): void => {
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-  });
-};
+  })
+}
 
 /**
  * GET /ready
  * Readiness check — verifica que la base de datos está disponible.
  */
-export const readiness = async (
-  _req: Request,
-  res: Response,
-): Promise<void> => {
+export const readiness = async (_req: Request, res: Response): Promise<void> => {
   try {
-    await pool.execute('SELECT 1');
+    await pool.execute('SELECT 1')
     res.status(200).json({
       status: 'ok',
       db: 'ok',
       timestamp: new Date().toISOString(),
-    });
+    })
   } catch {
     res.status(503).json({
       status: 'error',
       db: 'unavailable',
       timestamp: new Date().toISOString(),
-    });
+    })
   }
-};
+}

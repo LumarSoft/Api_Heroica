@@ -1,4 +1,4 @@
-import { query } from './database';
+import { query } from './database'
 
 /**
  * ============================================================
@@ -17,9 +17,9 @@ import { query } from './database';
  */
 
 interface PermisoDefinicion {
-  clave: string;
-  descripcion: string;
-  categoria: string;
+  clave: string
+  descripcion: string
+  categoria: string
 }
 
 export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
@@ -116,7 +116,7 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
   //   descripcion: "Gestionar registros del módulo de [nombre]",
   //   categoria: "[Nombre del Módulo]",
   // },
-];
+]
 
 /**
  * Sincroniza los permisos definidos en PERMISOS_DEL_SISTEMA con la base de datos.
@@ -127,17 +127,13 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
  * Se llama automáticamente al iniciar la API.
  */
 export async function syncPermisos(): Promise<void> {
-  if (PERMISOS_DEL_SISTEMA.length === 0) return;
+  if (PERMISOS_DEL_SISTEMA.length === 0) return
 
   try {
     // Upsert: INSERT … ON DUPLICATE KEY UPDATE
     // La tabla permisos debe tener UNIQUE KEY en (clave).
-    const values = PERMISOS_DEL_SISTEMA.map(() => '(?, ?, ?)').join(', ');
-    const params = PERMISOS_DEL_SISTEMA.flatMap((p) => [
-      p.clave,
-      p.descripcion,
-      p.categoria,
-    ]);
+    const values = PERMISOS_DEL_SISTEMA.map(() => '(?, ?, ?)').join(', ')
+    const params = PERMISOS_DEL_SISTEMA.flatMap(p => [p.clave, p.descripcion, p.categoria])
 
     await query(
       `INSERT INTO permisos (clave, descripcion, categoria)
@@ -146,13 +142,11 @@ export async function syncPermisos(): Promise<void> {
          descripcion = VALUES(descripcion),
          categoria   = VALUES(categoria)`,
       params,
-    );
+    )
 
-    console.log(
-      `  ✅ Permisos sincronizados: ${PERMISOS_DEL_SISTEMA.length} definiciones procesadas.`,
-    );
+    console.log(`  ✅ Permisos sincronizados: ${PERMISOS_DEL_SISTEMA.length} definiciones procesadas.`)
   } catch (error) {
-    console.error('  ❌ Error al sincronizar permisos:', error);
+    console.error('  ❌ Error al sincronizar permisos:', error)
     // No bloqueamos el arranque del servidor; solo logueamos.
   }
 }
