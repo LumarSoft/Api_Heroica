@@ -49,8 +49,8 @@ async function buildSessionToken(user: User): Promise<{ token: string; permisos:
 function setDeviceCookie(res: Response, rawToken: string): void {
   res.cookie('device_token', rawToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: true,   // siempre Secure — la cookie solo viaja por HTTPS
+    sameSite: 'none', // requerido para cross-site (frontend y API en dominios distintos)
     maxAge: DEVICE_TOKEN_TTL_MS,
     path: '/',
   })
@@ -605,7 +605,7 @@ export const revocarTodosDispositivos = async (req: Request, res: Response) => {
 
     await query(`UPDATE dispositivos_confianza SET revocado = 1 WHERE usuario_id = ?`, [userId])
 
-    res.clearCookie('device_token', { path: '/', httpOnly: true, sameSite: 'strict' })
+    res.clearCookie('device_token', { path: '/', httpOnly: true, secure: true, sameSite: 'none' })
 
     res.json({ success: true, message: 'Todos los dispositivos de confianza han sido revocados' })
   } catch (error) {
