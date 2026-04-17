@@ -1,9 +1,12 @@
 import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import speakeasy from 'speakeasy'
 import QRCode from 'qrcode'
 import { query } from '../config/database'
+
+const DEVICE_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 días
 
 interface User {
   id: number
@@ -15,6 +18,42 @@ interface User {
   must_change_password: boolean
   two_factor_enabled: boolean
   two_factor_secret: string | null
+}
+
+/** Genera el JWT de sesión completo y devuelve también los permisos del rol. */
+async function buildSessionToken(user: User): Promise<{ token: string; permisos: string[] }> {
+  const token = jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      rol_id: user.rol_id,
+      rol: user.rol_nombre,
+    },
+    process.env.JWT_SECRET as string,
+    { expiresIn: '24h' },
+  )
+
+  const permisosResult: any = await query(
+    `SELECT p.clave 
+     FROM permisos p
+     INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
+     WHERE rp.rol_id = ?`,
+    [user.rol_id],
+  )
+  const permisos: string[] = permisosResult.map((p: any) => p.clave)
+
+  return { token, permisos }
+}
+
+/** Fija la cookie HttpOnly del token de dispositivo. */
+function setDeviceCookie(res: Response, rawToken: string): void {
+  res.cookie('device_token', rawToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: DEVICE_TOKEN_TTL_MS,
+    path: '/',
+  })
 }
 
 export const login = async (req: Request, res: Response) => {
@@ -43,7 +82,7 @@ export const login = async (req: Request, res: Response) => {
       })
     }
 
-    const user = result[0]
+    const user: User = result[0]
 
     const passwordValida = await bcrypt.compare(password, user.password)
 
@@ -68,6 +107,46 @@ export const login = async (req: Request, res: Response) => {
         },
         message: 'Debes configurar autenticación de doble factor',
       })
+    }
+
+    // Verificar token de dispositivo de confianza
+    const deviceCookie: string | undefined = req.cookies?.device_token
+    if (deviceCookie) {
+      try {
+        const tokenHash = crypto.createHash('sha256').update(deviceCookie).digest('hex')
+
+        const deviceResult: any = await query(
+          `SELECT id FROM dispositivos_confianza
+           WHERE token_hash = ? AND usuario_id = ? AND revocado = 0 AND expires_at > NOW()`,
+          [tokenHash, user.id],
+        )
+
+        if (Array.isArray(deviceResult) && deviceResult.length > 0) {
+          await query(`UPDATE dispositivos_confianza SET last_used_at = NOW() WHERE id = ?`, [deviceResult[0].id])
+
+          const { token, permisos } = await buildSessionToken(user)
+
+          return res.json({
+            success: true,
+            message: 'Inicio de sesión exitoso (dispositivo de confianza)',
+            data: {
+              token,
+              user: {
+                id: user.id,
+                email: user.email,
+                nombre: user.nombre,
+                rol: user.rol_nombre,
+                rol_id: user.rol_id,
+                must_change_password: Boolean(user.must_change_password),
+                permisos,
+              },
+            },
+          })
+        }
+      } catch (deviceErr) {
+        // Token de dispositivo inválido o error; se continúa con el flujo normal de 2FA
+        console.warn('[login] Error al validar token de dispositivo:', deviceErr)
+      }
     }
 
     const tempToken = jwt.sign({ id: user.id, email: user.email, temp2fa: true }, process.env.JWT_SECRET as string, {
@@ -116,7 +195,7 @@ export const verifyToken = async (req: Request, res: Response) => {
 
 export const verify2FA = async (req: Request, res: Response) => {
   try {
-    const { tempToken, code } = req.body
+    const { tempToken, code, rememberDevice } = req.body
 
     if (!tempToken || !code) {
       return res.status(400).json({
@@ -149,7 +228,7 @@ export const verify2FA = async (req: Request, res: Response) => {
       })
     }
 
-    const user = result[0]
+    const user: User = result[0]
 
     if (!user.two_factor_enabled || !user.two_factor_secret) {
       return res.status(400).json({
@@ -166,34 +245,32 @@ export const verify2FA = async (req: Request, res: Response) => {
     })
 
     if (!verified) {
+      console.warn(`[verify2FA] Código inválido para usuario ${user.id} desde IP ${req.ip}`)
       return res.status(401).json({
         success: false,
         message: 'Código de verificación inválido',
       })
     }
 
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        rol_id: user.rol_id,
-        rol: user.rol_nombre,
-      },
-      process.env.JWT_SECRET as string,
-      { expiresIn: '24h' },
-    )
+    const { token, permisos } = await buildSessionToken(user)
 
-    // Obtener permisos del rol
-    const permisosResult: any = await query(
-      `SELECT p.clave 
-       FROM permisos p
-       INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
-       WHERE rp.rol_id = ?`,
-      [user.rol_id],
-    )
-    const permisos: string[] = permisosResult.map((p: any) => p.clave)
+    // Emitir token de dispositivo si el usuario lo solicitó
+    if (rememberDevice === true) {
+      const rawToken = crypto.randomBytes(32).toString('hex') // 256 bits criptográficamente seguros
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
+      const userAgent = (req.headers['user-agent'] ?? 'Unknown').slice(0, 512)
+      const ipAddress = (req.ip ?? req.socket?.remoteAddress ?? 'Unknown').slice(0, 45)
+      const expiresAt = new Date(Date.now() + DEVICE_TOKEN_TTL_MS)
 
-    // Respuesta exitosa
+      await query(
+        `INSERT INTO dispositivos_confianza (usuario_id, token_hash, user_agent, ip_address, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [user.id, tokenHash, userAgent, ipAddress, expiresAt],
+      )
+
+      setDeviceCookie(res, rawToken)
+    }
+
     res.json({
       success: true,
       message: 'Verificación exitosa',
@@ -396,7 +473,6 @@ export const reset2FA = async (req: Request, res: Response) => {
 }
 
 // PUT /api/auth/change-password
-// El usuario autenticado cambia su propia contraseña
 export const changePassword = async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization
@@ -435,7 +511,6 @@ export const changePassword = async (req: Request, res: Response) => {
       })
     }
 
-    // Obtener contraseña actual del usuario
     const result: any = await query('SELECT password FROM usuarios WHERE id = ? AND activo = TRUE', [userId])
 
     if (!result || result.length === 0) {
@@ -474,5 +549,67 @@ export const changePassword = async (req: Request, res: Response) => {
       success: false,
       message: 'Error interno del servidor',
     })
+  }
+}
+
+// GET /api/auth/dispositivos  (requireAuth)
+export const listDispositivos = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id
+
+    const result: any = await query(
+      `SELECT id, user_agent, ip_address, created_at, last_used_at, expires_at
+       FROM dispositivos_confianza
+       WHERE usuario_id = ? AND revocado = 0 AND expires_at > NOW()
+       ORDER BY COALESCE(last_used_at, created_at) DESC`,
+      [userId],
+    )
+
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('Error al listar dispositivos:', error)
+    res.status(500).json({ success: false, message: 'Error interno del servidor' })
+  }
+}
+
+// DELETE /api/auth/dispositivos/:id  (requireAuth)
+export const revocarDispositivo = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id
+    const dispositivoId = Number(req.params.id)
+
+    if (!dispositivoId || isNaN(dispositivoId)) {
+      return res.status(400).json({ success: false, message: 'ID de dispositivo inválido' })
+    }
+
+    const result: any = await query(
+      `UPDATE dispositivos_confianza SET revocado = 1 WHERE id = ? AND usuario_id = ?`,
+      [dispositivoId, userId],
+    )
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Dispositivo no encontrado' })
+    }
+
+    res.json({ success: true, message: 'Dispositivo revocado exitosamente' })
+  } catch (error) {
+    console.error('Error al revocar dispositivo:', error)
+    res.status(500).json({ success: false, message: 'Error interno del servidor' })
+  }
+}
+
+// DELETE /api/auth/dispositivos  (requireAuth) — revoca TODOS y borra la cookie del cliente
+export const revocarTodosDispositivos = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id
+
+    await query(`UPDATE dispositivos_confianza SET revocado = 1 WHERE usuario_id = ?`, [userId])
+
+    res.clearCookie('device_token', { path: '/', httpOnly: true, sameSite: 'strict' })
+
+    res.json({ success: true, message: 'Todos los dispositivos de confianza han sido revocados' })
+  } catch (error) {
+    console.error('Error al revocar todos los dispositivos:', error)
+    res.status(500).json({ success: false, message: 'Error interno del servidor' })
   }
 }

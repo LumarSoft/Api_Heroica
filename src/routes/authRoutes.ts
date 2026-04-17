@@ -8,6 +8,9 @@ import {
   confirm2FA,
   disable2FA,
   reset2FA,
+  listDispositivos,
+  revocarDispositivo,
+  revocarTodosDispositivos,
 } from '../controllers/authController'
 import { requireAuth } from '../middlewares/authMiddleware'
 
@@ -21,5 +24,10 @@ router.post('/confirm-2fa', confirm2FA)
 router.post('/disable-2fa', disable2FA)
 router.post('/reset-2fa', reset2FA)
 router.put('/change-password', requireAuth, changePassword)
+
+// Gestión de dispositivos de confianza (requieren sesión activa)
+router.get('/dispositivos', requireAuth, listDispositivos)
+router.delete('/dispositivos', requireAuth, revocarTodosDispositivos)
+router.delete('/dispositivos/:id', requireAuth, revocarDispositivo)
 
 export default router

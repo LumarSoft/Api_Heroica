@@ -1,5 +1,6 @@
 import express, { Application, Request, Response } from 'express'
 import cors from 'cors'
+import cookieParser from 'cookie-parser'
 import dotenv from 'dotenv'
 import rateLimit from 'express-rate-limit'
 import authRoutes from './routes/authRoutes'
@@ -40,8 +41,28 @@ const loginLimiter = rateLimit({
   },
 })
 
+// Rate limiting para verificación 2FA: máximo 10 intentos por IP cada 10 minutos
+const verify2FALimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Demasiados intentos de verificación. Intente nuevamente en 10 minutos.',
+  },
+})
+
 // Middlewares
-app.use(cors()) // Permitir CORS
+app.use(
+  cors({
+    // Permite credenciales (cookies) solo desde el origen del frontend.
+    // En producción configurar CORS_ORIGIN con el dominio real.
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    credentials: true,
+  }),
+)
+app.use(cookieParser()) // Parsear cookies (necesario para device_token)
 app.use(express.json()) // Parsear JSON
 app.use(express.urlencoded({ extended: true })) // Parsear URL-encoded
 
@@ -61,6 +82,7 @@ app.use((req, res, next) => {
 
 // Rutas
 app.use('/api/auth/login', loginLimiter)
+app.use('/api/auth/verify-2fa', verify2FALimiter)
 app.use('/api/auth', authRoutes)
 app.use('/api/sucursales', sucursalesRoutes)
 app.use('/api/movimientos', movimientosRoutes)
