@@ -968,7 +968,7 @@ export const getDescripciones = async (req: Request, res: Response) => {
       FROM descripciones d
       LEFT JOIN categorias c ON d.categoria_id = c.id AND c.deleted_at IS NULL
       LEFT JOIN subcategorias s ON d.subcategoria_id = s.id
-      WHERE 1=1`
+      WHERE d.deleted_at IS NULL`
     const params: any[] = []
     if (activo !== undefined) {
       sql += ' AND d.activo = ?'
@@ -1018,7 +1018,7 @@ export const updateDescripcion = async (req: Request, res: Response) => {
     const { id } = req.params
     const { nombre, activo, tipo, categoria_id, subcategoria_id } = req.body
     await query(
-      'UPDATE descripciones SET nombre = ?, activo = ?, tipo = ?, categoria_id = ?, subcategoria_id = ? WHERE id = ?',
+      'UPDATE descripciones SET nombre = ?, activo = ?, tipo = ?, categoria_id = ?, subcategoria_id = ? WHERE id = ? AND deleted_at IS NULL',
       [nombre, activo !== undefined ? activo : true, tipo || null, categoria_id || null, subcategoria_id || null, id],
     )
     const updated: any = await query(
@@ -1038,7 +1038,7 @@ export const updateDescripcion = async (req: Request, res: Response) => {
 export const deleteDescripcion = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    await query('DELETE FROM descripciones WHERE id = ?', [id])
+    await query('UPDATE descripciones SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [id])
     res.json({ success: true, message: 'Descripción eliminada' })
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error al eliminar descripción' })
