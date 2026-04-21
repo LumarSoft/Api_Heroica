@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
+import { sendTareaNotificacionEmail } from '../services/emailService'
 
 // POST /api/notificaciones
 export const createNotificaciones = async (req: Request, res: Response) => {
@@ -11,12 +12,38 @@ export const createNotificaciones = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Datos incompletos' })
     }
 
+    const [tareaResult, remitenteResult]: any[] = await Promise.all([
+      query('SELECT codigo, titulo FROM tareas WHERE id = ?', [tarea_id]),
+      query('SELECT nombre FROM usuarios WHERE id = ?', [de_usuario_id]),
+    ])
+
+    const tarea = (tareaResult as any[])[0]
+    const remitente = (remitenteResult as any[])[0]
+
     for (const uid of para_usuarios_ids) {
       await query(
         `INSERT INTO tareas_notificaciones (tarea_id, para_usuario_id, de_usuario_id, tipo, descripcion)
          VALUES (?, ?, ?, ?, ?)`,
         [tarea_id, uid, de_usuario_id, tipo, descripcion],
       )
+
+      const destinatarioResult: any = await query(
+        'SELECT nombre, email FROM usuarios WHERE id = ?',
+        [uid],
+      )
+      const destinatario = (destinatarioResult as any[])[0]
+
+      if (destinatario?.email && tarea) {
+        sendTareaNotificacionEmail({
+          destinatario: destinatario.email,
+          destinatarioNombre: destinatario.nombre,
+          remitente: remitente?.nombre ?? 'Sistema',
+          tareaId: tarea.codigo,
+          tareaTitulo: tarea.titulo,
+          tipo,
+          descripcion,
+        })
+      }
     }
 
     res.json({ success: true })

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
+import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
 
 const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({
@@ -137,6 +138,19 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
     )
 
     const createdPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [result.insertId])
+
+    const creadorResult: any = await query('SELECT nombre FROM usuarios WHERE id = ?', [user_id])
+    const creador = (creadorResult as any[])[0]
+
+    await sendNuevoPagoPendienteEmail({
+      creadorNombre: creador?.nombre ?? 'Usuario',
+      concepto: concepto ?? '',
+      monto: String(Math.abs(adjustedMonto)),
+      moneda: monedaFinal,
+      fecha: normalizarFecha(fecha),
+      prioridad: prioridad || 'media',
+    })
+
     res.status(201).json({ success: true, message: 'Pago pendiente creado exitosamente', data: createdPago[0] })
   } catch (error) {
     console.error('Error al crear pago pendiente:', error)
@@ -236,6 +250,27 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     )
 
     const updatedPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
+
+    const creadorResult: any = await query(
+      'SELECT nombre, email FROM usuarios WHERE id = ?',
+      [pago.user_id],
+    )
+    const revisorResult: any = await query('SELECT nombre FROM usuarios WHERE id = ?', [usuario_revisor_id])
+    const creador = (creadorResult as any[])[0]
+    const revisor = (revisorResult as any[])[0]
+
+    if (creador?.email) {
+      sendPagoAprobadoEmail({
+        destinatario: creador.email,
+        destinatarioNombre: creador.nombre,
+        revisorNombre: revisor?.nombre ?? 'Administrador',
+        concepto: updatedPago[0]?.concepto ?? '',
+        monto: String(Math.abs(updatedPago[0]?.monto ?? 0)),
+        moneda: updatedPago[0]?.moneda ?? 'ARS',
+        fecha: formatearFechaRespuesta(updatedPago[0]?.fecha) ?? '',
+      })
+    }
+
     res.json({ success: true, message: 'Pago aprobado y programado exitosamente', data: updatedPago[0] })
   } catch (error) {
     console.error('Error al aprobar pago:', error)
@@ -267,6 +302,28 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
     )
 
     const updatedPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
+
+    const creadorResult: any = await query(
+      'SELECT nombre, email FROM usuarios WHERE id = ?',
+      [pagoResult[0].user_id],
+    )
+    const revisorResult: any = await query('SELECT nombre FROM usuarios WHERE id = ?', [usuario_revisor_id])
+    const creador = (creadorResult as any[])[0]
+    const revisor = (revisorResult as any[])[0]
+
+    if (creador?.email) {
+      sendPagoRechazadoEmail({
+        destinatario: creador.email,
+        destinatarioNombre: creador.nombre,
+        revisorNombre: revisor?.nombre ?? 'Administrador',
+        concepto: pagoResult[0]?.concepto ?? '',
+        monto: String(Math.abs(pagoResult[0]?.monto ?? 0)),
+        moneda: pagoResult[0]?.moneda ?? 'ARS',
+        fecha: formatearFechaRespuesta(pagoResult[0]?.fecha) ?? '',
+        motivoRechazo: motivo_rechazo,
+      })
+    }
+
     res.json({ success: true, message: 'Pago rechazado exitosamente', data: updatedPago[0] })
   } catch (error) {
     console.error('Error al rechazar pago:', error)

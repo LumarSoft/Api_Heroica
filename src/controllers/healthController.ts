@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import pool from '../config/database'
+import { Resend } from 'resend'
 
 /**
  * GET /health
@@ -11,6 +12,49 @@ export const liveness = (_req: Request, res: Response): void => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   })
+}
+
+/**
+ * GET /email-check
+ * Diagnóstico de email — verifica config de Resend y envía un mail de prueba.
+ * Usar solo para debugging. Protegido por query param ?secret=
+ */
+export const emailCheck = async (req: Request, res: Response): Promise<void> => {
+  const secret = req.query.secret
+  if (!secret || secret !== process.env.JWT_SECRET) {
+    res.status(401).json({ error: 'No autorizado' })
+    return
+  }
+
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.EMAIL_FROM
+  const aprobacion = process.env.EMAIL_APROBACION
+
+  const config = {
+    RESEND_API_KEY: apiKey ? `✓ presente (${apiKey.slice(0, 8)}...)` : '✗ FALTA',
+    EMAIL_FROM: from ?? '✗ FALTA',
+    EMAIL_APROBACION: aprobacion ?? '✗ FALTA',
+  }
+
+  if (!apiKey || !from || !aprobacion) {
+    res.status(500).json({ config, error: 'Variables de entorno incompletas' })
+    return
+  }
+
+  const resend = new Resend(apiKey)
+  const { data, error } = await resend.emails.send({
+    from,
+    to: aprobacion,
+    subject: '[Heroica] Email de prueba — diagnóstico',
+    html: '<p>Este es un email de prueba del sistema Heroica. Si lo recibiste, el envío funciona correctamente.</p>',
+  })
+
+  if (error) {
+    res.status(500).json({ config, resend_error: error })
+    return
+  }
+
+  res.status(200).json({ config, resend_response: data, status: 'Email enviado correctamente' })
 }
 
 /**
