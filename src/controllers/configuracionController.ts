@@ -962,14 +962,23 @@ export const deleteRol = async (req: Request, res: Response) => {
 
 export const getDescripciones = async (req: Request, res: Response) => {
   try {
-    const { activo } = req.query
-    let sql = 'SELECT * FROM descripciones WHERE 1=1'
+    const { activo, tipo } = req.query
+    let sql = `
+      SELECT d.*, c.nombre AS categoria_nombre, s.nombre AS subcategoria_nombre
+      FROM descripciones d
+      LEFT JOIN categorias c ON d.categoria_id = c.id AND c.deleted_at IS NULL
+      LEFT JOIN subcategorias s ON d.subcategoria_id = s.id
+      WHERE 1=1`
     const params: any[] = []
     if (activo !== undefined) {
-      sql += ' AND activo = ?'
+      sql += ' AND d.activo = ?'
       params.push(activo === 'true' ? 1 : 0)
     }
-    sql += ' ORDER BY nombre ASC'
+    if (tipo) {
+      sql += ' AND d.tipo = ?'
+      params.push(tipo)
+    }
+    sql += ' ORDER BY d.nombre ASC'
     const result: any = await query(sql, params)
     res.json({ success: true, data: result })
   } catch (error) {
@@ -980,10 +989,22 @@ export const getDescripciones = async (req: Request, res: Response) => {
 
 export const createDescripcion = async (req: Request, res: Response) => {
   try {
-    const { nombre } = req.body
+    const { nombre, tipo, categoria_id, subcategoria_id } = req.body
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre es requerido' })
-    const result: any = await query('INSERT INTO descripciones (nombre) VALUES (?)', [nombre])
-    const created: any = await query('SELECT * FROM descripciones WHERE id = ?', [result.insertId])
+    if (!tipo || !['ingreso', 'egreso'].includes(tipo))
+      return res.status(400).json({ success: false, message: 'El tipo es requerido (ingreso o egreso)' })
+    const result: any = await query(
+      'INSERT INTO descripciones (nombre, tipo, categoria_id, subcategoria_id) VALUES (?, ?, ?, ?)',
+      [nombre, tipo, categoria_id || null, subcategoria_id || null],
+    )
+    const created: any = await query(
+      `SELECT d.*, c.nombre AS categoria_nombre, s.nombre AS subcategoria_nombre
+       FROM descripciones d
+       LEFT JOIN categorias c ON d.categoria_id = c.id
+       LEFT JOIN subcategorias s ON d.subcategoria_id = s.id
+       WHERE d.id = ?`,
+      [result.insertId],
+    )
     res.status(201).json({ success: true, message: 'Descripción creada', data: created[0] })
   } catch (error: any) {
     if (error.code === 'ER_DUP_ENTRY')
@@ -995,13 +1016,19 @@ export const createDescripcion = async (req: Request, res: Response) => {
 export const updateDescripcion = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { nombre, activo } = req.body
-    await query('UPDATE descripciones SET nombre = ?, activo = ? WHERE id = ?', [
-      nombre,
-      activo !== undefined ? activo : true,
-      id,
-    ])
-    const updated: any = await query('SELECT * FROM descripciones WHERE id = ?', [id])
+    const { nombre, activo, tipo, categoria_id, subcategoria_id } = req.body
+    await query(
+      'UPDATE descripciones SET nombre = ?, activo = ?, tipo = ?, categoria_id = ?, subcategoria_id = ? WHERE id = ?',
+      [nombre, activo !== undefined ? activo : true, tipo || null, categoria_id || null, subcategoria_id || null, id],
+    )
+    const updated: any = await query(
+      `SELECT d.*, c.nombre AS categoria_nombre, s.nombre AS subcategoria_nombre
+       FROM descripciones d
+       LEFT JOIN categorias c ON d.categoria_id = c.id
+       LEFT JOIN subcategorias s ON d.subcategoria_id = s.id
+       WHERE d.id = ?`,
+      [id],
+    )
     res.json({ success: true, message: 'Descripción actualizada', data: updated[0] })
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error al actualizar descripción' })
