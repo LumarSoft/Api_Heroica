@@ -85,10 +85,10 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       })
     }
 
-    if (!categoria_id || !subcategoria_id || !descripcion_id || !proveedor_id) {
+    if (!categoria_id || !subcategoria_id || !descripcion_id) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos obligatorios: categoría, subcategoría, descripción y proveedor',
+        message: 'Faltan campos obligatorios: categoría, subcategoría y descripción',
       })
     }
 
