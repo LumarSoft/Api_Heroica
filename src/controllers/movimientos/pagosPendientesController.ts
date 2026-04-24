@@ -176,6 +176,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
       proveedor_id,
       banco_id,
       medio_pago_id,
+      numero_cheque,
     } = req.body
 
     if (!usuario_revisor_id) {
@@ -224,12 +225,18 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     const adjustedMonto =
       monto !== undefined ? (pago.tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto)) : pago.monto
 
+    const numeroChequeFinal =
+      numero_cheque !== undefined && numero_cheque !== null && String(numero_cheque).trim() !== ''
+        ? String(numero_cheque).trim()
+        : null
+
     await query(
       `UPDATE movimientos
        SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario',
            fecha = COALESCE(?, fecha), concepto = COALESCE(?, concepto), comentarios = ?, monto = ?, 
            prioridad = COALESCE(?, prioridad), categoria_id = ?, subcategoria_id = ?, 
-           descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?
+           descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?,
+           numero_cheque = COALESCE(?, numero_cheque)
        WHERE id = ?`,
       [
         usuario_revisor_id,
@@ -245,6 +252,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
         proveedor_id || null,
         bancoFinal || null,
         medioPagoFinal || null,
+        numeroChequeFinal,
         id,
       ],
     )
