@@ -15,6 +15,8 @@ import cuentasBancariasRoutes from './routes/cuentasBancariasRoutes'
 import tareasRoutes from './routes/tareasRoutes'
 import notificacionesRoutes from './routes/notificacionesRoutes'
 import escalasRoutes from './routes/escalasRoutes'
+import rrhhCalendarioRoutes from './routes/rrhhCalendarioRoutes'
+import personalRoutes from './routes/personalRoutes'
 import { syncPermisos } from './config/permisos'
 import { startDbSyncCron } from './services/dbSyncService'
 
@@ -96,6 +98,8 @@ app.use('/api/cuentas-bancarias', cuentasBancariasRoutes)
 app.use('/api/tareas', tareasRoutes)
 app.use('/api/notificaciones', notificacionesRoutes)
 app.use('/api/escalas-salariales', escalasRoutes)
+app.use('/api/rrhh/calendario', rrhhCalendarioRoutes)
+app.use('/api/personal', personalRoutes)
 
 // Ruta raíz — no expone información sensible en producción
 app.get('/', (_req: Request, res: Response) => {
