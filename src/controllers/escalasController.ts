@@ -7,7 +7,8 @@ const FIELDS = 'id, puesto, sueldo_base, mes, anio, valor_hora'
 export const getEscalas = async (_req: Request, res: Response) => {
   try {
     const result = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales WHERE deleted_at IS NULL ORDER BY puesto ASC`,
+      `SELECT ${FIELDS} FROM escalas_salariales WHERE deleted_at IS NULL ORDER BY 
+      ASC`,
     )
     res.json({ success: true, data: result })
   } catch (error) {
@@ -30,10 +31,7 @@ export const createEscala = async (req: Request, res: Response) => {
       [puesto, sueldo_base, mes, anio, valor_hora ?? null],
     )
 
-    const created: any = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales WHERE id = ?`,
-      [result.insertId],
-    )
+    const created: any = await query(`SELECT ${FIELDS} FROM escalas_salariales WHERE id = ?`, [result.insertId])
 
     res.status(201).json({ success: true, data: created[0] })
   } catch (error) {
@@ -52,10 +50,7 @@ export const updateEscala = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'puesto, sueldo_base, mes y anio son requeridos' })
     }
 
-    const existing: any = await query(
-      'SELECT id FROM escalas_salariales WHERE id = ? AND deleted_at IS NULL',
-      [id],
-    )
+    const existing: any = await query('SELECT id FROM escalas_salariales WHERE id = ? AND deleted_at IS NULL', [id])
 
     if (!existing.length) {
       return res.status(404).json({ success: false, message: 'Escala salarial no encontrada' })
@@ -66,10 +61,7 @@ export const updateEscala = async (req: Request, res: Response) => {
       [puesto, sueldo_base, mes, anio, valor_hora ?? null, id],
     )
 
-    const updated: any = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales WHERE id = ?`,
-      [id],
-    )
+    const updated: any = await query(`SELECT ${FIELDS} FROM escalas_salariales WHERE id = ?`, [id])
 
     res.json({ success: true, data: updated[0] })
   } catch (error) {
@@ -83,10 +75,7 @@ export const deleteEscala = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const existing: any = await query(
-      'SELECT id FROM escalas_salariales WHERE id = ? AND deleted_at IS NULL',
-      [id],
-    )
+    const existing: any = await query('SELECT id FROM escalas_salariales WHERE id = ? AND deleted_at IS NULL', [id])
 
     if (!existing.length) {
       return res.status(404).json({ success: false, message: 'Escala salarial no encontrada' })
