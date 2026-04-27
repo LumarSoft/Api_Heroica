@@ -1,5 +1,16 @@
 import { Request, Response } from 'express'
-import { query } from '../config/database'
+import { getConnection, query } from '../config/database'
+
+const MODULO_PREFIX: Record<string, string> = {
+  tesoreria: 'TES',
+  rh: 'RH',
+}
+
+const modulosValidos = Object.keys(MODULO_PREFIX)
+
+function normalizarModulo(modulo: unknown): string {
+  return typeof modulo === 'string' && modulosValidos.includes(modulo) ? modulo : 'tesoreria'
+}
 
 // GET /api/tareas/usuarios
 export const getUsuariosParaTareas = async (_req: Request, res: Response) => {
@@ -16,7 +27,7 @@ export const getUsuariosParaTareas = async (_req: Request, res: Response) => {
 export const getTareas = async (_req: Request, res: Response) => {
   try {
     const result = await query(
-      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.modulo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, uc.nombre AS creado_por_nombre,
               t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at,
@@ -39,8 +50,10 @@ export const getTareas = async (_req: Request, res: Response) => {
 
 // POST /api/tareas
 export const createTarea = async (req: Request, res: Response) => {
+  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
   try {
     const { titulo, descripcion, tipo, prioridad, version, creado_por, asignado_a } = req.body
+    const modulo = normalizarModulo(req.body.modulo)
 
     if (!titulo || !tipo || !prioridad) {
       return res.status(400).json({ success: false, message: 'Título, tipo y prioridad son requeridos' })
@@ -51,23 +64,49 @@ export const createTarea = async (req: Request, res: Response) => {
 
     if (!tiposValidos.includes(tipo)) return res.status(400).json({ success: false, message: 'Tipo inválido' })
     if (!prioridadesValidas.includes(prioridad)) return res.status(400).json({ success: false, message: 'Prioridad inválida' })
-
-    const lastTarea: any = await query(`SELECT codigo FROM tareas ORDER BY id DESC LIMIT 1`)
-
-    let nuevoCodigo = 'TE-01'
-    if (Array.isArray(lastTarea) && lastTarea.length > 0 && lastTarea[0].codigo) {
-      const lastNumber = parseInt(lastTarea[0].codigo.split('-')[1])
-      nuevoCodigo = `TE-${String(lastNumber + 1).padStart(2, '0')}`
+    if (req.body.modulo && !modulosValidos.includes(req.body.modulo)) {
+      return res.status(400).json({ success: false, message: 'Módulo inválido' })
     }
 
-    const result: any = await query(
-      `INSERT INTO tareas (codigo, version, titulo, descripcion, tipo, prioridad, estado, creado_por, asignado_a)
-       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`,
-      [nuevoCodigo, version || null, titulo, descripcion || null, tipo, prioridad, creado_por || null, asignado_a || null],
+    connection = await getConnection()
+    await connection.beginTransaction()
+
+    // El código es único en toda la tabla: el correlativo va por prefijo (TES-/RH-), no por la columna modulo
+    // (evita duplicados si modulo y codigo quedaron inconsistentes). Incluye borradas (soft delete) porque el UNIQUE sigue vigente.
+    const prefix = MODULO_PREFIX[modulo]
+    const codigoPattern = `${prefix}-%`
+    const [lastRow]: any = await connection.execute(
+      `SELECT MAX(CAST(SUBSTRING_INDEX(codigo, '-', -1) AS UNSIGNED)) AS max_num
+       FROM tareas
+       WHERE codigo LIKE ?`,
+      [codigoPattern],
     )
 
-    const newTarea: any = await query(
-      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+    const maxNum =
+      Array.isArray(lastRow) && lastRow.length > 0 && lastRow[0].max_num != null
+        ? Number(lastRow[0].max_num)
+        : 0
+    const siguiente = maxNum + 1
+    const nuevoCodigo = `${prefix}-${String(siguiente).padStart(2, '0')}`
+
+    const [result]: any = await connection.execute(
+      `INSERT INTO tareas (codigo, modulo, version, titulo, descripcion, tipo, prioridad, estado, creado_por, asignado_a)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`,
+      [
+        nuevoCodigo,
+        modulo,
+        version || null,
+        titulo,
+        descripcion || null,
+        tipo,
+        prioridad,
+        creado_por || null,
+        asignado_a || null,
+      ],
+    )
+
+    const [newTarea]: any = await connection.execute(
+      `SELECT t.id, t.codigo, t.modulo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, uc.nombre AS creado_por_nombre,
               t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at,
@@ -79,10 +118,14 @@ export const createTarea = async (req: Request, res: Response) => {
       [result.insertId],
     )
 
+    await connection.commit()
     res.status(201).json({ success: true, data: newTarea[0] })
   } catch (error) {
+    if (connection) await connection.rollback()
     console.error('Error al crear tarea:', error)
     res.status(500).json({ success: false, message: 'Error al crear tarea' })
+  } finally {
+    connection?.release()
   }
 }
 
@@ -91,9 +134,13 @@ export const updateTarea = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
     const { titulo, descripcion, tipo, prioridad, version, asignado_a } = req.body
+    const modulo = normalizarModulo(req.body.modulo)
 
     if (!titulo || !tipo || !prioridad) {
       return res.status(400).json({ success: false, message: 'Título, tipo y prioridad son requeridos' })
+    }
+    if (req.body.modulo && !modulosValidos.includes(req.body.modulo)) {
+      return res.status(400).json({ success: false, message: 'Módulo inválido' })
     }
 
     const existing: any = await query('SELECT id FROM tareas WHERE id = ? AND deleted_at IS NULL', [id])
@@ -102,13 +149,13 @@ export const updateTarea = async (req: Request, res: Response) => {
     }
 
     await query(
-      `UPDATE tareas SET titulo = ?, descripcion = ?, tipo = ?, prioridad = ?, version = ?, asignado_a = ?, updated_at = NOW()
+      `UPDATE tareas SET titulo = ?, descripcion = ?, tipo = ?, prioridad = ?, version = ?, modulo = ?, asignado_a = ?, updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
-      [titulo, descripcion || null, tipo, prioridad, version || null, asignado_a || null, id],
+      [titulo, descripcion || null, tipo, prioridad, version || null, modulo, asignado_a || null, id],
     )
 
     const updated: any = await query(
-      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.modulo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, uc.nombre AS creado_por_nombre,
               t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at,
@@ -150,7 +197,7 @@ export const updateEstadoTarea = async (req: Request, res: Response) => {
     )
 
     const updated: any = await query(
-      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.modulo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, uc.nombre AS creado_por_nombre,
               t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at,
@@ -186,7 +233,7 @@ export const asignarTarea = async (req: Request, res: Response) => {
     )
 
     const updated: any = await query(
-      `SELECT t.id, t.codigo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
+      `SELECT t.id, t.codigo, t.modulo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
               t.creado_por, uc.nombre AS creado_por_nombre,
               t.asignado_a, ua.nombre AS asignado_a_nombre,
               t.created_at, t.updated_at, t.completed_at,
