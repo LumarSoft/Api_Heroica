@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS escalas_salariales (
   id          INT AUTO_INCREMENT PRIMARY KEY,
-  puesto      VARCHAR(150)      NOT NULL,
+  puesto_id   INT               NOT NULL,
   sueldo_base DECIMAL(12, 2)    NOT NULL,
   mes         TINYINT UNSIGNED  NOT NULL COMMENT 'Mes (1-12)',
   anio        SMALLINT UNSIGNED NOT NULL COMMENT 'Año',
@@ -12,5 +12,7 @@ CREATE TABLE IF NOT EXISTS escalas_salariales (
   created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at  TIMESTAMP NULL DEFAULT NULL COMMENT 'Eliminación lógica; NULL = activo',
-  INDEX idx_periodo (mes, anio)
+  INDEX idx_periodo (mes, anio),
+  KEY `escalas_puesto_fk` (`puesto_id`),
+  CONSTRAINT `escalas_puesto_fk` FOREIGN KEY (`puesto_id`) REFERENCES `puestos` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
