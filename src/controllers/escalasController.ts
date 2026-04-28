@@ -7,8 +7,7 @@ const FIELDS = 'id, puesto, sueldo_base, mes, anio, valor_hora'
 export const getEscalas = async (_req: Request, res: Response) => {
   try {
     const result = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales WHERE deleted_at IS NULL ORDER BY 
-      ASC`,
+      `SELECT ${FIELDS} FROM escalas_salariales WHERE deleted_at IS NULL ORDER BY anio ASC, mes ASC`,
     )
     res.json({ success: true, data: result })
   } catch (error) {
