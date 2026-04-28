@@ -103,6 +103,18 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Configuración',
   },
 
+  // ── MÓDULO: RRHH - INCENTIVOS Y PREMIOS ─────────────────────────────────
+  {
+    clave: 'ver_incentivos',
+    descripcion: 'Ver incentivos y premios de RRHH',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_incentivos',
+    descripcion: 'Crear, editar y desactivar incentivos y premios de RRHH',
+    categoria: 'Recursos Humanos',
+  },
+
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
   // Al agregar un nuevo módulo, copiá el bloque de abajo y completalo:
   //
