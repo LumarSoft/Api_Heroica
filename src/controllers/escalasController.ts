@@ -1,13 +1,13 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 
-const FIELDS = 'id, puesto, sueldo_base, mes, anio, valor_hora'
+const FIELDS = 'e.id, e.puesto_id, p.nombre AS puesto, e.sueldo_base, e.mes, e.anio, e.valor_hora'
 
 // GET /api/escalas-salariales
 export const getEscalas = async (_req: Request, res: Response) => {
   try {
     const result = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales WHERE deleted_at IS NULL ORDER BY anio ASC, mes ASC`,
+      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.deleted_at IS NULL ORDER BY e.anio ASC, e.mes ASC`,
     )
     res.json({ success: true, data: result })
   } catch (error) {
@@ -19,18 +19,21 @@ export const getEscalas = async (_req: Request, res: Response) => {
 // POST /api/escalas-salariales
 export const createEscala = async (req: Request, res: Response) => {
   try {
-    const { puesto, sueldo_base, mes, anio, valor_hora } = req.body
+    const { puesto_id, sueldo_base, mes, anio, valor_hora } = req.body
 
-    if (!puesto || sueldo_base === undefined || !mes || !anio) {
-      return res.status(400).json({ success: false, message: 'puesto, sueldo_base, mes y anio son requeridos' })
+    if (!puesto_id || sueldo_base === undefined || !mes || !anio) {
+      return res.status(400).json({ success: false, message: 'puesto_id, sueldo_base, mes y anio son requeridos' })
     }
 
     const result: any = await query(
-      'INSERT INTO escalas_salariales (puesto, sueldo_base, mes, anio, valor_hora) VALUES (?, ?, ?, ?, ?)',
-      [puesto, sueldo_base, mes, anio, valor_hora ?? null],
+      'INSERT INTO escalas_salariales (puesto_id, sueldo_base, mes, anio, valor_hora) VALUES (?, ?, ?, ?, ?)',
+      [puesto_id, sueldo_base, mes, anio, valor_hora ?? null],
     )
 
-    const created: any = await query(`SELECT ${FIELDS} FROM escalas_salariales WHERE id = ?`, [result.insertId])
+    const created: any = await query(
+      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.id = ?`,
+      [result.insertId],
+    )
 
     res.status(201).json({ success: true, data: created[0] })
   } catch (error) {
@@ -43,10 +46,10 @@ export const createEscala = async (req: Request, res: Response) => {
 export const updateEscala = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { puesto, sueldo_base, mes, anio, valor_hora } = req.body
+    const { puesto_id, sueldo_base, mes, anio, valor_hora } = req.body
 
-    if (!puesto || sueldo_base === undefined || !mes || !anio) {
-      return res.status(400).json({ success: false, message: 'puesto, sueldo_base, mes y anio son requeridos' })
+    if (!puesto_id || sueldo_base === undefined || !mes || !anio) {
+      return res.status(400).json({ success: false, message: 'puesto_id, sueldo_base, mes y anio son requeridos' })
     }
 
     const existing: any = await query('SELECT id FROM escalas_salariales WHERE id = ? AND deleted_at IS NULL', [id])
@@ -56,11 +59,14 @@ export const updateEscala = async (req: Request, res: Response) => {
     }
 
     await query(
-      'UPDATE escalas_salariales SET puesto = ?, sueldo_base = ?, mes = ?, anio = ?, valor_hora = ? WHERE id = ?',
-      [puesto, sueldo_base, mes, anio, valor_hora ?? null, id],
+      'UPDATE escalas_salariales SET puesto_id = ?, sueldo_base = ?, mes = ?, anio = ?, valor_hora = ? WHERE id = ?',
+      [puesto_id, sueldo_base, mes, anio, valor_hora ?? null, id],
     )
 
-    const updated: any = await query(`SELECT ${FIELDS} FROM escalas_salariales WHERE id = ?`, [id])
+    const updated: any = await query(
+      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.id = ?`,
+      [id],
+    )
 
     res.json({ success: true, data: updated[0] })
   } catch (error) {
