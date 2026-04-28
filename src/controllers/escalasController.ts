@@ -1,7 +1,7 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 
-const FIELDS = 'e.id, e.puesto_id, p.nombre AS puesto, e.sueldo_base, e.mes, e.anio, e.valor_hora'
+const FIELDS = 'e.id, e.puesto_id, p.nombre AS puesto_nombre, e.sueldo_base, e.mes, e.anio, e.valor_hora'
 
 // GET /api/escalas-salariales
 export const getEscalas = async (_req: Request, res: Response) => {
