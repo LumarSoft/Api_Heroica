@@ -25,6 +25,7 @@ CREATE TABLE `personal` (
   `deleted_at` datetime DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `activo` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   UNIQUE KEY `legajo` (`legajo`),
   UNIQUE KEY `dni` (`dni`),
