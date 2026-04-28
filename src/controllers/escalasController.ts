@@ -3,11 +3,18 @@ import { query } from '../config/database'
 
 const FIELDS = 'e.id, e.puesto_id, p.nombre AS puesto_nombre, e.sueldo_base, e.mes, e.anio, e.valor_hora'
 
-// GET /api/escalas-salariales
-export const getEscalas = async (_req: Request, res: Response) => {
+// GET /api/escalas-salariales?sucursal_id=X
+export const getEscalas = async (req: Request, res: Response) => {
   try {
+    const { sucursal_id } = req.query
+
+    if (!sucursal_id) {
+      return res.status(400).json({ success: false, message: 'sucursal_id es requerido' })
+    }
+
     const result = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.deleted_at IS NULL ORDER BY e.anio ASC, e.mes ASC`,
+      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.deleted_at IS NULL AND p.sucursal_id = ? ORDER BY e.anio ASC, e.mes ASC`,
+      [sucursal_id],
     )
     res.json({ success: true, data: result })
   } catch (error) {
