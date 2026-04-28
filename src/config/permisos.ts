@@ -115,6 +115,18 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
 
+  // ── MÓDULO: RRHH - SOLICITUDES ──────────────────────────────────────────
+  {
+    clave: 'ver_solicitudes',
+    descripcion: 'Ver solicitudes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_solicitudes',
+    descripcion: 'Crear, editar y aprobar/rechazar solicitudes',
+    categoria: 'Recursos Humanos',
+  },
+
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
   // Al agregar un nuevo módulo, copiá el bloque de abajo y completalo:
   //
