@@ -5,10 +5,13 @@ import { getConnection, query } from '../config/database'
 export const getPersonal = async (_req: Request, res: Response) => {
   try {
     const result = await query(
-      `SELECT id, legajo, nombre, dni, puesto, fecha_incorporacion, carnet_manipulacion_alimentos, created_at, updated_at
-       FROM personal
-       WHERE deleted_at IS NULL
-       ORDER BY legajo ASC`,
+      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
+              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+              p.activo, p.created_at, p.updated_at
+       FROM personal p
+       LEFT JOIN puestos pu ON pu.id = p.puesto_id
+       WHERE p.deleted_at IS NULL
+       ORDER BY p.legajo ASC`,
     )
     res.json({ success: true, data: result })
   } catch (error) {
@@ -22,9 +25,12 @@ export const getPersonalById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
     const result: any = await query(
-      `SELECT id, legajo, nombre, dni, puesto, fecha_incorporacion, carnet_manipulacion_alimentos, created_at, updated_at
-       FROM personal
-       WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
+              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+              p.activo, p.created_at, p.updated_at
+       FROM personal p
+       LEFT JOIN puestos pu ON pu.id = p.puesto_id
+       WHERE p.id = ? AND p.deleted_at IS NULL`,
       [id],
     )
     if (!Array.isArray(result) || result.length === 0) {
@@ -41,10 +47,13 @@ export const getPersonalById = async (req: Request, res: Response) => {
 export const createPersonal = async (req: Request, res: Response) => {
   let connection: Awaited<ReturnType<typeof getConnection>> | null = null
   try {
-    const { nombre, dni, puesto, fecha_incorporacion, carnet_manipulacion_alimentos } = req.body
+    const { nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, carnet_manipulacion_alimentos } = req.body
 
-    if (!nombre || !dni || !puesto || !fecha_incorporacion) {
-      return res.status(400).json({ success: false, message: 'Nombre, DNI, puesto y fecha de incorporación son requeridos' })
+    if (!nombre || !dni || !puesto_id || !sucursal_id || !fecha_incorporacion) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nombre, DNI, puesto, sucursal y fecha de incorporación son requeridos',
+      })
     }
 
     connection = await getConnection()
@@ -71,21 +80,26 @@ export const createPersonal = async (req: Request, res: Response) => {
     const nuevoLegajo = String(maxNum + 1).padStart(6, '0')
 
     const [result]: any = await connection.execute(
-      `INSERT INTO personal (legajo, nombre, dni, puesto, fecha_incorporacion, carnet_manipulacion_alimentos)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO personal (legajo, nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, carnet_manipulacion_alimentos)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
         nombre.trim(),
         dni.trim(),
-        puesto.trim(),
+        puesto_id,
+        sucursal_id,
         fecha_incorporacion,
         carnet_manipulacion_alimentos ? 1 : 0,
       ],
     )
 
     const [newRow]: any = await connection.execute(
-      `SELECT id, legajo, nombre, dni, puesto, fecha_incorporacion, carnet_manipulacion_alimentos, created_at, updated_at
-       FROM personal WHERE id = ?`,
+      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
+              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+              p.activo, p.created_at, p.updated_at
+       FROM personal p
+       LEFT JOIN puestos pu ON pu.id = p.puesto_id
+       WHERE p.id = ?`,
       [result.insertId],
     )
 
@@ -105,10 +119,13 @@ export const updatePersonal = async (req: Request, res: Response) => {
   let connection: Awaited<ReturnType<typeof getConnection>> | null = null
   try {
     const { id } = req.params
-    const { nombre, dni, puesto, fecha_incorporacion, carnet_manipulacion_alimentos } = req.body
+    const { nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, carnet_manipulacion_alimentos, activo } = req.body
 
-    if (!nombre || !dni || !puesto || !fecha_incorporacion) {
-      return res.status(400).json({ success: false, message: 'Nombre, DNI, puesto y fecha de incorporación son requeridos' })
+    if (!nombre || !dni || !puesto_id || !sucursal_id || !fecha_incorporacion) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nombre, DNI, puesto, sucursal y fecha de incorporación son requeridos',
+      })
     }
 
     connection = await getConnection()
@@ -134,14 +151,29 @@ export const updatePersonal = async (req: Request, res: Response) => {
     }
 
     await connection.execute(
-      `UPDATE personal SET nombre = ?, dni = ?, puesto = ?, fecha_incorporacion = ?, carnet_manipulacion_alimentos = ?
+      `UPDATE personal
+       SET nombre = ?, dni = ?, puesto_id = ?, sucursal_id = ?, fecha_incorporacion = ?,
+           carnet_manipulacion_alimentos = ?, activo = ?
        WHERE id = ?`,
-      [nombre.trim(), dni.trim(), puesto.trim(), fecha_incorporacion, carnet_manipulacion_alimentos ? 1 : 0, id],
+      [
+        nombre.trim(),
+        dni.trim(),
+        puesto_id,
+        sucursal_id,
+        fecha_incorporacion,
+        carnet_manipulacion_alimentos ? 1 : 0,
+        activo !== undefined ? (activo ? 1 : 0) : 1,
+        id,
+      ],
     )
 
     const [updated]: any = await connection.execute(
-      `SELECT id, legajo, nombre, dni, puesto, fecha_incorporacion, carnet_manipulacion_alimentos, created_at, updated_at
-       FROM personal WHERE id = ?`,
+      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
+              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+              p.activo, p.created_at, p.updated_at
+       FROM personal p
+       LEFT JOIN puestos pu ON pu.id = p.puesto_id
+       WHERE p.id = ?`,
       [id],
     )
 
