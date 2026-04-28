@@ -1,18 +1,28 @@
 import { Request, Response } from 'express'
 import { getConnection, query } from '../config/database'
 
-// GET /api/personal
-export const getPersonal = async (_req: Request, res: Response) => {
+// GET /api/personal  —  ?sucursal_id=N filtra por sucursal
+export const getPersonal = async (req: Request, res: Response) => {
   try {
-    const result = await query(
-      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
-              p.activo, p.created_at, p.updated_at
-       FROM personal p
-       LEFT JOIN puestos pu ON pu.id = p.puesto_id
-       WHERE p.deleted_at IS NULL
-       ORDER BY p.legajo ASC`,
-    )
+    const sucursalId = req.query.sucursal_id ? Number(req.query.sucursal_id) : null
+
+    const sql = sucursalId
+      ? `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
+                p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+                p.activo, p.created_at, p.updated_at
+         FROM personal p
+         LEFT JOIN puestos pu ON pu.id = p.puesto_id
+         WHERE p.deleted_at IS NULL AND p.sucursal_id = ${sucursalId}
+         ORDER BY p.legajo ASC`
+      : `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
+                p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+                p.activo, p.created_at, p.updated_at
+         FROM personal p
+         LEFT JOIN puestos pu ON pu.id = p.puesto_id
+         WHERE p.deleted_at IS NULL
+         ORDER BY p.legajo ASC`
+
+    const result = await query(sql)
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Error al obtener personal:', error)
