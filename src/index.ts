@@ -17,6 +17,7 @@ import notificacionesRoutes from './routes/notificacionesRoutes'
 import escalasRoutes from './routes/escalasRoutes'
 import rrhhCalendarioRoutes from './routes/rrhhCalendarioRoutes'
 import rrhhIncentivosRoutes from './routes/rrhhIncentivosRoutes'
+import rrhhSolicitudesRoutes from './routes/rrhhSolicitudesRoutes'
 import personalRoutes from './routes/personalRoutes'
 import puestosRoutes from './routes/puestosRoutes'
 import { syncPermisos } from './config/permisos'
@@ -102,6 +103,7 @@ app.use('/api/notificaciones', notificacionesRoutes)
 app.use('/api/escalas-salariales', escalasRoutes)
 app.use('/api/rrhh/calendario', rrhhCalendarioRoutes)
 app.use('/api/rrhh/incentivos', rrhhIncentivosRoutes)
+app.use('/api/rrhh/solicitudes', rrhhSolicitudesRoutes)
 app.use('/api/personal', personalRoutes)
 app.use('/api/puestos', puestosRoutes)
 
