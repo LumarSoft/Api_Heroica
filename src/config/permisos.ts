@@ -115,6 +115,13 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
 
+  // ── MÓDULO: RRHH - LEGAJOS / PERSONAL ───────────────────────────────────
+  {
+    clave: 'gestionar_personal',
+    descripcion: 'Editar datos personales de colaboradores (legajos)',
+    categoria: 'Recursos Humanos',
+  },
+
   // ── MÓDULO: RRHH - SOLICITUDES ──────────────────────────────────────────
   {
     clave: 'ver_solicitudes',
