@@ -122,8 +122,33 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
   {
-    clave: 'gestionar_solicitudes',
-    descripcion: 'Crear, editar y aprobar/rechazar solicitudes',
+    clave: 'crear_solicitudes',
+    descripcion: 'Crear solicitudes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'editar_solicitudes',
+    descripcion: 'Editar solicitudes pendientes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'cancelar_solicitudes',
+    descripcion: 'Cancelar solicitudes pendientes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'aprobar_solicitudes',
+    descripcion: 'Aprobar o rechazar solicitudes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'ver_historial_solicitudes_global',
+    descripcion: 'Ver historial global de solicitudes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'ver_solicitudes_todas_sucursales',
+    descripcion: 'Ver solicitudes de Recursos Humanos de todas las sucursales',
     categoria: 'Recursos Humanos',
   },
 

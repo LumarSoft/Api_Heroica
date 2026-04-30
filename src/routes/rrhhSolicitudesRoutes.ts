@@ -1,16 +1,25 @@
 import { Router } from 'express'
-import { createSolicitud, getSolicitudes, updateEstadoSolicitud, deleteSolicitud } from '../controllers/rrhhSolicitudesController'
+import {
+  cancelSolicitud,
+  createSolicitud,
+  deleteSolicitud,
+  getSolicitudById,
+  getSolicitudes,
+  updateEstadoSolicitud,
+  updateSolicitud,
+} from '../controllers/rrhhSolicitudesController'
 import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
 
-// Nota: se usan permisos como 'ver_solicitudes' y 'gestionar_solicitudes'. 
-// Asegurarse de que estén definidos en la base de datos de permisos.
 router.get('/', requirePermission('ver_solicitudes'), getSolicitudes)
-router.post('/', requirePermission('gestionar_solicitudes'), createSolicitud)
-router.put('/:id/estado', requirePermission('gestionar_solicitudes'), updateEstadoSolicitud)
-router.delete('/:id', requirePermission('gestionar_solicitudes'), deleteSolicitud)
+router.get('/:id', requirePermission('ver_solicitudes'), getSolicitudById)
+router.post('/', requirePermission('crear_solicitudes'), createSolicitud)
+router.put('/:id', requirePermission('editar_solicitudes'), updateSolicitud)
+router.patch('/:id/estado', requirePermission('aprobar_solicitudes'), updateEstadoSolicitud)
+router.patch('/:id/cancelar', requirePermission('cancelar_solicitudes'), cancelSolicitud)
+router.delete('/:id', requirePermission('crear_solicitudes'), deleteSolicitud)
 
 export default router

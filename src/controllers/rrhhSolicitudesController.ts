@@ -1,181 +1,521 @@
-import { Request, Response } from 'express'
-import { query } from '../config/database'
+import type { Request, Response } from 'express'
+import { getConnection, query } from '../config/database'
+import { sendNuevaSolicitudEmail, sendSolicitudResueltaEmail } from '../services/rrhhSolicitudesEmailService'
+import {
+  ESTADOS_VALIDOS,
+  SOLICITUD_SELECT,
+  TIPOS_VALIDOS,
+  enrichSolicitud,
+  hasPermission,
+  insertHistorial,
+  normalizeNumber,
+  normalizeOptionalText,
+  parseDetalles,
+  resolveSolicitudSideEffects,
+  validateSolicitudContext,
+  verificarAccesoSucursal,
+  type SolicitudEstado,
+  type SolicitudRow,
+  type SolicitudTipo,
+} from '../services/rrhhSolicitudesService'
 
-const TIPOS_VALIDOS = [
-  'Altas',
-  'Bajas',
-  'Novedades de sueldo',
-  'Incentivos y premios',
-  'Licencias',
-  'Vacaciones',
-  'Suspensiones',
-  'Apercibimientos',
-  'Capacitaciones',
-  'Pedido de uniforme',
-  'Adelantos',
-]
-const ESTADOS_VALIDOS = ['Pendiente', 'Aprobada', 'Rechazada', 'Cancelada']
-
-function normalizeOptionalText(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
+async function getSolicitudRowById(id: number): Promise<SolicitudRow | null> {
+  const rows = (await query(`${SOLICITUD_SELECT} WHERE s.id = ? AND s.deleted_at IS NULL`, [id])) as SolicitudRow[]
+  return rows[0] ?? null
 }
 
-function normalizeNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : null
+async function getSuperAdminEmails(): Promise<string[]> {
+  const rows = (await query(
+    `SELECT u.email
+     FROM usuarios u
+     INNER JOIN roles r ON r.id = u.rol_id
+     WHERE r.nombre = 'superadmin' AND u.activo = 1 AND u.deleted_at IS NULL`,
+  )) as Array<{ email: string }>
+
+  return rows.map(row => row.email).filter(Boolean)
+}
+
+async function getUserEmail(userId: number): Promise<{ email: string; nombre: string } | null> {
+  const rows = (await query(`SELECT email, nombre FROM usuarios WHERE id = ? AND activo = 1 AND deleted_at IS NULL`, [userId])) as Array<{
+    email: string
+    nombre: string
+  }>
+
+  return rows[0] ?? null
+}
+
+async function canViewGlobalSolicitudes(user: NonNullable<Request['user']>): Promise<boolean> {
+  return (await hasPermission(user, 'ver_solicitudes_todas_sucursales')) || (await hasPermission(user, 'ver_historial_solicitudes_global'))
+}
+
+async function ensureSolicitudAccess(user: NonNullable<Request['user']>, solicitud: SolicitudRow): Promise<void> {
+  const hasAccess = await verificarAccesoSucursal(user, solicitud.sucursal_id)
+  if (!hasAccess) {
+    throw new Error('NO_ACCESS')
+  }
 }
 
 export const getSolicitudes = async (req: Request, res: Response) => {
   try {
-    const { sucursal_id, personal_id, tipo, estado } = req.query
+    const user = req.user
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+    }
+
+    const { sucursal_id, personal_id, tipo, estado, fecha_desde, fecha_hasta } = req.query
     const conditions = ['s.deleted_at IS NULL']
-    const params: Array<string | number> = []
+    const params: Array<number | string> = []
 
-    if (sucursal_id) {
+    const normalizedSucursalId = normalizeNumber(sucursal_id)
+    if (normalizedSucursalId) {
+      const hasAccess = await verificarAccesoSucursal(user, normalizedSucursalId)
+      if (!hasAccess) {
+        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
+      }
       conditions.push('s.sucursal_id = ?')
-      params.push(Number(sucursal_id))
+      params.push(normalizedSucursalId)
+    } else if (!(await canViewGlobalSolicitudes(user))) {
+      conditions.push('EXISTS (SELECT 1 FROM usuarios_sucursales us WHERE us.usuario_id = ? AND us.sucursal_id = s.sucursal_id)')
+      params.push(user.id)
     }
 
-    if (personal_id) {
-      conditions.push('s.personal_id = ?')
-      params.push(Number(personal_id))
+    const normalizedPersonalId = normalizeNumber(personal_id)
+    if (normalizedPersonalId) {
+      conditions.push('COALESCE(s.personal_creado_id, s.personal_id) = ?')
+      params.push(normalizedPersonalId)
     }
 
-    if (tipo && TIPOS_VALIDOS.includes(tipo as string)) {
+    if (typeof tipo === 'string' && TIPOS_VALIDOS.includes(tipo as SolicitudTipo)) {
       conditions.push('s.tipo = ?')
-      params.push(tipo as string)
+      params.push(tipo)
     }
 
-    if (estado && ESTADOS_VALIDOS.includes(estado as string)) {
+    if (typeof estado === 'string' && ESTADOS_VALIDOS.includes(estado as SolicitudEstado)) {
       conditions.push('s.estado = ?')
-      params.push(estado as string)
+      params.push(estado)
     }
 
-    const selectSql = `
-      SELECT s.*, 
-             suc.nombre AS sucursal_nombre,
-             p.nombre AS personal_nombre, p.legajo, p.dni,
-             u.nombre AS usuario_nombre
-      FROM rrhh_solicitudes s
-      INNER JOIN sucursales suc ON s.sucursal_id = suc.id
-      LEFT JOIN personal p ON s.personal_id = p.id
-      INNER JOIN usuarios u ON s.usuario_id = u.id
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY s.fecha_solicitud DESC, s.created_at DESC
-    `
-    const result = await query(selectSql, params)
+    if (typeof fecha_desde === 'string' && fecha_desde) {
+      conditions.push('s.fecha_solicitud >= ?')
+      params.push(fecha_desde)
+    }
 
-    res.json({ success: true, data: result })
+    if (typeof fecha_hasta === 'string' && fecha_hasta) {
+      conditions.push('s.fecha_solicitud <= ?')
+      params.push(fecha_hasta)
+    }
+
+    const rows = (await query(
+      `${SOLICITUD_SELECT}
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY CASE WHEN s.estado = 'Pendiente' THEN 0 ELSE 1 END, s.fecha_solicitud DESC, s.created_at DESC`,
+      params,
+    )) as SolicitudRow[]
+
+    const enriched = await Promise.all(rows.map(enrichSolicitud))
+    res.json({ success: true, data: enriched })
   } catch (error) {
     console.error('Error al obtener solicitudes de RRHH:', error)
     res.status(500).json({ success: false, message: 'Error al obtener solicitudes' })
   }
 }
 
-export const createSolicitud = async (req: Request, res: Response) => {
+export const getSolicitudById = async (req: Request, res: Response) => {
   try {
-    const { sucursal_id, personal_id, tipo, fecha_solicitud, detalles, observaciones } = req.body
-
-    const usuario_id = req.user?.id
-    if (!usuario_id) {
+    const user = req.user
+    if (!user) {
       return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
     }
 
+    const solicitud = await getSolicitudRowById(Number(req.params.id))
+    if (!solicitud) {
+      return res.status(404).json({ success: false, message: 'Solicitud no encontrada' })
+    }
+
+    await ensureSolicitudAccess(user, solicitud)
+    res.json({ success: true, data: await enrichSolicitud(solicitud) })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'NO_ACCESS') {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
+    }
+    console.error('Error al obtener detalle de solicitud de RRHH:', error)
+    res.status(500).json({ success: false, message: 'Error al obtener el detalle de la solicitud' })
+  }
+}
+
+export const createSolicitud = async (req: Request, res: Response) => {
+  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
+
+  try {
+    const user = req.user
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+    }
+
+    const { sucursal_id, personal_id, tipo, fecha_solicitud, detalles, observaciones } = req.body
     const normalizedSucursalId = normalizeNumber(sucursal_id)
-    if (!normalizedSucursalId) return res.status(400).json({ success: false, message: 'Sucursal requerida' })
-
-    if (!tipo || !TIPOS_VALIDOS.includes(tipo)) return res.status(400).json({ success: false, message: 'Tipo de solicitud inválido' })
-
     const normalizedPersonalId = normalizeNumber(personal_id)
-    if (!fecha_solicitud) return res.status(400).json({ success: false, message: 'Fecha de solicitud requerida' })
 
-    const jsonDetalles = detalles ? JSON.stringify(detalles) : null
-    const normalizedObservaciones = normalizeOptionalText(observaciones)
+    if (!normalizedSucursalId) {
+      return res.status(400).json({ success: false, message: 'Sucursal requerida' })
+    }
 
-    const result: any = await query(
-      `INSERT INTO rrhh_solicitudes 
+    const hasAccess = await verificarAccesoSucursal(user, normalizedSucursalId)
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
+    }
+
+    if (!tipo || !TIPOS_VALIDOS.includes(tipo as SolicitudTipo)) {
+      return res.status(400).json({ success: false, message: 'Tipo de solicitud inválido' })
+    }
+
+    if (!fecha_solicitud) {
+      return res.status(400).json({ success: false, message: 'Fecha de solicitud requerida' })
+    }
+
+    connection = await getConnection()
+    await connection.beginTransaction()
+
+    const detallesNormalizados = await validateSolicitudContext(connection, {
+      tipo: tipo as SolicitudTipo,
+      sucursalId: normalizedSucursalId,
+      personalId: normalizedPersonalId,
+      detalles: parseDetalles(detalles),
+    })
+
+    const [insertResult] = await connection.execute(
+      `INSERT INTO rrhh_solicitudes
        (sucursal_id, personal_id, usuario_id, tipo, fecha_solicitud, detalles, observaciones)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [normalizedSucursalId, normalizedPersonalId, usuario_id, tipo, fecha_solicitud, jsonDetalles, normalizedObservaciones],
+      [
+        normalizedSucursalId,
+        normalizedPersonalId,
+        user.id,
+        tipo,
+        fecha_solicitud,
+        detallesNormalizados ? JSON.stringify(detallesNormalizados) : null,
+        normalizeOptionalText(observaciones),
+      ],
     )
 
-    const selectSql = `
-      SELECT s.*, 
-             suc.nombre AS sucursal_nombre,
-             p.nombre AS personal_nombre, p.legajo, p.dni,
-             u.nombre AS usuario_nombre
-      FROM rrhh_solicitudes s
-      INNER JOIN sucursales suc ON s.sucursal_id = suc.id
-      LEFT JOIN personal p ON s.personal_id = p.id
-      INNER JOIN usuarios u ON s.usuario_id = u.id
-      WHERE s.id = ?
-    `
-    const created: any = await query(selectSql, [result.insertId])
+    const solicitudId = Number((insertResult as { insertId: number }).insertId)
+    await insertHistorial(connection, solicitudId, normalizedPersonalId, user.id, 'Creada', 'Solicitud creada.')
+    await connection.commit()
+    connection.release()
+    connection = null
 
-    res.status(201).json({ success: true, data: created[0] })
+    const created = await getSolicitudRowById(solicitudId)
+    if (!created) {
+      return res.status(404).json({ success: false, message: 'Solicitud creada no encontrada' })
+    }
+
+    await sendNuevaSolicitudEmail({
+      destinatarios: await getSuperAdminEmails(),
+      sucursalNombre: created.sucursal_nombre,
+      tipo: created.tipo,
+      solicitanteNombre: created.usuario_nombre,
+      colaboradorNombre: created.personal_nombre,
+      fechaSolicitud: created.fecha_solicitud,
+    })
+
+    res.status(201).json({ success: true, data: await enrichSolicitud(created) })
   } catch (error) {
+    if (connection) await connection.rollback()
     console.error('Error al crear solicitud de RRHH:', error)
-    res.status(500).json({ success: false, message: 'Error al crear solicitud' })
+    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al crear solicitud' })
+  } finally {
+    if (connection) connection.release()
+  }
+}
+
+export const updateSolicitud = async (req: Request, res: Response) => {
+  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
+
+  try {
+    const user = req.user
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+    }
+
+    connection = await getConnection()
+    await connection.beginTransaction()
+
+    const solicitudId = Number(req.params.id)
+    const [rows] = await connection.execute<SolicitudRow[]>(
+      `${SOLICITUD_SELECT} WHERE s.id = ? AND s.deleted_at IS NULL FOR UPDATE`,
+      [solicitudId],
+    )
+    const solicitud = rows[0]
+
+    if (!solicitud) {
+      await connection.rollback()
+      return res.status(404).json({ success: false, message: 'Solicitud no encontrada' })
+    }
+
+    await ensureSolicitudAccess(user, solicitud)
+
+    if (solicitud.estado !== 'Pendiente') {
+      await connection.rollback()
+      return res.status(409).json({ success: false, message: 'Solo se pueden editar solicitudes pendientes' })
+    }
+
+    const tipo = req.body.tipo as SolicitudTipo
+    if (!tipo || !TIPOS_VALIDOS.includes(tipo)) {
+      await connection.rollback()
+      return res.status(400).json({ success: false, message: 'Tipo de solicitud inválido' })
+    }
+
+    const sucursalId = normalizeNumber(req.body.sucursal_id) ?? solicitud.sucursal_id
+    const personalId = normalizeNumber(req.body.personal_id)
+
+    if (!(await verificarAccesoSucursal(user, sucursalId))) {
+      await connection.rollback()
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
+    }
+
+    const detallesNormalizados = await validateSolicitudContext(connection, {
+      tipo,
+      sucursalId,
+      personalId,
+      detalles: parseDetalles(req.body.detalles),
+      solicitudId,
+    })
+
+    await connection.execute(
+      `UPDATE rrhh_solicitudes
+       SET sucursal_id = ?, personal_id = ?, tipo = ?, fecha_solicitud = ?, detalles = ?, observaciones = ?, updated_at = NOW()
+       WHERE id = ? AND deleted_at IS NULL`,
+      [
+        sucursalId,
+        personalId,
+        tipo,
+        req.body.fecha_solicitud,
+        detallesNormalizados ? JSON.stringify(detallesNormalizados) : null,
+        normalizeOptionalText(req.body.observaciones),
+        solicitudId,
+      ],
+    )
+
+    await insertHistorial(connection, solicitudId, personalId, user.id, 'Editada', 'Solicitud actualizada mientras seguía pendiente.')
+    await connection.commit()
+    connection.release()
+    connection = null
+
+    const updated = await getSolicitudRowById(solicitudId)
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Solicitud actualizada no encontrada' })
+    }
+
+    res.json({ success: true, data: await enrichSolicitud(updated) })
+  } catch (error) {
+    if (connection) await connection.rollback()
+    if (error instanceof Error && error.message === 'NO_ACCESS') {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
+    }
+    console.error('Error al editar solicitud de RRHH:', error)
+    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al editar solicitud' })
+  } finally {
+    if (connection) connection.release()
   }
 }
 
 export const updateEstadoSolicitud = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params
-    const { estado } = req.body
+  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
 
-    if (!estado || !ESTADOS_VALIDOS.includes(estado)) {
+  try {
+    const user = req.user
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+    }
+
+    const solicitudId = Number(req.params.id)
+    const nuevoEstado = req.body.estado as SolicitudEstado
+    const motivoResolucion = normalizeOptionalText(req.body.motivo_resolucion)
+
+    if (!nuevoEstado || !ESTADOS_VALIDOS.includes(nuevoEstado) || nuevoEstado === 'Pendiente') {
       return res.status(400).json({ success: false, message: 'Estado inválido' })
     }
 
-    const existing: any = await query('SELECT id FROM rrhh_solicitudes WHERE id = ? AND deleted_at IS NULL', [id])
-    if (!Array.isArray(existing) || existing.length === 0) {
+    if (nuevoEstado === 'Rechazada' && !motivoResolucion) {
+      return res.status(400).json({ success: false, message: 'El rechazo requiere un motivo' })
+    }
+
+    connection = await getConnection()
+    await connection.beginTransaction()
+
+    const [existingRows] = await connection.execute<SolicitudRow[]>(
+      `${SOLICITUD_SELECT} WHERE s.id = ? AND s.deleted_at IS NULL FOR UPDATE`,
+      [solicitudId],
+    )
+    const solicitud = existingRows[0]
+
+    if (!solicitud) {
+      await connection.rollback()
       return res.status(404).json({ success: false, message: 'Solicitud no encontrada' })
     }
 
-    await query(
+    await ensureSolicitudAccess(user, solicitud)
+
+    if (solicitud.estado !== 'Pendiente') {
+      await connection.rollback()
+      return res.status(409).json({ success: false, message: 'La solicitud ya fue resuelta' })
+    }
+
+    let resolvedPersonalId = solicitud.personal_id
+    let personalCreadoId = solicitud.personal_creado_id
+    let liquidacionFinalEstado = solicitud.tipo === 'Bajas' ? 'Pendiente' : 'No aplica'
+
+    if (nuevoEstado === 'Aprobada') {
+      const effects = await resolveSolicitudSideEffects(connection, solicitud, user.id)
+      resolvedPersonalId = effects.personalId
+      personalCreadoId = effects.personalCreadoId
+      liquidacionFinalEstado = effects.liquidacionFinalEstado
+    }
+
+    if (nuevoEstado === 'Rechazada') {
+      liquidacionFinalEstado = solicitud.tipo === 'Bajas' ? 'Error' : 'No aplica'
+    }
+
+    await connection.execute(
       `UPDATE rrhh_solicitudes
-       SET estado = ?, updated_at = NOW()
+       SET estado = ?, resuelto_por_usuario_id = ?, fecha_resolucion = NOW(), motivo_resolucion = ?,
+           personal_id = ?, personal_creado_id = ?, liquidacion_final_estado = ?, updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
-      [estado, id],
+      [nuevoEstado, user.id, motivoResolucion, resolvedPersonalId, personalCreadoId, liquidacionFinalEstado, solicitudId],
     )
 
-    const selectSql = `
-      SELECT s.*, 
-             suc.nombre AS sucursal_nombre,
-             p.nombre AS personal_nombre, p.legajo, p.dni,
-             u.nombre AS usuario_nombre
-      FROM rrhh_solicitudes s
-      INNER JOIN sucursales suc ON s.sucursal_id = suc.id
-      LEFT JOIN personal p ON s.personal_id = p.id
-      INNER JOIN usuarios u ON s.usuario_id = u.id
-      WHERE s.id = ?
-    `
-    const updated: any = await query(selectSql, [id])
-    
-    res.json({ success: true, data: updated[0] })
+    await insertHistorial(
+      connection,
+      solicitudId,
+      resolvedPersonalId,
+      user.id,
+      nuevoEstado === 'Aprobada' ? 'Aprobada' : 'Rechazada',
+      nuevoEstado === 'Aprobada' ? 'Solicitud aprobada.' : motivoResolucion,
+    )
+
+    await connection.commit()
+    connection.release()
+    connection = null
+
+    const updated = await getSolicitudRowById(solicitudId)
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Solicitud actualizada no encontrada' })
+    }
+
+    const creador = await getUserEmail(updated.usuario_id)
+    if (creador && (nuevoEstado === 'Aprobada' || nuevoEstado === 'Rechazada')) {
+      await sendSolicitudResueltaEmail({
+        destinatario: creador.email,
+        destinatarioNombre: creador.nombre,
+        estado: nuevoEstado,
+        tipo: updated.tipo,
+        sucursalNombre: updated.sucursal_nombre,
+        solicitanteNombre: updated.usuario_nombre,
+        revisorNombre: updated.resuelto_por_nombre ?? 'Administrador',
+        colaboradorNombre: updated.personal_nombre,
+        motivoResolucion,
+      })
+    }
+
+    res.json({ success: true, data: await enrichSolicitud(updated) })
   } catch (error) {
+    if (connection) await connection.rollback()
+    if (error instanceof Error && error.message === 'NO_ACCESS') {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
+    }
     console.error('Error al actualizar estado de la solicitud de RRHH:', error)
-    res.status(500).json({ success: false, message: 'Error al actualizar estado de la solicitud' })
+    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al actualizar la solicitud' })
+  } finally {
+    if (connection) connection.release()
+  }
+}
+
+export const cancelSolicitud = async (req: Request, res: Response) => {
+  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
+
+  try {
+    const user = req.user
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+    }
+
+    connection = await getConnection()
+    await connection.beginTransaction()
+
+    const solicitudId = Number(req.params.id)
+    const motivoCancelacion = normalizeOptionalText(req.body.motivo_resolucion) ?? 'Solicitud cancelada por el usuario.'
+    const [rows] = await connection.execute<SolicitudRow[]>(
+      `${SOLICITUD_SELECT} WHERE s.id = ? AND s.deleted_at IS NULL FOR UPDATE`,
+      [solicitudId],
+    )
+    const solicitud = rows[0]
+
+    if (!solicitud) {
+      await connection.rollback()
+      return res.status(404).json({ success: false, message: 'Solicitud no encontrada' })
+    }
+
+    await ensureSolicitudAccess(user, solicitud)
+
+    if (solicitud.estado !== 'Pendiente') {
+      await connection.rollback()
+      return res.status(409).json({ success: false, message: 'Solo se pueden cancelar solicitudes pendientes' })
+    }
+
+    await connection.execute(
+      `UPDATE rrhh_solicitudes
+       SET estado = 'Cancelada', resuelto_por_usuario_id = ?, fecha_resolucion = NOW(), motivo_resolucion = ?, updated_at = NOW()
+       WHERE id = ? AND deleted_at IS NULL`,
+      [user.id, motivoCancelacion, solicitudId],
+    )
+
+    await insertHistorial(connection, solicitudId, solicitud.personal_id, user.id, 'Cancelada', motivoCancelacion)
+    await connection.commit()
+    connection.release()
+    connection = null
+
+    const updated = await getSolicitudRowById(solicitudId)
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Solicitud cancelada no encontrada' })
+    }
+
+    res.json({ success: true, data: await enrichSolicitud(updated) })
+  } catch (error) {
+    if (connection) await connection.rollback()
+    if (error instanceof Error && error.message === 'NO_ACCESS') {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
+    }
+    console.error('Error al cancelar solicitud de RRHH:', error)
+    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al cancelar la solicitud' })
+  } finally {
+    if (connection) connection.release()
   }
 }
 
 export const deleteSolicitud = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params
+    const user = req.user
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+    }
 
-    const existing: any = await query('SELECT id FROM rrhh_solicitudes WHERE id = ? AND deleted_at IS NULL', [id])
-    if (!Array.isArray(existing) || existing.length === 0) {
+    const solicitud = await getSolicitudRowById(Number(req.params.id))
+    if (!solicitud) {
       return res.status(404).json({ success: false, message: 'Solicitud no encontrada' })
     }
 
-    await query('UPDATE rrhh_solicitudes SET deleted_at = NOW() WHERE id = ?', [id])
+    await ensureSolicitudAccess(user, solicitud)
 
+    if (solicitud.estado !== 'Pendiente') {
+      return res.status(409).json({ success: false, message: 'Solo se pueden eliminar solicitudes pendientes' })
+    }
+
+    await query(`UPDATE rrhh_solicitudes SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL`, [solicitud.id])
     res.json({ success: true, message: 'Solicitud eliminada' })
   } catch (error) {
+    if (error instanceof Error && error.message === 'NO_ACCESS') {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
+    }
     console.error('Error al eliminar solicitud de RRHH:', error)
     res.status(500).json({ success: false, message: 'Error al eliminar solicitud' })
   }
