@@ -7,6 +7,7 @@ interface BaseAlertaRow {
   legajo: string
   colaborador_nombre: string
   dni: string
+  personal_email: string | null
   sucursal_nombre: string
   sucursal_email: string | null
   puesto_nombre: string | null
@@ -34,7 +35,7 @@ function getDiasAntesVencimiento(): number {
 }
 
 function getDestinatario(row: BaseAlertaRow): string | null {
-  return process.env.EMAIL_APROBACION || row.sucursal_email || null
+  return process.env.RRHH_RESPONSABLE_EMAIL || row.sucursal_email || process.env.EMAIL_APROBACION || null
 }
 
 function formatDateForEmail(value: string): string {
@@ -48,6 +49,7 @@ async function getSegundosApercibimientosPendientes(): Promise<ApercibimientoRow
             p.legajo,
             p.nombre AS colaborador_nombre,
             p.dni,
+            p.email AS personal_email,
             s.nombre AS sucursal_nombre,
             s.email_correspondencia AS sucursal_email,
             pu.nombre AS puesto_nombre,
@@ -67,7 +69,7 @@ async function getSegundosApercibimientosPendientes(): Promise<ApercibimientoRow
        AND p.activo = 1
        AND s.deleted_at IS NULL
        AND a.id IS NULL
-     GROUP BY p.id, p.legajo, p.nombre, p.dni, s.nombre, s.email_correspondencia, pu.nombre
+     GROUP BY p.id, p.legajo, p.nombre, p.dni, p.email, s.nombre, s.email_correspondencia, pu.nombre
      HAVING COUNT(sol.id) >= 2
      ORDER BY fecha_ultimo_apercibimiento ASC`,
   )
@@ -85,6 +87,7 @@ async function getVencimientosPendientes(): Promise<VencimientoRow[]> {
             p.legajo,
             p.nombre AS colaborador_nombre,
             p.dni,
+            p.email AS personal_email,
             s.nombre AS sucursal_nombre,
             s.email_correspondencia AS sucursal_email,
             pu.nombre AS puesto_nombre,
@@ -206,7 +209,7 @@ export async function procesarAlertasSegundoApercibimiento(): Promise<void> {
     const calendarioEventoId = await crearEventoCalendarioApercibimiento(row)
 
     if (destinatario) {
-      await sendSegundoApercibimientoEmail({
+      const payload = {
         destinatario,
         colaboradorNombre: row.colaborador_nombre,
         legajo: row.legajo,
@@ -215,7 +218,11 @@ export async function procesarAlertasSegundoApercibimiento(): Promise<void> {
         puesto: row.puesto_nombre ?? '-',
         cantidadApercibimientos: Number(row.cantidad_apercibimientos),
         fechaUltimoApercibimiento: formatDateForEmail(row.fecha_ultimo_apercibimiento),
-      })
+      }
+      await sendSegundoApercibimientoEmail(payload)
+      if (row.personal_email && row.personal_email !== destinatario) {
+        await sendSegundoApercibimientoEmail({ ...payload, destinatario: row.personal_email })
+      }
     } else {
       console.error('[rrhhSolicitudesAlertService] No hay destinatario configurado para alertas de apercibimientos')
     }
@@ -233,7 +240,7 @@ export async function procesarAlertasVencimientosSolicitudes(): Promise<void> {
     const calendarioEventoId = await crearEventoCalendarioVencimiento(row)
 
     if (destinatario) {
-      await sendVencimientoRrhhEmail({
+      const payload = {
         destinatario,
         tipo: row.tipo,
         colaboradorNombre: row.colaborador_nombre,
@@ -244,7 +251,11 @@ export async function procesarAlertasVencimientosSolicitudes(): Promise<void> {
         fechaDesde: formatDateForEmail(row.fecha_desde),
         fechaVencimiento: formatDateForEmail(row.fecha_vencimiento),
         diasRestantes: Number(row.dias_restantes),
-      })
+      }
+      await sendVencimientoRrhhEmail(payload)
+      if (row.personal_email && row.personal_email !== destinatario) {
+        await sendVencimientoRrhhEmail({ ...payload, destinatario: row.personal_email })
+      }
     } else {
       console.error('[rrhhSolicitudesAlertService] No hay destinatario configurado para alertas de vencimientos RRHH')
     }

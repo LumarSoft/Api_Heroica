@@ -40,6 +40,7 @@ export interface SolicitudRow extends RowDataPacket {
   personal_id: number | null
   personal_creado_id: number | null
   personal_nombre: string | null
+  personal_email: string | null
   legajo: string | null
   dni: string | null
   usuario_id: number
@@ -66,6 +67,7 @@ interface AuthUser {
 interface AltaDetalles {
   nombre: string
   dni: string
+  email?: string | null
   puesto_id: number
   fecha_incorporacion: string
   periodo_prueba?: boolean
@@ -164,6 +166,17 @@ function isPositiveNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().toLowerCase()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function isValidEmail(value: string | null): boolean {
+  if (!value) return true
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
 export async function isSuperAdmin(user: AuthUser): Promise<boolean> {
   const rolResult = (await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])) as Array<{ nombre: string }>
   return Array.isArray(rolResult) && rolResult.length > 0 && rolResult[0].nombre === 'superadmin'
@@ -244,6 +257,10 @@ export async function validateSolicitudContext(
     if (!isValidDateString(altaDetalles.fecha_incorporacion)) {
       throw new Error('La fecha de incorporación de la alta es inválida')
     }
+    const email = normalizeEmail(altaDetalles.email)
+    if (!isValidEmail(email)) {
+      throw new Error('El email del colaborador no tiene un formato válido')
+    }
     const periodoPrueba = Boolean(altaDetalles.periodo_prueba)
     const periodoPruebaDiasValue = Number(altaDetalles.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 90)
     if (periodoPrueba && (!Number.isFinite(periodoPruebaDiasValue) || periodoPruebaDiasValue <= 0)) {
@@ -255,6 +272,7 @@ export async function validateSolicitudContext(
     return {
       nombre: String(altaDetalles.nombre).trim(),
       dni: String(altaDetalles.dni).trim(),
+      email,
       puesto_id: Number(altaDetalles.puesto_id),
       fecha_incorporacion: altaDetalles.fecha_incorporacion,
       periodo_prueba: periodoPrueba,
@@ -485,12 +503,13 @@ export async function resolveSolicitudSideEffects(
 
     const [insertResult] = await connection.execute(
       `INSERT INTO personal
-       (legajo, nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (legajo, nombre, dni, email, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
         detalles.nombre.trim(),
         detalles.dni.trim(),
+        detalles.email ?? null,
         detalles.puesto_id,
         solicitud.sucursal_id,
         detalles.fecha_incorporacion,
@@ -545,6 +564,7 @@ export const SOLICITUD_SELECT = `
   SELECT s.*,
          suc.nombre AS sucursal_nombre,
          p.nombre AS personal_nombre,
+         p.email AS personal_email,
          p.legajo,
          p.dni,
          u.nombre AS usuario_nombre,

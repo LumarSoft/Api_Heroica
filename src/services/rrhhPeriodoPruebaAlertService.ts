@@ -7,6 +7,7 @@ interface PersonalPeriodoPruebaRow {
   legajo: string
   nombre: string
   dni: string
+  email: string | null
   fecha_incorporacion: string
   fecha_vencimiento: string
   dias_restantes: number
@@ -23,7 +24,7 @@ function getDiasAntesAlerta(): number {
 }
 
 function getDestinatario(row: PersonalPeriodoPruebaRow): string | null {
-  return process.env.EMAIL_APROBACION || row.sucursal_email || null
+  return process.env.RRHH_RESPONSABLE_EMAIL || row.sucursal_email || process.env.EMAIL_APROBACION || null
 }
 
 function formatDateForEmail(value: string): string {
@@ -35,7 +36,7 @@ async function getColaboradoresConPeriodoPorVencer(): Promise<PersonalPeriodoPru
   const diasAntes = getDiasAntesAlerta()
 
   const rows = await query(
-    `SELECT p.id, p.legajo, p.nombre, p.dni,
+    `SELECT p.id, p.legajo, p.nombre, p.dni, p.email,
             DATE_FORMAT(p.fecha_incorporacion, '%Y-%m-%d') AS fecha_incorporacion,
             DATE_FORMAT(DATE_ADD(p.fecha_incorporacion, INTERVAL p.periodo_prueba_dias DAY), '%Y-%m-%d') AS fecha_vencimiento,
             DATEDIFF(DATE_ADD(p.fecha_incorporacion, INTERVAL p.periodo_prueba_dias DAY), CURDATE()) AS dias_restantes,
@@ -118,7 +119,7 @@ export async function procesarAlertasPeriodoPrueba(): Promise<void> {
     const calendarioEventoId = await crearEventoCalendario(row)
 
     if (destinatario) {
-      await sendPeriodoPruebaPorVencerEmail({
+      const payload = {
         destinatario,
         colaboradorNombre: row.nombre,
         legajo: row.legajo,
@@ -128,7 +129,11 @@ export async function procesarAlertasPeriodoPrueba(): Promise<void> {
         fechaIncorporacion: formatDateForEmail(row.fecha_incorporacion),
         fechaVencimiento: formatDateForEmail(row.fecha_vencimiento),
         diasRestantes: Number(row.dias_restantes),
-      })
+      }
+      await sendPeriodoPruebaPorVencerEmail(payload)
+      if (row.email && row.email !== destinatario) {
+        await sendPeriodoPruebaPorVencerEmail({ ...payload, destinatario: row.email })
+      }
     } else {
       console.error('[rrhhPeriodoPruebaAlertService] No hay destinatario configurado para alertas de período de prueba')
     }
