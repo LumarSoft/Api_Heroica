@@ -66,6 +66,8 @@ interface AltaDetalles {
   dni: string
   puesto_id: number
   fecha_incorporacion: string
+  periodo_prueba?: boolean
+  periodo_prueba_dias?: number | null
   carnet_manipulacion_alimentos: boolean
 }
 
@@ -227,6 +229,12 @@ export async function validateSolicitudContext(
     if (!isValidDateString(altaDetalles.fecha_incorporacion)) {
       throw new Error('La fecha de incorporación de la alta es inválida')
     }
+    const periodoPrueba = Boolean(altaDetalles.periodo_prueba)
+    const periodoPruebaDiasValue = Number(altaDetalles.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 90)
+    if (periodoPrueba && (!Number.isFinite(periodoPruebaDiasValue) || periodoPruebaDiasValue <= 0)) {
+      throw new Error('La duración del período de prueba debe ser mayor a cero')
+    }
+    const periodoPruebaDias = periodoPrueba ? periodoPruebaDiasValue : null
     await validarPuesto(connection, context.sucursalId, Number(altaDetalles.puesto_id))
 
     return {
@@ -234,6 +242,8 @@ export async function validateSolicitudContext(
       dni: String(altaDetalles.dni).trim(),
       puesto_id: Number(altaDetalles.puesto_id),
       fecha_incorporacion: altaDetalles.fecha_incorporacion,
+      periodo_prueba: periodoPrueba,
+      periodo_prueba_dias: periodoPruebaDias,
       carnet_manipulacion_alimentos: Boolean(altaDetalles.carnet_manipulacion_alimentos),
     }
   }
@@ -414,8 +424,9 @@ export async function resolveSolicitudSideEffects(
     const nuevoLegajo = String(maxNum + 1).padStart(6, '0')
 
     const [insertResult] = await connection.execute(
-      `INSERT INTO personal (legajo, nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, carnet_manipulacion_alimentos)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO personal
+       (legajo, nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
         detalles.nombre.trim(),
@@ -423,6 +434,8 @@ export async function resolveSolicitudSideEffects(
         detalles.puesto_id,
         solicitud.sucursal_id,
         detalles.fecha_incorporacion,
+        detalles.periodo_prueba ? 1 : 0,
+        detalles.periodo_prueba ? detalles.periodo_prueba_dias ?? null : null,
         detalles.carnet_manipulacion_alimentos ? 1 : 0,
       ],
     )
