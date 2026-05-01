@@ -6,9 +6,9 @@ const router = Router()
 
 router.use(requireAuth)
 
-router.get('/', getEscalas)
-router.post('/', requirePermission('gestionar_roles'), createEscala)
-router.put('/:id', requirePermission('gestionar_roles'), updateEscala)
-router.delete('/:id', requirePermission('gestionar_roles'), deleteEscala)
+router.get('/', requirePermission('ver_escalas'), getEscalas)
+router.post('/', requirePermission('gestionar_escalas'), createEscala)
+router.put('/:id', requirePermission('gestionar_escalas'), updateEscala)
+router.delete('/:id', requirePermission('gestionar_escalas'), deleteEscala)
 
 export default router
