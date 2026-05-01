@@ -33,7 +33,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
     }
 
     // Todos los colaboradores activos con su sueldo vigente al período solicitado
-    const personalRows: any[] = await query(
+    const personalRows = (await query(
       `SELECT
          p.id,
          p.nombre,
@@ -41,6 +41,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
          COALESCE(p.forma_cobro, 'banco') AS forma_cobro,
          pu.id      AS puesto_id,
          pu.nombre  AS puesto,
+         COALESCE(notas.comentarios_count, 0) AS comentarios_count,
          COALESCE(
            (SELECT es.sueldo_base
             FROM   escalas_salariales es
@@ -53,17 +54,23 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
          ) AS sueldo_base
        FROM  personal p
        JOIN  puestos pu ON pu.id = p.puesto_id AND pu.deleted_at IS NULL
+       LEFT JOIN (
+         SELECT personal_id, COUNT(*) AS comentarios_count
+         FROM personal_notas
+         WHERE deleted_at IS NULL
+         GROUP BY personal_id
+       ) notas ON notas.personal_id = p.id
        WHERE p.sucursal_id = ?
          AND p.activo      = 1
          AND p.deleted_at IS NULL
        ORDER BY p.nombre ASC`,
       [anio, anio, mes, sucursalId],
-    )
+    )) as any[]
 
     const conSueldo = personalRows.filter(p => Number(p.sueldo_base) > 0)
 
     // Liquidaciones finales del período
-    const liquidacionesRows: any[] = await query(
+    const liquidacionesRows = (await query(
       `SELECT
          rs.id,
          p.nombre,
@@ -84,7 +91,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
          AND YEAR(rs.fecha_solicitud)  = ?
        ORDER BY rs.fecha_solicitud DESC`,
       [sucursalId, mes, anio],
-    )
+    )) as any[]
 
     // ── Aggregation ─────────────────────────────────────────────────────────
 
@@ -106,6 +113,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
         masa_salarial: number
       }
     >()
+
     for (const p of conSueldo) {
       if (!puestoMap.has(p.puesto_id)) {
         puestoMap.set(p.puesto_id, { puesto_id: p.puesto_id, puesto: p.puesto, colaboradores: 0, masa_salarial: 0 })
@@ -118,6 +126,27 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
     const porPuesto = [...puestoMap.values()]
       .map(e => ({ ...e, sueldo_promedio: e.colaboradores > 0 ? Math.round(e.masa_salarial / e.colaboradores) : 0 }))
       .sort((a, b) => b.masa_salarial - a.masa_salarial)
+
+    const tablaMensual = conSueldo.map(p => {
+      const sueldoBase = Number(p.sueldo_base)
+      const banco = p.forma_cobro === 'efectivo' ? 0 : sueldoBase
+      const efectivo = p.forma_cobro === 'efectivo' ? sueldoBase : 0
+
+      return {
+        personal_id: p.id,
+        nombre: p.nombre,
+        legajo: p.legajo,
+        puesto: p.puesto,
+        escala: sueldoBase,
+        banco,
+        efectivo,
+        comentarios_count: Number(p.comentarios_count) || 0,
+        tiene_comentarios: Number(p.comentarios_count) > 0,
+        fa: '',
+        fb: '',
+        forma_cobro: p.forma_cobro,
+      }
+    })
 
     res.json({
       success: true,
@@ -136,6 +165,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
           colaboradores_efectivo: colaboradoresEfectivo,
         },
         por_puesto: porPuesto,
+        tabla_mensual: tablaMensual,
         liquidaciones: liquidacionesRows.map(l => ({
           ...l,
           detalles: typeof l.detalles === 'string' ? JSON.parse(l.detalles) : (l.detalles ?? {}),
