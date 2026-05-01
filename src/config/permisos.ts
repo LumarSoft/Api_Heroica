@@ -210,6 +210,13 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
 
+  // ── MÓDULO: RRHH - SUELDOS ──────────────────────────────────────────────
+  {
+    clave: 'ver_sueldos',
+    descripcion: 'Ver el panel de sueldos y liquidaciones del período',
+    categoria: 'Recursos Humanos',
+  },
+
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
   // Al agregar un nuevo módulo, copiá el bloque de abajo y completalo:
   //
