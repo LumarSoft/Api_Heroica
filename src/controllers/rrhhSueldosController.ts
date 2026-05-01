@@ -69,28 +69,42 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
 
     const conSueldo = personalRows.filter(p => Number(p.sueldo_base) > 0)
 
-    // Liquidaciones finales del período
+    // Liquidaciones finales generadas desde solicitudes de baja aprobadas.
     const liquidacionesRows = (await query(
       `SELECT
-         rs.id,
+         lf.id,
+         lf.solicitud_id,
+         lf.personal_id,
          p.nombre,
          p.legajo,
          pu.nombre          AS puesto,
          rs.fecha_solicitud,
-         rs.estado,
-         rs.detalles
-       FROM  rrhh_solicitudes rs
-       JOIN  personal p
-         ON  p.id = COALESCE(rs.personal_id, rs.personal_creado_id)
-         AND p.deleted_at IS NULL
-       JOIN  puestos pu ON pu.id = p.puesto_id AND pu.deleted_at IS NULL
-       WHERE rs.tipo       = 'Liquidación Final'
+         rs.estado          AS solicitud_estado,
+         lf.estado,
+         lf.detalle,
+         rs.detalles,
+         COALESCE(
+           (SELECT es.sueldo_base
+            FROM   escalas_salariales es
+            WHERE  es.puesto_id   = p.puesto_id
+              AND  es.deleted_at IS NULL
+              AND  (es.anio < ? OR (es.anio = ? AND es.mes <= ?))
+            ORDER  BY es.anio DESC, es.mes DESC
+            LIMIT  1),
+           0
+         ) AS sueldo_base
+       FROM  rrhh_liquidaciones_finales lf
+       JOIN  rrhh_solicitudes rs
+         ON  rs.id = lf.solicitud_id
          AND rs.deleted_at IS NULL
-         AND p.sucursal_id = ?
-         AND MONTH(rs.fecha_solicitud) = ?
-         AND YEAR(rs.fecha_solicitud)  = ?
-       ORDER BY rs.fecha_solicitud DESC`,
-      [sucursalId, mes, anio],
+       JOIN  personal p ON p.id = lf.personal_id AND p.deleted_at IS NULL
+       JOIN  puestos pu ON pu.id = p.puesto_id AND pu.deleted_at IS NULL
+       WHERE rs.tipo        = 'Bajas'
+         AND rs.sucursal_id = ?
+         AND MONTH(lf.created_at) = ?
+         AND YEAR(lf.created_at)  = ?
+       ORDER BY lf.created_at DESC`,
+      [anio, anio, mes, sucursalId, mes, anio],
     )) as any[]
 
     // ── Aggregation ─────────────────────────────────────────────────────────
@@ -168,6 +182,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
         tabla_mensual: tablaMensual,
         liquidaciones: liquidacionesRows.map(l => ({
           ...l,
+          sueldo_base: Number(l.sueldo_base) || 0,
           detalles: typeof l.detalles === 'string' ? JSON.parse(l.detalles) : (l.detalles ?? {}),
         })),
         colaboradores: personalRows.map(p => ({
