@@ -24,6 +24,7 @@ import { syncPermisos } from './config/permisos'
 import { startDbSyncCron } from './services/dbSyncService'
 import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
 import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
+import { startEscalasAlertCron } from './services/escalasAlertService'
 
 // Cargar variables de entorno
 dotenv.config()
@@ -148,6 +149,7 @@ app.listen(PORT, async () => {
   startDbSyncCron()
   startPeriodoPruebaAlertCron()
   startSolicitudesRrhhAlertCron()
+  startEscalasAlertCron()
 })
 
 export default app

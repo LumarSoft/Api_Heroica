@@ -316,6 +316,84 @@ function vencimientoRrhhHtml(data: VencimientoRrhhEmailData): string {
   return baseLayout(`Vencimiento de ${data.tipo.toLowerCase()} — Heroica`, content)
 }
 
+// ── Escalas salariales desactualizadas ────────────────────────────────────────
+
+const MESES_ES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+]
+
+interface EscalaItemEmail {
+  puestoNombre: string
+  sucursal: string
+  mes: number
+  anio: number
+  sueldoBase: string
+  ultimaActualizacion: string
+  mesesSinActualizar: number
+}
+
+export interface EscalasDesactualizadasEmailData {
+  destinatario: string
+  mesesUmbral: number
+  escalas: EscalaItemEmail[]
+}
+
+function escalasDesactualizadasHtml(data: EscalasDesactualizadasEmailData): string {
+  const filas = data.escalas
+    .map(
+      e => `
+    <tr style="border-top:1px solid #e5e7eb;">
+      <td style="padding:10px 12px;font-size:13px;color:#111827;">${e.puestoNombre}</td>
+      <td style="padding:10px 12px;font-size:13px;color:#374151;">${e.sucursal}</td>
+      <td style="padding:10px 12px;font-size:13px;color:#374151;">${MESES_ES[e.mes - 1]} ${e.anio}</td>
+      <td style="padding:10px 12px;font-size:13px;color:#374151;">$ ${e.sueldoBase}</td>
+      <td style="padding:10px 12px;font-size:13px;color:#374151;">${e.ultimaActualizacion}</td>
+      <td style="padding:10px 12px;text-align:center;">${badge(`${e.mesesSinActualizar} mes${e.mesesSinActualizar !== 1 ? 'es' : ''}`, e.mesesSinActualizar >= 6 ? '#dc2626' : '#d97706')}</td>
+    </tr>`,
+    )
+    .join('')
+
+  const content = `
+    <h2 style="margin:0 0 8px;color:#111827;font-size:20px;font-weight:700;">Escalas salariales desactualizadas ${badge('RRHH', '#d97706')}</h2>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">
+      Las siguientes escalas salariales llevan más de <strong>${data.mesesUmbral} meses</strong> sin actualizarse.
+      Por favor, revisá y actualizá los valores correspondientes.
+    </p>
+
+    <div style="overflow-x:auto;margin-bottom:24px;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+        <thead>
+          <tr style="background:#f9fafb;">
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Puesto</th>
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Sucursal</th>
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Período</th>
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Sueldo base</th>
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Últ. actualización</th>
+            <th style="padding:10px 12px;text-align:center;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Atraso</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+
+    <div style="background:#fffbeb;border-left:4px solid #d97706;border-radius:0 6px 6px 0;padding:14px 18px;margin-bottom:24px;">
+      <p style="margin:0;color:#92400e;font-size:14px;">Ingresá al sistema para actualizar las escalas salariales y mantener la información al día.</p>
+    </div>
+  `
+  return baseLayout('Escalas salariales desactualizadas — Heroica', content)
+}
+
 // ─── Funciones públicas de envío ──────────────────────────────────────────────
 
 export async function sendTareaNotificacionEmail(data: TareaEmailData): Promise<void> {
@@ -427,5 +505,23 @@ export async function sendVencimientoRrhhEmail(data: VencimientoRrhhEmailData): 
     })
   } catch (err) {
     console.error('[emailService] Error enviando alerta de vencimiento RRHH:', err)
+  }
+}
+
+export async function sendEscalasDesactualizadasEmail(data: EscalasDesactualizadasEmailData): Promise<void> {
+  if (!process.env.RESEND_API_KEY) {
+    console.error('[emailService] RESEND_API_KEY no está definido; no se envía alerta de escalas desactualizadas')
+    return
+  }
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: data.destinatario,
+      subject: `[Heroica] ${data.escalas.length} escala${data.escalas.length !== 1 ? 's' : ''} salarial${data.escalas.length !== 1 ? 'es' : ''} sin actualizar hace más de ${data.mesesUmbral} meses`,
+      html: escalasDesactualizadasHtml(data),
+    })
+  } catch (err) {
+    console.error('[emailService] Error enviando alerta de escalas desactualizadas:', err)
   }
 }
