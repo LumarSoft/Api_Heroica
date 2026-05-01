@@ -103,6 +103,52 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Configuración',
   },
 
+  // ── MÓDULO: RRHH - LEGAJOS / PERSONAL ───────────────────────────────────
+  {
+    clave: 'ver_personal',
+    descripcion: 'Ver el listado de colaboradores y sus legajos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'crear_personal',
+    descripcion: 'Agregar nuevos colaboradores al sistema',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_personal',
+    descripcion: 'Editar datos personales y profesionales de colaboradores',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'eliminar_personal',
+    descripcion: 'Eliminar colaboradores del sistema',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - PUESTOS ──────────────────────────────────────────────
+  {
+    clave: 'ver_puestos',
+    descripcion: 'Ver puestos de trabajo disponibles',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_puestos',
+    descripcion: 'Crear, editar y eliminar puestos de trabajo',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - ESCALAS SALARIALES ───────────────────────────────────
+  {
+    clave: 'ver_escalas',
+    descripcion: 'Ver escalas salariales',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_escalas',
+    descripcion: 'Crear, editar y eliminar escalas salariales',
+    categoria: 'Recursos Humanos',
+  },
+
   // ── MÓDULO: RRHH - INCENTIVOS Y PREMIOS ─────────────────────────────────
   {
     clave: 'ver_incentivos',
@@ -115,10 +161,15 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
 
-  // ── MÓDULO: RRHH - LEGAJOS / PERSONAL ───────────────────────────────────
+  // ── MÓDULO: RRHH - CALENDARIO ────────────────────────────────────────────
   {
-    clave: 'gestionar_personal',
-    descripcion: 'Editar datos personales de colaboradores (legajos)',
+    clave: 'ver_calendario',
+    descripcion: 'Ver el calendario de eventos de RRHH',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_calendario',
+    descripcion: 'Crear, editar y eliminar eventos del calendario de RRHH',
     categoria: 'Recursos Humanos',
   },
 
@@ -150,7 +201,7 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
   },
   {
     clave: 'ver_historial_solicitudes_global',
-    descripcion: 'Ver historial global de solicitudes de Recursos Humanos',
+    descripcion: 'Ver historial global de solicitudes de todas las sucursales',
     categoria: 'Recursos Humanos',
   },
   {

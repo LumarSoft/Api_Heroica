@@ -5,15 +5,15 @@ import {
   getEventosCalendario,
   updateEventoCalendario,
 } from '../controllers/rrhhCalendarioController'
-import { requireAuth } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
 
-router.get('/', getEventosCalendario)
-router.post('/', createEventoCalendario)
-router.put('/:id', updateEventoCalendario)
-router.delete('/:id', deleteEventoCalendario)
+router.get('/', requirePermission('ver_calendario'), getEventosCalendario)
+router.post('/', requirePermission('gestionar_calendario'), createEventoCalendario)
+router.put('/:id', requirePermission('gestionar_calendario'), updateEventoCalendario)
+router.delete('/:id', requirePermission('gestionar_calendario'), deleteEventoCalendario)
 
 export default router
