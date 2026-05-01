@@ -22,6 +22,7 @@ import personalRoutes from './routes/personalRoutes'
 import puestosRoutes from './routes/puestosRoutes'
 import { syncPermisos } from './config/permisos'
 import { startDbSyncCron } from './services/dbSyncService'
+import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
 
 // Cargar variables de entorno
 dotenv.config()
@@ -144,6 +145,7 @@ app.listen(PORT, async () => {
 
   // Iniciar tareas programadas
   startDbSyncCron()
+  startPeriodoPruebaAlertCron()
 })
 
 export default app

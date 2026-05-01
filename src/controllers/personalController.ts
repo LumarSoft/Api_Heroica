@@ -8,14 +8,14 @@ export const getPersonal = async (req: Request, res: Response) => {
 
     const sql = sucursalId
       ? `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-                p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+                p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
                 p.activo, p.created_at, p.updated_at
          FROM personal p
          LEFT JOIN puestos pu ON pu.id = p.puesto_id
          WHERE p.deleted_at IS NULL AND p.sucursal_id = ${sucursalId}
          ORDER BY p.legajo ASC`
       : `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-                p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+                p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
                 p.activo, p.created_at, p.updated_at
          FROM personal p
          LEFT JOIN puestos pu ON pu.id = p.puesto_id
@@ -36,7 +36,7 @@ export const getPersonalById = async (req: Request, res: Response) => {
     const { id } = req.params
     const result: any = await query(
       `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+              p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
               p.activo, p.created_at, p.updated_at
        FROM personal p
        LEFT JOIN puestos pu ON pu.id = p.puesto_id
@@ -57,7 +57,7 @@ export const getPersonalById = async (req: Request, res: Response) => {
 export const createPersonal = async (req: Request, res: Response) => {
   let connection: Awaited<ReturnType<typeof getConnection>> | null = null
   try {
-    const { nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, carnet_manipulacion_alimentos } = req.body
+    const { nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos } = req.body
 
     if (!nombre || !dni || !puesto_id || !sucursal_id || !fecha_incorporacion) {
       return res.status(400).json({
@@ -90,8 +90,8 @@ export const createPersonal = async (req: Request, res: Response) => {
     const nuevoLegajo = String(maxNum + 1).padStart(6, '0')
 
     const [result]: any = await connection.execute(
-      `INSERT INTO personal (legajo, nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, carnet_manipulacion_alimentos)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO personal (legajo, nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
         nombre.trim(),
@@ -99,13 +99,15 @@ export const createPersonal = async (req: Request, res: Response) => {
         puesto_id,
         sucursal_id,
         fecha_incorporacion,
+        periodo_prueba ? 1 : 0,
+        periodo_prueba ? Number(periodo_prueba_dias ?? 90) : null,
         carnet_manipulacion_alimentos ? 1 : 0,
       ],
     )
 
     const [newRow]: any = await connection.execute(
       `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+              p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
               p.activo, p.created_at, p.updated_at
        FROM personal p
        LEFT JOIN puestos pu ON pu.id = p.puesto_id
@@ -129,7 +131,7 @@ export const updatePersonal = async (req: Request, res: Response) => {
   let connection: Awaited<ReturnType<typeof getConnection>> | null = null
   try {
     const { id } = req.params
-    const { nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, carnet_manipulacion_alimentos, activo } = req.body
+    const { nombre, dni, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos, activo } = req.body
 
     if (!nombre || !dni || !puesto_id || !sucursal_id || !fecha_incorporacion) {
       return res.status(400).json({
@@ -163,7 +165,7 @@ export const updatePersonal = async (req: Request, res: Response) => {
     await connection.execute(
       `UPDATE personal
        SET nombre = ?, dni = ?, puesto_id = ?, sucursal_id = ?, fecha_incorporacion = ?,
-           carnet_manipulacion_alimentos = ?, activo = ?
+           periodo_prueba = ?, periodo_prueba_dias = ?, carnet_manipulacion_alimentos = ?, activo = ?
        WHERE id = ?`,
       [
         nombre.trim(),
@@ -171,6 +173,8 @@ export const updatePersonal = async (req: Request, res: Response) => {
         puesto_id,
         sucursal_id,
         fecha_incorporacion,
+        periodo_prueba ? 1 : 0,
+        periodo_prueba ? Number(periodo_prueba_dias ?? 90) : null,
         carnet_manipulacion_alimentos ? 1 : 0,
         activo !== undefined ? (activo ? 1 : 0) : 1,
         id,
@@ -179,7 +183,7 @@ export const updatePersonal = async (req: Request, res: Response) => {
 
     const [updated]: any = await connection.execute(
       `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-              p.sucursal_id, p.fecha_incorporacion, p.carnet_manipulacion_alimentos,
+              p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
               p.activo, p.created_at, p.updated_at
        FROM personal p
        LEFT JOIN puestos pu ON pu.id = p.puesto_id
