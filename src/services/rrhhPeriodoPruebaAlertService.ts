@@ -23,12 +23,7 @@ function getDiasAntesAlerta(): number {
 }
 
 function getDestinatario(row: PersonalPeriodoPruebaRow): string | null {
-  return (
-    process.env.RRHH_RESPONSABLE_EMAIL ||
-    row.sucursal_email ||
-    process.env.EMAIL_APROBACION ||
-    null
-  )
+  return process.env.EMAIL_APROBACION || row.sucursal_email || null
 }
 
 function formatDateForEmail(value: string): string {

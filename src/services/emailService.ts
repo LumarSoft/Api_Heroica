@@ -218,6 +218,30 @@ interface PeriodoPruebaEmailData {
   diasRestantes: number
 }
 
+interface SegundoApercibimientoEmailData {
+  destinatario: string
+  colaboradorNombre: string
+  legajo: string
+  dni: string
+  sucursal: string
+  puesto: string
+  cantidadApercibimientos: number
+  fechaUltimoApercibimiento: string
+}
+
+interface VencimientoRrhhEmailData {
+  destinatario: string
+  tipo: 'Licencias' | 'Vacaciones'
+  colaboradorNombre: string
+  legajo: string
+  dni: string
+  sucursal: string
+  puesto: string
+  fechaDesde: string
+  fechaVencimiento: string
+  diasRestantes: number
+}
+
 function periodoPruebaPorVencerHtml(data: PeriodoPruebaEmailData): string {
   const content = `
     <h2 style="margin:0 0 8px;color:#111827;font-size:20px;font-weight:700;">Período de prueba por vencer ${badge('RRHH', '#d97706')}</h2>
@@ -241,6 +265,55 @@ function periodoPruebaPorVencerHtml(data: PeriodoPruebaEmailData): string {
     </div>
   `
   return baseLayout('Período de prueba por vencer — Heroica', content)
+}
+
+function segundoApercibimientoHtml(data: SegundoApercibimientoEmailData): string {
+  const content = `
+    <h2 style="margin:0 0 8px;color:#111827;font-size:20px;font-weight:700;">Segundo apercibimiento registrado ${badge('Preventivo', '#dc2626')}</h2>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">Un colaborador acumuló su segundo apercibimiento. Esta alerta es preventiva para seguimiento de RRHH.</p>
+
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;margin-bottom:24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        ${detailRow('Colaborador', data.colaboradorNombre)}
+        ${detailRow('Legajo', data.legajo)}
+        ${detailRow('DNI', data.dni)}
+        ${detailRow('Sucursal', data.sucursal)}
+        ${detailRow('Puesto', data.puesto)}
+        ${detailRow('Apercibimientos', String(data.cantidadApercibimientos))}
+        ${detailRow('Último apercibimiento', data.fechaUltimoApercibimiento)}
+      </table>
+    </div>
+
+    <div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 6px 6px 0;padding:14px 18px;margin-bottom:24px;">
+      <p style="margin:0;color:#991b1b;font-size:14px;">Ingresá a la plataforma para revisar el historial del colaborador.</p>
+    </div>
+  `
+  return baseLayout('Segundo apercibimiento — Heroica', content)
+}
+
+function vencimientoRrhhHtml(data: VencimientoRrhhEmailData): string {
+  const content = `
+    <h2 style="margin:0 0 8px;color:#111827;font-size:20px;font-weight:700;">Vencimiento de ${data.tipo.toLowerCase()} ${badge('RRHH', '#d97706')}</h2>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">Hay una solicitud de ${data.tipo.toLowerCase()} próxima a finalizar.</p>
+
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;margin-bottom:24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        ${detailRow('Colaborador', data.colaboradorNombre)}
+        ${detailRow('Legajo', data.legajo)}
+        ${detailRow('DNI', data.dni)}
+        ${detailRow('Sucursal', data.sucursal)}
+        ${detailRow('Puesto', data.puesto)}
+        ${detailRow('Desde', data.fechaDesde)}
+        ${detailRow('Vencimiento', data.fechaVencimiento)}
+        ${detailRow('Días restantes', String(data.diasRestantes))}
+      </table>
+    </div>
+
+    <div style="background:#fffbeb;border-left:4px solid #d97706;border-radius:0 6px 6px 0;padding:14px 18px;margin-bottom:24px;">
+      <p style="margin:0;color:#92400e;font-size:14px;">Ingresá a la plataforma para coordinar el seguimiento correspondiente.</p>
+    </div>
+  `
+  return baseLayout(`Vencimiento de ${data.tipo.toLowerCase()} — Heroica`, content)
 }
 
 // ─── Funciones públicas de envío ──────────────────────────────────────────────
@@ -318,5 +391,41 @@ export async function sendPeriodoPruebaPorVencerEmail(data: PeriodoPruebaEmailDa
     })
   } catch (err) {
     console.error('[emailService] Error enviando alerta de período de prueba:', err)
+  }
+}
+
+export async function sendSegundoApercibimientoEmail(data: SegundoApercibimientoEmailData): Promise<void> {
+  if (!process.env.RESEND_API_KEY) {
+    console.error('[emailService] RESEND_API_KEY no está definido; no se envía alerta de apercibimientos')
+    return
+  }
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: data.destinatario,
+      subject: `[Heroica] Segundo apercibimiento — ${data.colaboradorNombre}`,
+      html: segundoApercibimientoHtml(data),
+    })
+  } catch (err) {
+    console.error('[emailService] Error enviando alerta de apercibimientos:', err)
+  }
+}
+
+export async function sendVencimientoRrhhEmail(data: VencimientoRrhhEmailData): Promise<void> {
+  if (!process.env.RESEND_API_KEY) {
+    console.error('[emailService] RESEND_API_KEY no está definido; no se envía alerta de vencimiento RRHH')
+    return
+  }
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: data.destinatario,
+      subject: `[Heroica] Vencimiento de ${data.tipo.toLowerCase()} — ${data.colaboradorNombre}`,
+      html: vencimientoRrhhHtml(data),
+    })
+  } catch (err) {
+    console.error('[emailService] Error enviando alerta de vencimiento RRHH:', err)
   }
 }
