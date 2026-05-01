@@ -24,6 +24,30 @@ interface SolicitudResueltaEmailData {
   motivoResolucion?: string | null
 }
 
+interface SolicitudEventoEmailData {
+  destinatarios: string[]
+  titulo: string
+  descripcion: string
+  tipo: string
+  sucursalNombre: string
+  solicitanteNombre: string
+  colaboradorNombre?: string | null
+  actorNombre?: string | null
+  estado?: string | null
+  motivo?: string | null
+}
+
+interface SolicitudColaboradorEmailData {
+  destinatario: string
+  colaboradorNombre: string
+  estado: 'Creada' | 'Editada' | 'Aprobada' | 'Rechazada' | 'Cancelada' | 'Eliminada'
+  tipo: string
+  sucursalNombre: string
+  solicitanteNombre: string
+  revisorNombre?: string | null
+  motivoResolucion?: string | null
+}
+
 function layout(title: string, content: string): string {
   return `<!DOCTYPE html>
 <html lang="es">
@@ -93,6 +117,63 @@ function solicitudResueltaHtml(data: SolicitudResueltaEmailData): string {
   return layout(`Solicitud ${data.estado} — Heroica`, content)
 }
 
+function solicitudEventoHtml(data: SolicitudEventoEmailData): string {
+  const motivo = data.motivo
+    ? `<tr><td style="padding:6px 0;color:#6b7280;font-size:13px;width:160px;">Motivo</td><td style="padding:6px 0;color:#111827;font-size:13px;font-weight:500;">${data.motivo}</td></tr>`
+    : ''
+
+  const content = `
+    <h2 style="margin:0 0 8px;color:#111827;font-size:20px;font-weight:700;">${data.titulo}</h2>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">${data.descripcion}</p>
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        ${data.estado ? detailRow('Estado', data.estado) : ''}
+        ${detailRow('Tipo', data.tipo)}
+        ${detailRow('Sucursal', data.sucursalNombre)}
+        ${detailRow('Solicitante', data.solicitanteNombre)}
+        ${data.actorNombre ? detailRow('Acción realizada por', data.actorNombre) : ''}
+        ${detailRow('Colaborador', data.colaboradorNombre ?? 'General / Sin asignar')}
+        ${motivo}
+      </table>
+    </div>
+  `
+  return layout(`${data.titulo} — Heroica`, content)
+}
+
+function solicitudColaboradorHtml(data: SolicitudColaboradorEmailData): string {
+  const introByEstado: Record<SolicitudColaboradorEmailData['estado'], string> = {
+    Creada: 'Se registró una solicitud de RRHH asociada a tus datos.',
+    Editada: 'Se actualizó una solicitud de RRHH asociada a tus datos.',
+    Aprobada: 'Se aprobó una solicitud de RRHH asociada a tus datos.',
+    Rechazada: 'Se rechazó una solicitud de RRHH asociada a tus datos.',
+    Cancelada: 'Se canceló una solicitud de RRHH asociada a tus datos.',
+    Eliminada: 'Se eliminó una solicitud de RRHH asociada a tus datos.',
+  }
+  const motivo = data.motivoResolucion
+    ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px 18px;margin-top:20px;">
+         <p style="margin:0 0 6px;color:#6b7280;font-size:12px;text-transform:uppercase;font-weight:600;">Detalle</p>
+         <p style="margin:0;color:#111827;font-size:14px;">${data.motivoResolucion}</p>
+       </div>`
+    : ''
+
+  const content = `
+    <h2 style="margin:0 0 8px;color:#111827;font-size:20px;font-weight:700;">Solicitud de RRHH ${data.estado.toLowerCase()}</h2>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:14px;">Hola <strong>${data.colaboradorNombre}</strong>, ${introByEstado[data.estado]}</p>
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        ${detailRow('Estado', data.estado)}
+        ${detailRow('Tipo', data.tipo)}
+        ${detailRow('Sucursal', data.sucursalNombre)}
+        ${detailRow('Solicitante', data.solicitanteNombre)}
+        ${data.revisorNombre ? detailRow('Revisado por', data.revisorNombre) : ''}
+      </table>
+    </div>
+    ${motivo}
+    <p style="margin:20px 0 0;color:#6b7280;font-size:13px;">Ante cualquier duda, comunicate con tu responsable de sucursal o con RRHH.</p>
+  `
+  return layout(`Solicitud RRHH ${data.estado} — Heroica`, content)
+}
+
 export async function sendNuevaSolicitudEmail(data: NuevaSolicitudEmailData): Promise<void> {
   if (!process.env.RESEND_API_KEY || data.destinatarios.length === 0) return
 
@@ -120,5 +201,36 @@ export async function sendSolicitudResueltaEmail(data: SolicitudResueltaEmailDat
     })
   } catch (error) {
     console.error('[rrhhSolicitudesEmailService] Error enviando resolución de solicitud:', error)
+  }
+}
+
+export async function sendSolicitudEventoEmail(data: SolicitudEventoEmailData): Promise<void> {
+  const destinatarios = [...new Set(data.destinatarios.filter(Boolean))]
+  if (!process.env.RESEND_API_KEY || destinatarios.length === 0) return
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: destinatarios,
+      subject: `[Heroica] ${data.titulo} — ${data.tipo}`,
+      html: solicitudEventoHtml(data),
+    })
+  } catch (error) {
+    console.error('[rrhhSolicitudesEmailService] Error enviando evento de solicitud:', error)
+  }
+}
+
+export async function sendSolicitudColaboradorEmail(data: SolicitudColaboradorEmailData): Promise<void> {
+  if (!process.env.RESEND_API_KEY || !data.destinatario) return
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: data.destinatario,
+      subject: `[Heroica] Solicitud de RRHH ${data.estado.toLowerCase()} — ${data.tipo}`,
+      html: solicitudColaboradorHtml(data),
+    })
+  } catch (error) {
+    console.error('[rrhhSolicitudesEmailService] Error enviando email al colaborador:', error)
   }
 }
