@@ -13,6 +13,8 @@ export const TIPOS_VALIDOS = [
   'Capacitaciones',
   'Pedido de uniforme',
   'Adelantos',
+  'Descuentos',
+  'Horas extras',
 ] as const
 
 export const ESTADOS_VALIDOS = ['Pendiente', 'Aprobada', 'Rechazada', 'Cancelada'] as const
@@ -98,6 +100,19 @@ interface ApercibimientoDetalles {
   fecha: string
   severidad: 'Leve' | 'Moderada' | 'Grave'
   motivo: string
+}
+
+interface DescuentoDetalles {
+  motivo: string
+  monto: number
+  fecha: string
+}
+
+interface HorasExtrasDetalles {
+  cantidad_horas: number
+  fecha: string
+  valor_hora?: number
+  descripcion?: string
 }
 
 interface ResolveSideEffectsResult {
@@ -342,6 +357,51 @@ export async function validateSolicitudContext(
       fecha: apercibimientoDetalles.fecha,
       severidad: apercibimientoDetalles.severidad,
       motivo: String(apercibimientoDetalles.motivo).trim(),
+    }
+  }
+
+  if (context.tipo === 'Descuentos') {
+    if (!context.personalId) throw new Error('Los descuentos requieren un colaborador asociado')
+    if (!detalles) throw new Error('Los descuentos requieren motivo, monto y fecha')
+    const descuentoDetalles = detalles as Partial<DescuentoDetalles>
+    if (!descuentoDetalles.motivo || !descuentoDetalles.monto || !descuentoDetalles.fecha) {
+      throw new Error('Los descuentos requieren motivo, monto y fecha')
+    }
+    if (!isValidDateString(descuentoDetalles.fecha)) {
+      throw new Error('La fecha del descuento es inválida')
+    }
+    const monto = Number(descuentoDetalles.monto)
+    if (!isPositiveNumber(monto)) {
+      throw new Error('El monto del descuento debe ser mayor a cero')
+    }
+
+    return {
+      motivo: String(descuentoDetalles.motivo).trim(),
+      monto,
+      fecha: descuentoDetalles.fecha,
+    }
+  }
+
+  if (context.tipo === 'Horas extras') {
+    if (!context.personalId) throw new Error('Las horas extras requieren un colaborador asociado')
+    if (!detalles) throw new Error('Las horas extras requieren cantidad de horas y fecha')
+    const horasDetalles = detalles as Partial<HorasExtrasDetalles>
+    if (!horasDetalles.cantidad_horas || !horasDetalles.fecha) {
+      throw new Error('Las horas extras requieren cantidad de horas y fecha')
+    }
+    if (!isValidDateString(horasDetalles.fecha)) {
+      throw new Error('La fecha de horas extras es inválida')
+    }
+    const cantidadHoras = Number(horasDetalles.cantidad_horas)
+    if (!isPositiveNumber(cantidadHoras)) {
+      throw new Error('La cantidad de horas extras debe ser mayor a cero')
+    }
+
+    return {
+      cantidad_horas: cantidadHoras,
+      fecha: horasDetalles.fecha,
+      ...(horasDetalles.valor_hora != null && { valor_hora: Number(horasDetalles.valor_hora) }),
+      ...(horasDetalles.descripcion && { descripcion: String(horasDetalles.descripcion).trim() }),
     }
   }
 
