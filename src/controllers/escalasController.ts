@@ -1,20 +1,34 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 
-const FIELDS = 'e.id, e.puesto_id, p.nombre AS puesto_nombre, e.sueldo_base, e.mes, e.anio, e.valor_hora, e.updated_at'
+const FIELDS = `
+  e.id, e.puesto_id,
+  p.nombre AS puesto_nombre,
+  p.area_id,
+  a.nombre AS area_nombre,
+  e.sueldo_base, e.mes, e.anio, e.valor_hora, e.updated_at
+`
 
-// GET /api/escalas-salariales?sucursal_id=X
+// GET /api/escalas-salariales  (opcional: ?puesto_id=X)
 export const getEscalas = async (req: Request, res: Response) => {
   try {
-    const { sucursal_id } = req.query
+    const { puesto_id } = req.query
+    const params: any[] = []
+    let whereExtra = ''
 
-    if (!sucursal_id) {
-      return res.status(400).json({ success: false, message: 'sucursal_id es requerido' })
+    if (puesto_id) {
+      whereExtra = 'AND e.puesto_id = ?'
+      params.push(puesto_id)
     }
 
     const result = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.deleted_at IS NULL AND p.sucursal_id = ? ORDER BY e.anio ASC, e.mes ASC`,
-      [sucursal_id],
+      `SELECT ${FIELDS}
+       FROM escalas_salariales e
+       LEFT JOIN puestos p ON p.id = e.puesto_id
+       LEFT JOIN areas a ON a.id = p.area_id
+       WHERE e.deleted_at IS NULL ${whereExtra}
+       ORDER BY a.nombre ASC, p.nombre ASC, e.anio ASC, e.mes ASC`,
+      params,
     )
     res.json({ success: true, data: result })
   } catch (error) {
@@ -38,7 +52,7 @@ export const createEscala = async (req: Request, res: Response) => {
     )
 
     const created: any = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.id = ?`,
+      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id LEFT JOIN areas a ON a.id = p.area_id WHERE e.id = ?`,
       [result.insertId],
     )
 
@@ -71,7 +85,7 @@ export const updateEscala = async (req: Request, res: Response) => {
     )
 
     const updated: any = await query(
-      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id WHERE e.id = ?`,
+      `SELECT ${FIELDS} FROM escalas_salariales e LEFT JOIN puestos p ON p.id = e.puesto_id LEFT JOIN areas a ON a.id = p.area_id WHERE e.id = ?`,
       [id],
     )
 

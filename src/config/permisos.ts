@@ -125,6 +125,18 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
 
+  // ── MÓDULO: RRHH - ÁREAS ────────────────────────────────────────────────
+  {
+    clave: 'ver_areas',
+    descripcion: 'Ver áreas de la organización',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_areas',
+    descripcion: 'Crear, editar y eliminar áreas',
+    categoria: 'Recursos Humanos',
+  },
+
   // ── MÓDULO: RRHH - PUESTOS ──────────────────────────────────────────────
   {
     clave: 'ver_puestos',
