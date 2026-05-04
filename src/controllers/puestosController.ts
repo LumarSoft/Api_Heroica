@@ -1,20 +1,34 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 
-const FIELDS = 'id, nombre, sucursal_id, created_at, updated_at'
+const FIELDS = `
+  p.id,
+  p.nombre,
+  p.area_id,
+  a.nombre AS area_nombre,
+  p.created_at,
+  p.updated_at
+`
 
-// GET /api/puestos?sucursal_id=X
+// GET /api/puestos?area_id=X (area_id opcional — sin él devuelve todos)
 export const getPuestos = async (req: Request, res: Response) => {
   try {
-    const { sucursal_id } = req.query
+    const { area_id } = req.query
+    const params: any[] = []
+    let whereArea = ''
 
-    if (!sucursal_id) {
-      return res.status(400).json({ success: false, message: 'sucursal_id es requerido' })
+    if (area_id) {
+      whereArea = 'AND p.area_id = ?'
+      params.push(area_id)
     }
 
     const result = await query(
-      `SELECT ${FIELDS} FROM puestos WHERE sucursal_id = ? AND deleted_at IS NULL ORDER BY nombre ASC`,
-      [sucursal_id],
+      `SELECT ${FIELDS}
+       FROM puestos p
+       LEFT JOIN areas a ON a.id = p.area_id
+       WHERE p.deleted_at IS NULL ${whereArea}
+       ORDER BY a.nombre ASC, p.nombre ASC`,
+      params,
     )
 
     res.json({ success: true, data: result })
@@ -27,19 +41,28 @@ export const getPuestos = async (req: Request, res: Response) => {
 // POST /api/puestos
 export const createPuesto = async (req: Request, res: Response) => {
   try {
-    const { nombre, sucursal_id } = req.body
+    const { nombre, area_id } = req.body
 
-    if (!nombre || !sucursal_id) {
-      return res.status(400).json({ success: false, message: 'nombre y sucursal_id son requeridos' })
+    if (!nombre?.trim() || !area_id) {
+      return res.status(400).json({ success: false, message: 'nombre y area_id son requeridos' })
+    }
+
+    const areaExists: any = await query(
+      'SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL',
+      [area_id],
+    )
+
+    if (!areaExists.length) {
+      return res.status(404).json({ success: false, message: 'El área especificada no existe' })
     }
 
     const result: any = await query(
-      'INSERT INTO puestos (nombre, sucursal_id) VALUES (?, ?)',
-      [nombre.trim(), sucursal_id],
+      'INSERT INTO puestos (nombre, area_id) VALUES (?, ?)',
+      [nombre.trim(), area_id],
     )
 
     const created: any = await query(
-      `SELECT ${FIELDS} FROM puestos WHERE id = ?`,
+      `SELECT ${FIELDS} FROM puestos p LEFT JOIN areas a ON a.id = p.area_id WHERE p.id = ?`,
       [result.insertId],
     )
 
@@ -54,10 +77,10 @@ export const createPuesto = async (req: Request, res: Response) => {
 export const updatePuesto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { nombre } = req.body
+    const { nombre, area_id } = req.body
 
-    if (!nombre) {
-      return res.status(400).json({ success: false, message: 'nombre es requerido' })
+    if (!nombre?.trim() || !area_id) {
+      return res.status(400).json({ success: false, message: 'nombre y area_id son requeridos' })
     }
 
     const existing: any = await query(
@@ -69,10 +92,19 @@ export const updatePuesto = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Puesto no encontrado' })
     }
 
-    await query('UPDATE puestos SET nombre = ? WHERE id = ?', [nombre.trim(), id])
+    const areaExists: any = await query(
+      'SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL',
+      [area_id],
+    )
+
+    if (!areaExists.length) {
+      return res.status(404).json({ success: false, message: 'El área especificada no existe' })
+    }
+
+    await query('UPDATE puestos SET nombre = ?, area_id = ? WHERE id = ?', [nombre.trim(), area_id, id])
 
     const updated: any = await query(
-      `SELECT ${FIELDS} FROM puestos WHERE id = ?`,
+      `SELECT ${FIELDS} FROM puestos p LEFT JOIN areas a ON a.id = p.area_id WHERE p.id = ?`,
       [id],
     )
 

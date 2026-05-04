@@ -20,6 +20,7 @@ import rrhhIncentivosRoutes from './routes/rrhhIncentivosRoutes'
 import rrhhSolicitudesRoutes from './routes/rrhhSolicitudesRoutes'
 import personalRoutes from './routes/personalRoutes'
 import puestosRoutes from './routes/puestosRoutes'
+import areasRoutes from './routes/areasRoutes'
 import { syncPermisos } from './config/permisos'
 import { startDbSyncCron } from './services/dbSyncService'
 import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
@@ -109,6 +110,7 @@ app.use('/api/rrhh/incentivos', rrhhIncentivosRoutes)
 app.use('/api/rrhh/solicitudes', rrhhSolicitudesRoutes)
 app.use('/api/personal', personalRoutes)
 app.use('/api/puestos', puestosRoutes)
+app.use('/api/areas', areasRoutes)
 app.use('/api/rrhh/sueldos', rrhhSueldosRoutes)
 
 // Ruta raíz — no expone información sensible en producción
