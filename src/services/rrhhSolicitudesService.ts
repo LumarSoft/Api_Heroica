@@ -106,9 +106,14 @@ interface EmpleadoNovedad {
   incentivos: Array<{ incentivo_id: number; nombre: string; aplica: boolean }>
   apercibimiento: { tiene: boolean; motivo: string | null; archivo_url: string | null; archivo_nombre: string | null }
   suspension: { tiene: boolean; motivo: string | null; archivo_url: string | null; archivo_nombre: string | null }
-  descuento: { tiene: boolean; motivo: string | null }
-  ausencias_justificadas: { tiene: boolean; cantidad: number | null; unidad: 'horas' | 'minutos'; motivo: string | null }
-  ausencias_injustificadas: { motivo: string | null }
+  descuento: { tiene: boolean; monto: number | null; motivo: string | null }
+  ausencias_justificadas: {
+    tiene: boolean
+    cantidad: number | null
+    unidad: 'horas' | 'minutos'
+    motivo: string | null
+  }
+  ausencias_injustificadas: { cantidad: number | null; unidad: 'horas' | 'minutos'; motivo: string | null }
   tardanzas: { tiene: boolean; cantidad: number | null; unidad: 'horas' | 'minutos'; motivo: string | null }
   observaciones: string | null
 }
@@ -225,7 +230,12 @@ export async function verificarAccesoSucursal(user: AuthUser, sucursalId: number
   return Array.isArray(acceso) && acceso.length > 0
 }
 
-async function validarPersonalAsignado(connection: PoolConnection, sucursalId: number, personalId: number, tipo: SolicitudTipo): Promise<void> {
+async function validarPersonalAsignado(
+  connection: PoolConnection,
+  sucursalId: number,
+  personalId: number,
+  tipo: SolicitudTipo,
+): Promise<void> {
   const [personalRows] = await connection.execute<RowDataPacket[]>(
     `SELECT id, activo FROM personal WHERE id = ? AND sucursal_id = ? AND deleted_at IS NULL`,
     [personalId, sucursalId],
@@ -282,7 +292,9 @@ export async function validateSolicitudContext(
       throw new Error('El email del colaborador no tiene un formato válido')
     }
     const periodoPrueba = Boolean(altaDetalles.periodo_prueba)
-    const periodoPruebaDiasValue = Number(altaDetalles.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 90)
+    const periodoPruebaDiasValue = Number(
+      altaDetalles.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 90,
+    )
     if (periodoPrueba && (!Number.isFinite(periodoPruebaDiasValue) || periodoPruebaDiasValue <= 0)) {
       throw new Error('La duración del período de prueba debe ser mayor a cero')
     }
@@ -322,13 +334,21 @@ export async function validateSolicitudContext(
     if (!context.personalId) throw new Error('Las vacaciones requieren un colaborador asociado')
     if (!detalles) throw new Error('Las vacaciones requieren fechas y cantidad de días')
     const vacacionesDetalles = detalles as Partial<VacacionesDetalles>
-    if (!vacacionesDetalles.fecha_desde || !vacacionesDetalles.fecha_hasta || vacacionesDetalles.cantidad_dias === undefined) {
+    if (
+      !vacacionesDetalles.fecha_desde ||
+      !vacacionesDetalles.fecha_hasta ||
+      vacacionesDetalles.cantidad_dias === undefined
+    ) {
       throw new Error('Las vacaciones requieren fecha desde, fecha hasta y cantidad de días')
     }
     if (!isValidDateString(vacacionesDetalles.fecha_desde) || !isValidDateString(vacacionesDetalles.fecha_hasta)) {
       throw new Error('Las fechas de vacaciones son inválidas')
     }
-    validarRangoFechas(vacacionesDetalles.fecha_desde, vacacionesDetalles.fecha_hasta, 'La fecha desde no puede ser posterior a la fecha hasta en vacaciones')
+    validarRangoFechas(
+      vacacionesDetalles.fecha_desde,
+      vacacionesDetalles.fecha_hasta,
+      'La fecha desde no puede ser posterior a la fecha hasta en vacaciones',
+    )
     if (!isPositiveNumber(Number(vacacionesDetalles.cantidad_dias))) {
       throw new Error('La cantidad de días de vacaciones debe ser mayor a cero')
     }
@@ -344,13 +364,22 @@ export async function validateSolicitudContext(
     if (!context.personalId) throw new Error('Las licencias requieren un colaborador asociado')
     if (!detalles) throw new Error('Las licencias requieren tipo, fechas y motivo')
     const licenciaDetalles = detalles as Partial<LicenciaDetalles>
-    if (!licenciaDetalles.tipo_licencia || !licenciaDetalles.fecha_desde || !licenciaDetalles.fecha_hasta || !licenciaDetalles.motivo) {
+    if (
+      !licenciaDetalles.tipo_licencia ||
+      !licenciaDetalles.fecha_desde ||
+      !licenciaDetalles.fecha_hasta ||
+      !licenciaDetalles.motivo
+    ) {
       throw new Error('Las licencias requieren tipo, fechas y motivo')
     }
     if (!isValidDateString(licenciaDetalles.fecha_desde) || !isValidDateString(licenciaDetalles.fecha_hasta)) {
       throw new Error('Las fechas de licencia son inválidas')
     }
-    validarRangoFechas(licenciaDetalles.fecha_desde, licenciaDetalles.fecha_hasta, 'La fecha desde no puede ser posterior a la fecha hasta en licencias')
+    validarRangoFechas(
+      licenciaDetalles.fecha_desde,
+      licenciaDetalles.fecha_hasta,
+      'La fecha desde no puede ser posterior a la fecha hasta en licencias',
+    )
 
     return {
       tipo_licencia: String(licenciaDetalles.tipo_licencia).trim(),
@@ -476,7 +505,9 @@ export async function getSolicitudHistorial(solicitudId: number): Promise<Solici
   return rows
 }
 
-export async function enrichSolicitud(row: SolicitudRow): Promise<SolicitudRow & { historial: SolicitudHistorialItem[] }> {
+export async function enrichSolicitud(
+  row: SolicitudRow,
+): Promise<SolicitudRow & { historial: SolicitudHistorialItem[] }> {
   return {
     ...row,
     detalles: parseDetalles(row.detalles),
@@ -501,15 +532,16 @@ export async function resolveSolicitudSideEffects(
 
     await validarPuesto(connection, solicitud.sucursal_id, detalles.puesto_id)
 
-    const [dniCheck] = await connection.execute<RowDataPacket[]>(
-      `SELECT id FROM personal WHERE dni = ? LIMIT 1`,
-      [detalles.dni.trim()],
-    )
+    const [dniCheck] = await connection.execute<RowDataPacket[]>(`SELECT id FROM personal WHERE dni = ? LIMIT 1`, [
+      detalles.dni.trim(),
+    ])
     if (dniCheck.length > 0) {
       throw new Error('Ya existe un colaborador con ese DNI')
     }
 
-    const [lastRow] = await connection.execute<RowDataPacket[]>(`SELECT MAX(CAST(legajo AS UNSIGNED)) AS max_num FROM personal`)
+    const [lastRow] = await connection.execute<RowDataPacket[]>(
+      `SELECT MAX(CAST(legajo AS UNSIGNED)) AS max_num FROM personal`,
+    )
     const maxNum = lastRow.length > 0 && lastRow[0].max_num != null ? Number(lastRow[0].max_num) : 0
     const nuevoLegajo = String(maxNum + 1).padStart(6, '0')
 
@@ -526,7 +558,7 @@ export async function resolveSolicitudSideEffects(
         solicitud.sucursal_id,
         detalles.fecha_incorporacion,
         detalles.periodo_prueba ? 1 : 0,
-        detalles.periodo_prueba ? detalles.periodo_prueba_dias ?? null : null,
+        detalles.periodo_prueba ? (detalles.periodo_prueba_dias ?? null) : null,
         detalles.carnet_manipulacion_alimentos ? 1 : 0,
       ],
     )
@@ -535,7 +567,14 @@ export async function resolveSolicitudSideEffects(
     personalId = createdId
     personalCreadoId = createdId
 
-    await insertHistorial(connection, solicitud.id, createdId, usuarioId, 'Legajo creado', `Legajo generado automáticamente para ${detalles.nombre.trim()}.`)
+    await insertHistorial(
+      connection,
+      solicitud.id,
+      createdId,
+      usuarioId,
+      'Legajo creado',
+      `Legajo generado automáticamente para ${detalles.nombre.trim()}.`,
+    )
   }
 
   if (solicitud.tipo === 'Bajas') {
@@ -556,8 +595,17 @@ export async function resolveSolicitudSideEffects(
       throw new Error('El colaborador ya se encuentra inactivo')
     }
 
-    await connection.execute(`UPDATE personal SET activo = 0 WHERE id = ? AND deleted_at IS NULL`, [solicitud.personal_id])
-    await insertHistorial(connection, solicitud.id, solicitud.personal_id, usuarioId, 'Legajo desactivado', 'Colaborador desactivado automáticamente por aprobación de baja.')
+    await connection.execute(`UPDATE personal SET activo = 0 WHERE id = ? AND deleted_at IS NULL`, [
+      solicitud.personal_id,
+    ])
+    await insertHistorial(
+      connection,
+      solicitud.id,
+      solicitud.personal_id,
+      usuarioId,
+      'Legajo desactivado',
+      'Colaborador desactivado automáticamente por aprobación de baja.',
+    )
 
     await connection.execute(
       `INSERT INTO rrhh_liquidaciones_finales (solicitud_id, personal_id, estado, detalle)
@@ -565,7 +613,14 @@ export async function resolveSolicitudSideEffects(
        ON DUPLICATE KEY UPDATE estado = VALUES(estado), detalle = VALUES(detalle), updated_at = NOW()`,
       [solicitud.id, solicitud.personal_id, 'Liquidación final generada automáticamente desde la solicitud aprobada.'],
     )
-    await insertHistorial(connection, solicitud.id, solicitud.personal_id, usuarioId, 'Liquidacion final generada', 'Se generó la liquidación final automáticamente.')
+    await insertHistorial(
+      connection,
+      solicitud.id,
+      solicitud.personal_id,
+      usuarioId,
+      'Liquidacion final generada',
+      'Se generó la liquidación final automáticamente.',
+    )
     liquidacionFinalEstado = 'Generada'
   }
 
