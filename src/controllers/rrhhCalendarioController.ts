@@ -1,8 +1,15 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 
-const EVENTOS_VALIDOS = ['Capacitación', 'Reunión', 'Comunicado', 'Vencimiento', 'Evento interno', 'Otro']
+const EVENTOS_VALIDOS = [
+  'Capacitación', 'Reunión', 'Comunicado', 'Vencimiento',
+  'Evento interno', 'Ministerio', 'Otro',
+]
 const TIPOS_NOTION_VALIDOS = ['General', 'Invitación', 'Comunicado', 'Recordatorio']
+const PERIODICIDADES_VALIDAS = [
+  'Ninguna', 'Cada día', 'Lun-Vie', 'Cada semana',
+  'Cada 2 semanas', 'Cada mes', 'Primero de cada mes', 'Cada año',
+]
 
 function isValidDate(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -22,6 +29,7 @@ function normalizeHora(value: unknown): string | null {
 function normalizePayload(body: Record<string, unknown>) {
   const evento = typeof body.evento === 'string' ? body.evento.trim() : ''
   const tipoNotion = typeof body.tipo_notion === 'string' ? body.tipo_notion.trim() : 'General'
+  const periodicidad = typeof body.periodicidad === 'string' ? body.periodicidad.trim() : 'Ninguna'
 
   return {
     evento,
@@ -30,7 +38,8 @@ function normalizePayload(body: Record<string, unknown>) {
     direccion: normalizeOptionalText(body.direccion),
     participantes: normalizeOptionalText(body.participantes),
     comentarios: normalizeOptionalText(body.comentarios),
-    tipo_notion: tipoNotion,
+    tipo_notion: TIPOS_NOTION_VALIDOS.includes(tipoNotion) ? tipoNotion : 'General',
+    periodicidad: PERIODICIDADES_VALIDAS.includes(periodicidad) ? periodicidad : 'Ninguna',
   }
 }
 
@@ -38,13 +47,12 @@ function validatePayload(payload: ReturnType<typeof normalizePayload>): string |
   if (!payload.evento || !EVENTOS_VALIDOS.includes(payload.evento)) return 'Evento inválido'
   if (!isValidDate(payload.fecha)) return 'Fecha inválida'
   if (payload.hora && !/^\d{2}:\d{2}(:\d{2})?$/.test(payload.hora)) return 'Hora inválida'
-  if (!TIPOS_NOTION_VALIDOS.includes(payload.tipo_notion)) return 'Tipo Notion inválido'
   return null
 }
 
 const selectEventosSql = `
   SELECT e.id, e.evento, DATE_FORMAT(e.fecha, '%Y-%m-%d') AS fecha, TIME_FORMAT(e.hora, '%H:%i') AS hora,
-         e.direccion, e.participantes, e.comentarios, e.tipo_notion, e.creado_por,
+         e.direccion, e.participantes, e.comentarios, e.tipo_notion, e.periodicidad, e.creado_por,
          u.nombre AS creado_por_nombre, e.created_at, e.updated_at
   FROM rrhh_calendario_eventos e
   LEFT JOIN usuarios u ON e.creado_por = u.id
@@ -90,17 +98,12 @@ export const createEventoCalendario = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO rrhh_calendario_eventos
-       (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, creado_por)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, periodicidad, creado_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        payload.evento,
-        payload.fecha,
-        payload.hora,
-        payload.direccion,
-        payload.participantes,
-        payload.comentarios,
-        payload.tipo_notion,
-        req.user?.id ?? null,
+        payload.evento, payload.fecha, payload.hora, payload.direccion,
+        payload.participantes, payload.comentarios, payload.tipo_notion,
+        payload.periodicidad, req.user?.id ?? null,
       ],
     )
 
@@ -109,6 +112,45 @@ export const createEventoCalendario = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al crear evento de RRHH:', error)
     res.status(500).json({ success: false, message: 'Error al crear evento del calendario' })
+  }
+}
+
+// POST /api/rrhh/calendario/batch  —  crea múltiples eventos con distintas fechas
+export const createEventosCalendarioBatch = async (req: Request, res: Response) => {
+  try {
+    const { template, fechas } = req.body
+
+    if (!Array.isArray(fechas) || fechas.length === 0) {
+      return res.status(400).json({ success: false, message: 'fechas es requerido y debe ser un array' })
+    }
+
+    const payload = normalizePayload(template ?? {})
+    if (!payload.evento || !EVENTOS_VALIDOS.includes(payload.evento)) {
+      return res.status(400).json({ success: false, message: 'Evento inválido' })
+    }
+
+    const validFechas = (fechas as unknown[]).filter(isValidDate)
+    if (validFechas.length === 0) {
+      return res.status(400).json({ success: false, message: 'Ninguna fecha válida en el array' })
+    }
+
+    for (const fecha of validFechas) {
+      await query(
+        `INSERT INTO rrhh_calendario_eventos
+         (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, periodicidad, creado_por)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          payload.evento, fecha, payload.hora, payload.direccion,
+          payload.participantes, payload.comentarios, payload.tipo_notion,
+          payload.periodicidad, req.user?.id ?? null,
+        ],
+      )
+    }
+
+    res.status(201).json({ success: true, message: `${validFechas.length} eventos creados` })
+  } catch (error) {
+    console.error('Error al crear eventos en batch:', error)
+    res.status(500).json({ success: false, message: 'Error al crear eventos del calendario' })
   }
 }
 
@@ -127,17 +169,13 @@ export const updateEventoCalendario = async (req: Request, res: Response) => {
 
     await query(
       `UPDATE rrhh_calendario_eventos
-       SET evento = ?, fecha = ?, hora = ?, direccion = ?, participantes = ?, comentarios = ?, tipo_notion = ?, updated_at = NOW()
+       SET evento = ?, fecha = ?, hora = ?, direccion = ?, participantes = ?, comentarios = ?,
+           tipo_notion = ?, periodicidad = ?, updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
       [
-        payload.evento,
-        payload.fecha,
-        payload.hora,
-        payload.direccion,
-        payload.participantes,
-        payload.comentarios,
-        payload.tipo_notion,
-        id,
+        payload.evento, payload.fecha, payload.hora, payload.direccion,
+        payload.participantes, payload.comentarios, payload.tipo_notion,
+        payload.periodicidad, id,
       ],
     )
 
