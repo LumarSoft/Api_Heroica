@@ -93,11 +93,31 @@ interface LicenciaDetalles {
   motivo: string
 }
 
+interface EmpleadoNovedad {
+  personal_id: number
+  personal_nombre: string
+  cambio_puesto: boolean
+  nuevo_puesto_id: number | null
+  fecha_alta_puesto: string | null
+  horas_trabajadas: number | null
+  horas_feriados: number | null
+  horas_extras_autorizadas: boolean
+  horas_extras_cantidad: number | null
+  incentivos: Array<{ incentivo_id: number; nombre: string; aplica: boolean }>
+  apercibimiento: { tiene: boolean; motivo: string | null; archivo_url: string | null; archivo_nombre: string | null }
+  suspension: { tiene: boolean; motivo: string | null; archivo_url: string | null; archivo_nombre: string | null }
+  descuento: { tiene: boolean; motivo: string | null }
+  ausencias_justificadas: { tiene: boolean; cantidad: number | null; unidad: 'horas' | 'minutos'; motivo: string | null }
+  ausencias_injustificadas: { motivo: string | null }
+  tardanzas: { tiene: boolean; cantidad: number | null; unidad: 'horas' | 'minutos'; motivo: string | null }
+  observaciones: string | null
+}
+
 interface NovedadSueldoDetalles {
-  sueldo_actual: number
-  sueldo_nuevo: number
-  fecha_vigencia: string
-  motivo: string
+  area_id: number
+  mes: number
+  anio: number
+  empleados: EmpleadoNovedad[]
 }
 
 interface ApercibimientoDetalles {
@@ -341,32 +361,24 @@ export async function validateSolicitudContext(
   }
 
   if (context.tipo === 'Novedades de sueldo') {
-    if (!context.personalId) throw new Error('Las novedades de sueldo requieren un colaborador asociado')
-    if (!detalles) throw new Error('Las novedades de sueldo requieren importes y fecha de vigencia')
-    const sueldoDetalles = detalles as Partial<NovedadSueldoDetalles>
-    if (
-      sueldoDetalles.sueldo_actual === undefined ||
-      sueldoDetalles.sueldo_nuevo === undefined ||
-      !sueldoDetalles.fecha_vigencia ||
-      !sueldoDetalles.motivo
-    ) {
-      throw new Error('Las novedades de sueldo requieren sueldo actual, sueldo nuevo, fecha de vigencia y motivo')
+    if (!detalles) throw new Error('Las novedades de sueldo requieren área, mes y año')
+    const d = detalles as Partial<NovedadSueldoDetalles>
+    if (!d.area_id || !d.mes || !d.anio) {
+      throw new Error('Las novedades de sueldo requieren área, mes y año')
     }
-    if (!isValidDateString(sueldoDetalles.fecha_vigencia)) {
-      throw new Error('La fecha de vigencia de la novedad de sueldo es inválida')
+    const mes = Number(d.mes)
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+      throw new Error('El mes de la novedad de sueldo es inválido')
     }
-
-    const sueldoActual = Number(sueldoDetalles.sueldo_actual)
-    const sueldoNuevo = Number(sueldoDetalles.sueldo_nuevo)
-    if (!isPositiveNumber(sueldoActual) || !isPositiveNumber(sueldoNuevo)) {
-      throw new Error('Los importes de la novedad de sueldo deben ser mayores a cero')
+    if (!Array.isArray(d.empleados) || d.empleados.length === 0) {
+      throw new Error('Las novedades de sueldo requieren al menos un empleado')
     }
 
     return {
-      sueldo_actual: sueldoActual,
-      sueldo_nuevo: sueldoNuevo,
-      fecha_vigencia: sueldoDetalles.fecha_vigencia,
-      motivo: String(sueldoDetalles.motivo).trim(),
+      area_id: Number(d.area_id),
+      mes,
+      anio: Number(d.anio),
+      empleados: d.empleados,
     }
   }
 

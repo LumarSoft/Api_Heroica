@@ -8,11 +8,14 @@ import {
   updateEstadoSolicitud,
   updateSolicitud,
 } from '../controllers/rrhhSolicitudesController'
+import { upload, uploadSolicitudArchivo } from '../controllers/rrhhSolicitudesArchivosController'
 import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
+
+router.post('/archivos', requirePermission('crear_solicitudes'), upload.single('file'), uploadSolicitudArchivo)
 
 router.get('/', requirePermission('ver_solicitudes'), getSolicitudes)
 router.get('/:id', requirePermission('ver_solicitudes'), getSolicitudById)
