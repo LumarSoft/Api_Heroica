@@ -1,5 +1,6 @@
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise'
 import { query } from '../config/database'
+import { getMotivoBajaActivoEnSucursal } from './rrhhMotivosBajaService'
 
 export const TIPOS_VALIDOS = [
   'Altas',
@@ -64,20 +65,52 @@ interface AuthUser {
   rol_id: number
 }
 
+interface AltaAdjuntoSlot {
+  url: string
+  nombre_original?: string | null
+}
+
 interface AltaDetalles {
   nombre: string
   dni: string
-  email?: string | null
+  cuil: string
+  domicilio: string
+  domicilio_dni: string
+  fecha_nacimiento: string
+  telefono: string
+  email: string | null
+  banco?: string | null
+  cbu?: string | null
   puesto_id: number
   fecha_incorporacion: string
+  fecha_inicio_cobro_oficina: string
+  jornada_semanal_dias: number
+  jornada_diaria_horas_texto: string
+  propuesta_economica: number
+  beneficios: string
+  otras_observaciones_alta?: string | null
+  condicion_laboral: 1 | 2
+  fecha_alta_temprana: string | null
   periodo_prueba?: boolean
   periodo_prueba_dias?: number | null
   carnet_manipulacion_alimentos: boolean
+  carnet_adjunto: AltaAdjuntoSlot | null
+  carnet_fecha_vencimiento: string | null
+  adjuntos: {
+    dni_frente_dorso: AltaAdjuntoSlot
+    ddjj_domicilio: AltaAdjuntoSlot
+    descripcion_puesto_firmada: AltaAdjuntoSlot
+    foto_colaborador: AltaAdjuntoSlot
+  }
 }
 
 interface BajaDetalles {
-  motivo_baja: string
+  motivo_baja_id?: unknown
+  motivo_baja_nombre?: unknown
+  motivo_baja_detalle?: unknown
   fecha_baja: string
+  liquidacion_empleado?: unknown
+  carta_documento_adjunto?: unknown
 }
 
 interface VacacionesDetalles {
@@ -156,6 +189,8 @@ interface ValidationContext {
   personalId: number | null
   detalles: Record<string, unknown> | null
   solicitudId?: number
+  /** Detalles previos del registro (p. ej. al editar) para fusionar adjuntos no reenviados */
+  detallesAnteriores?: Record<string, unknown> | null
 }
 
 export function normalizeOptionalText(value: unknown): string | null {
@@ -195,6 +230,25 @@ function normalizeEmail(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim().toLowerCase()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function cleanTrim(value: unknown): string {
+  if (value == null) return ''
+  return String(value).trim()
+}
+
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+function parseAltaAdjunto(value: unknown): AltaAdjuntoSlot | null {
+  if (!value || typeof value !== 'object') return null
+  const o = value as Record<string, unknown>
+  const url = cleanTrim(o.url)
+  if (!url) return null
+  const nombreRaw = o.nombre_original
+  const nombre_original = typeof nombreRaw === 'string' && nombreRaw.trim() ? nombreRaw.trim() : null
+  return { url, nombre_original }
 }
 
 function isValidEmail(value: string | null): boolean {
@@ -251,20 +305,67 @@ async function validarPersonalAsignado(
   }
 }
 
-async function validarPuesto(connection: PoolConnection, sucursalId: number, puestoId: number): Promise<void> {
+async function validarPuesto(connection: PoolConnection, puestoId: number): Promise<void> {
   const [puestoRows] = await connection.execute<RowDataPacket[]>(
-    `SELECT id FROM puestos WHERE id = ? AND sucursal_id = ? AND deleted_at IS NULL`,
-    [puestoId, sucursalId],
+    `SELECT id FROM puestos WHERE id = ? AND deleted_at IS NULL`,
+    [puestoId],
   )
 
   if (puestoRows.length === 0) {
-    throw new Error('El puesto seleccionado no existe en la sucursal indicada')
+    throw new Error('El puesto seleccionado no existe o fue eliminado')
   }
 }
 
 function validarRangoFechas(fechaDesde: string, fechaHasta: string, mensaje: string): void {
   if (fechaDesde > fechaHasta) {
     throw new Error(mensaje)
+  }
+}
+
+function objetoEmpleadoRegistro(val: unknown): Record<string, unknown> | null {
+  if (!val || typeof val !== 'object' || Array.isArray(val)) return null
+  return val as Record<string, unknown>
+}
+
+/** Mismas reglas condicionales que en novedades de sueldo (un ítem empleados). */
+function validarLiquidacionEmpNovedadCliente(emp: Record<string, unknown>): void {
+  const nombreEtiqueta = cleanTrim(emp.personal_nombre) || 'el colaborador'
+
+  const cambioPuesto = Boolean(emp.cambio_puesto)
+  const nuevoPuestoId = normalizeNumber(emp.nuevo_puesto_id)
+  if (cambioPuesto && !nuevoPuestoId) {
+    throw new Error(`Seleccione el nuevo puesto de ${nombreEtiqueta}`)
+  }
+
+  const apercibimiento = objetoEmpleadoRegistro(emp.apercibimiento)
+  if (Boolean(apercibimiento?.tiene) && !normalizeOptionalText(apercibimiento?.motivo)) {
+    throw new Error(`Ingrese el motivo del apercibimiento de ${nombreEtiqueta}`)
+  }
+
+  const suspension = objetoEmpleadoRegistro(emp.suspension)
+  if (Boolean(suspension?.tiene) && !normalizeOptionalText(suspension?.motivo)) {
+    throw new Error(`Ingrese el motivo de la suspensión de ${nombreEtiqueta}`)
+  }
+
+  const descuento = objetoEmpleadoRegistro(emp.descuento)
+  if (Boolean(descuento?.tiene) && !normalizeOptionalText(descuento?.motivo)) {
+    throw new Error(`Ingrese el motivo del descuento de ${nombreEtiqueta}`)
+  }
+
+  const tardanzas = objetoEmpleadoRegistro(emp.tardanzas)
+  if (Boolean(tardanzas?.tiene)) {
+    const cant = normalizeNumber(tardanzas?.cantidad)
+    if (!cant || cant <= 0) {
+      throw new Error(`Ingrese la cantidad de tardanza de ${nombreEtiqueta}`)
+    }
+  }
+
+  const ausJ = objetoEmpleadoRegistro(emp.ausencias_justificadas)
+  if (Boolean(ausJ?.tiene)) {
+    const cant = normalizeNumber(ausJ?.cantidad)
+    if (!cant || cant <= 0) {
+      throw new Error(`Indique cantidad en ausencias justificadas de ${nombreEtiqueta}`)
+    }
   }
 }
 
@@ -280,53 +381,227 @@ export async function validateSolicitudContext(
 
   if (context.tipo === 'Altas') {
     if (!detalles) throw new Error('Las altas requieren datos completos del colaborador')
-    const altaDetalles = detalles as Partial<AltaDetalles>
-    if (!altaDetalles.nombre || !altaDetalles.dni || !altaDetalles.puesto_id || !altaDetalles.fecha_incorporacion) {
-      throw new Error('Las altas requieren nombre, DNI, puesto y fecha de incorporación')
+    const a = detalles as Partial<AltaDetalles>
+    const nombre = cleanTrim(a.nombre)
+    const dni = cleanTrim(a.dni)
+    const cuilParsed = onlyDigits(cleanTrim(a.cuil != null ? String(a.cuil) : ''))
+    const domicilio = cleanTrim(a.domicilio)
+    const fechaNacimiento = cleanTrim(a.fecha_nacimiento)
+    const telefono = cleanTrim(a.telefono)
+    const fechaInicioCobro = cleanTrim(a.fecha_inicio_cobro_oficina)
+    const jornadaHorasTexto = cleanTrim(a.jornada_diaria_horas_texto)
+
+    const JORNADA_DIAS = Number(a.jornada_semanal_dias)
+    const PROPUESTA = Number(a.propuesta_economica)
+
+    const ADJUNTOS_LABELS = {
+      dni_frente_dorso: 'DNI (ambos lados)',
+      ddjj_domicilio: 'Declaración jurada de domicilio',
+      descripcion_puesto_firmada: 'Descripción de puesto firmada',
+      foto_colaborador: 'Foto del colaborador',
+    } as const
+
+    if (!nombre) throw new Error('Ingrese nombres y apellidos del colaborador')
+    if (!dni) throw new Error('Ingrese el DNI del colaborador')
+    if (cuilParsed.length < 10 || cuilParsed.length > 13) throw new Error('Ingrese un CUIL o CUIT válido')
+    if (!domicilio) throw new Error('Ingrese la dirección real')
+    const domicilioDni = cleanTrim(a.domicilio_dni)
+    if (!domicilioDni) throw new Error('Ingrese la dirección según consta en el DNI')
+    if (!fechaNacimiento) throw new Error('Ingrese la fecha de nacimiento')
+    if (!isValidDateString(fechaNacimiento)) throw new Error('La fecha de nacimiento es inválida')
+    if (!telefono) throw new Error('Ingrese el teléfono')
+
+    const email = normalizeEmail(a.email)
+    if (!email || !isValidEmail(email)) {
+      throw new Error('Ingrese un correo electrónico válido')
     }
-    if (!isValidDateString(altaDetalles.fecha_incorporacion)) {
-      throw new Error('La fecha de incorporación de la alta es inválida')
+
+    if (!a.puesto_id || !a.fecha_incorporacion) {
+      throw new Error('Seleccione puesto y fecha de inicio de la relación laboral')
     }
-    const email = normalizeEmail(altaDetalles.email)
-    if (!isValidEmail(email)) {
-      throw new Error('El email del colaborador no tiene un formato válido')
+    if (!isValidDateString(a.fecha_incorporacion)) {
+      throw new Error('La fecha de inicio de la relación laboral es inválida')
     }
-    const periodoPrueba = Boolean(altaDetalles.periodo_prueba)
-    const periodoPruebaDiasValue = Number(
-      altaDetalles.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 90,
-    )
+
+    const bancoNombre = cleanTrim(a.banco) || null
+    const cbuTexto = cleanTrim(a.cbu)
+    let cbu: string | null = null
+    if (cbuTexto) {
+      cbu = onlyDigits(cbuTexto)
+      if (cbu.length !== 22) throw new Error('El CBU o CVU debe tener 22 dígitos')
+      if (!bancoNombre) throw new Error('Si informa CBU, indique la entidad bancaria')
+    }
+
+    if (!Number.isFinite(JORNADA_DIAS) || JORNADA_DIAS < 1 || JORNADA_DIAS > 7) {
+      throw new Error('La jornada semanal debe ser entre 1 y 7 días')
+    }
+    if (!jornadaHorasTexto) {
+      throw new Error('Describa la jornada diaria (ej.: 7 a 8 horas)')
+    }
+
+    if (!fechaInicioCobro) throw new Error('Ingrese la fecha de inicio de cobro en oficina')
+    if (!isValidDateString(fechaInicioCobro)) {
+      throw new Error('La fecha de inicio de cobro en oficina es inválida')
+    }
+
+    if (!Number.isFinite(PROPUESTA) || PROPUESTA <= 0) {
+      throw new Error('Ingrese una propuesta económica válida mayor a cero')
+    }
+
+    const beneficios = cleanTrim(a.beneficios)
+    if (!beneficios) {
+      throw new Error('Indique los beneficios otorgados')
+    }
+
+    const condicionLaboral = Number(a.condicion_laboral)
+    if (!Number.isFinite(condicionLaboral) || (condicionLaboral !== 1 && condicionLaboral !== 2)) {
+      throw new Error('Seleccione la condición laboral (1 o 2)')
+    }
+    let fechaAltaTemprana: string | null = null
+    if (condicionLaboral === 1) {
+      const fa = cleanTrim(a.fecha_alta_temprana)
+      if (!isValidDateString(fa)) {
+        throw new Error('Ingrese la fecha de alta temprana (condición laboral 1)')
+      }
+      fechaAltaTemprana = fa
+    }
+
+    const tieneCarnet = Boolean(a.carnet_manipulacion_alimentos)
+    let carnetAdjunto: AltaAdjuntoSlot | null = null
+    let carnetVencimiento: string | null = null
+    if (tieneCarnet) {
+      const incomingCarnet = parseAltaAdjunto(a.carnet_adjunto)
+      const prevCarnet =
+        context.detallesAnteriores && typeof context.detallesAnteriores === 'object'
+          ? parseAltaAdjunto((context.detallesAnteriores as Record<string, unknown>).carnet_adjunto)
+          : undefined
+      carnetAdjunto = incomingCarnet ?? prevCarnet ?? null
+      if (!carnetAdjunto) {
+        throw new Error('Adjunte el archivo del carnet de manipulación de alimentos')
+      }
+      let vRaw = cleanTrim(a.carnet_fecha_vencimiento)
+      if (
+        !vRaw &&
+        context.detallesAnteriores &&
+        typeof context.detallesAnteriores === 'object'
+      ) {
+        vRaw = cleanTrim((context.detallesAnteriores as Record<string, unknown>).carnet_fecha_vencimiento)
+      }
+      if (!isValidDateString(vRaw)) {
+        throw new Error('Indique una fecha de vencimiento válida para el carnet de manipulación')
+      }
+      carnetVencimiento = vRaw
+    }
+
+    const adjuntosFuente = a.adjuntos as Record<string, unknown> | undefined
+    const prevAdj =
+      context.detallesAnteriores && typeof context.detallesAnteriores === 'object'
+        ? (context.detallesAnteriores as Record<string, unknown>).adjuntos as Record<string, unknown> | undefined
+        : undefined
+    const adjuntos: AltaDetalles['adjuntos'] = {} as AltaDetalles['adjuntos']
+    for (const key of ['dni_frente_dorso', 'ddjj_domicilio', 'descripcion_puesto_firmada', 'foto_colaborador'] as const) {
+      const incoming = parseAltaAdjunto(adjuntosFuente?.[key])
+      const persisted = parseAltaAdjunto(prevAdj?.[key])
+      const slot = incoming ?? persisted
+      if (!slot) {
+        throw new Error(`Falta subir escaneado: ${ADJUNTOS_LABELS[key]}`)
+      }
+      adjuntos[key] = slot
+    }
+
+    const periodoPrueba = Boolean(a.periodo_prueba)
+    const periodoPruebaDiasValue = Number(a.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 90)
     if (periodoPrueba && (!Number.isFinite(periodoPruebaDiasValue) || periodoPruebaDiasValue <= 0)) {
       throw new Error('La duración del período de prueba debe ser mayor a cero')
     }
     const periodoPruebaDias = periodoPrueba ? periodoPruebaDiasValue : null
-    await validarPuesto(connection, context.sucursalId, Number(altaDetalles.puesto_id))
+
+    await validarPuesto(connection, Number(a.puesto_id))
+
+    const otrasObs = normalizeOptionalText(a.otras_observaciones_alta)
 
     return {
-      nombre: String(altaDetalles.nombre).trim(),
-      dni: String(altaDetalles.dni).trim(),
+      nombre,
+      dni,
+      cuil: cuilParsed,
+      domicilio,
+      domicilio_dni: domicilioDni,
+      fecha_nacimiento: fechaNacimiento,
+      telefono,
       email,
-      puesto_id: Number(altaDetalles.puesto_id),
-      fecha_incorporacion: altaDetalles.fecha_incorporacion,
+      banco: bancoNombre,
+      cbu,
+      puesto_id: Number(a.puesto_id),
+      fecha_incorporacion: a.fecha_incorporacion,
+      fecha_inicio_cobro_oficina: fechaInicioCobro,
+      jornada_semanal_dias: JORNADA_DIAS,
+      jornada_diaria_horas_texto: jornadaHorasTexto,
+      propuesta_economica: PROPUESTA,
+      beneficios,
+      otras_observaciones_alta: otrasObs,
+      condicion_laboral: condicionLaboral as 1 | 2,
+      fecha_alta_temprana: fechaAltaTemprana,
       periodo_prueba: periodoPrueba,
       periodo_prueba_dias: periodoPruebaDias,
-      carnet_manipulacion_alimentos: Boolean(altaDetalles.carnet_manipulacion_alimentos),
+      carnet_manipulacion_alimentos: tieneCarnet,
+      carnet_adjunto: tieneCarnet ? carnetAdjunto : null,
+      carnet_fecha_vencimiento: tieneCarnet ? carnetVencimiento : null,
+      adjuntos,
     }
   }
 
   if (context.tipo === 'Bajas') {
     if (!context.personalId) throw new Error('Las bajas requieren un colaborador asociado')
-    if (!detalles) throw new Error('Las bajas requieren motivo y fecha de baja')
-    const bajaDetalles = detalles as Partial<BajaDetalles>
-    if (!bajaDetalles.motivo_baja || !bajaDetalles.fecha_baja) {
-      throw new Error('Las bajas requieren motivo y fecha de baja')
+    if (!detalles) throw new Error('Las bajas requieren los datos completos de la ficha RRHH 002')
+
+    const b = detalles as Partial<BajaDetalles> & Record<string, unknown>
+
+    const motivoId = normalizeNumber(b.motivo_baja_id)
+    if (!motivoId || motivoId <= 0) {
+      throw new Error('Seleccione un motivo de baja del catálogo')
     }
-    if (!isValidDateString(bajaDetalles.fecha_baja)) {
+
+    const motivoCatalogo = await getMotivoBajaActivoEnSucursal(connection, context.sucursalId, motivoId)
+    if (!motivoCatalogo) {
+      throw new Error('Motivo de baja inválido para esta sucursal')
+    }
+
+    const fechaBaja = cleanTrim(b.fecha_baja)
+    if (!fechaBaja || !isValidDateString(fechaBaja)) {
       throw new Error('La fecha de baja es inválida')
     }
 
+    const liqRaw = objetoEmpleadoRegistro(b.liquidacion_empleado)
+    if (!liqRaw) {
+      throw new Error('Complete los datos laborales (mismo formato que novedades de sueldo)')
+    }
+
+    const liqPid = normalizeNumber(liqRaw.personal_id)
+    if (liqPid !== context.personalId) {
+      throw new Error('Los datos laborales deben corresponder al colaborador seleccionado')
+    }
+
+    validarLiquidacionEmpNovedadCliente(liqRaw)
+
+    const incomingCarta = parseAltaAdjunto(b.carta_documento_adjunto)
+    const prevCarta =
+      context.detallesAnteriores && typeof context.detallesAnteriores === 'object'
+        ? parseAltaAdjunto((context.detallesAnteriores as Record<string, unknown>).carta_documento_adjunto)
+        : undefined
+    const cartaDoc = incomingCarta ?? prevCarta ?? null
+    if (!cartaDoc?.url) {
+      throw new Error('Adjunte la carta documento en PDF')
+    }
+
+    const liquidacionGuardada = JSON.parse(JSON.stringify(liqRaw)) as Record<string, unknown>
+
     return {
-      motivo_baja: String(bajaDetalles.motivo_baja).trim(),
-      fecha_baja: bajaDetalles.fecha_baja,
+      motivo_baja_id: motivoId,
+      motivo_baja_nombre: motivoCatalogo.nombre,
+      motivo_baja_detalle: normalizeOptionalText(b.motivo_baja_detalle),
+      fecha_baja: fechaBaja,
+      liquidacion_empleado: liquidacionGuardada,
+      carta_documento_adjunto: cartaDoc,
     }
   }
 
@@ -474,6 +749,67 @@ export async function validateSolicitudContext(
     }
   }
 
+  if (context.tipo === 'Suspensiones') {
+    if (!context.personalId) throw new Error('Las suspensiones requieren un colaborador asociado')
+    if (!detalles) throw new Error('Las suspensiones requieren fechas y motivo')
+    const d = detalles as Record<string, unknown>
+    const fechaDesde = cleanTrim(d.fecha_desde)
+    const fechaHasta = cleanTrim(d.fecha_hasta)
+    const motivo = cleanTrim(d.motivo)
+    if (!fechaDesde || !isValidDateString(fechaDesde)) throw new Error('La fecha de inicio de la suspensión es inválida')
+    if (!fechaHasta || !isValidDateString(fechaHasta)) throw new Error('La fecha de fin de la suspensión es inválida')
+    validarRangoFechas(fechaDesde, fechaHasta, 'La fecha de inicio no puede ser posterior a la fecha de fin de la suspensión')
+    if (!motivo) throw new Error('Ingrese el motivo de la suspensión')
+    return { fecha_desde: fechaDesde, fecha_hasta: fechaHasta, motivo }
+  }
+
+  if (context.tipo === 'Capacitaciones') {
+    if (!detalles) throw new Error('Las capacitaciones requieren tema y fecha')
+    const d = detalles as Record<string, unknown>
+    const tema = cleanTrim(d.tema)
+    const fecha = cleanTrim(d.fecha)
+    if (!tema) throw new Error('Ingrese el tema de la capacitación')
+    if (!fecha || !isValidDateString(fecha)) throw new Error('La fecha de la capacitación es inválida')
+    return { tema, fecha, descripcion: normalizeOptionalText(d.descripcion) }
+  }
+
+  if (context.tipo === 'Pedido de uniforme') {
+    if (!context.personalId) throw new Error('Los pedidos de uniforme requieren un colaborador asociado')
+    if (!detalles) throw new Error('El pedido de uniforme requiere talle e items')
+    const d = detalles as Record<string, unknown>
+    const talle = cleanTrim(d.talle)
+    const items = cleanTrim(d.items)
+    if (!talle) throw new Error('Ingrese el talle del colaborador')
+    if (!items) throw new Error('Ingrese los items solicitados')
+    return { talle, items, observaciones: normalizeOptionalText(d.observaciones) }
+  }
+
+  if (context.tipo === 'Adelantos') {
+    if (!context.personalId) throw new Error('Los adelantos requieren un colaborador asociado')
+    if (!detalles) throw new Error('Los adelantos requieren monto, fecha y motivo')
+    const d = detalles as Record<string, unknown>
+    const monto = Number(d.monto)
+    if (!isPositiveNumber(monto)) throw new Error('El monto del adelanto debe ser mayor a cero')
+    const fecha = cleanTrim(d.fecha)
+    if (!fecha || !isValidDateString(fecha)) throw new Error('La fecha del adelanto es inválida')
+    const motivo = cleanTrim(d.motivo)
+    if (!motivo) throw new Error('Ingrese el motivo del adelanto')
+    return { monto, fecha, motivo }
+  }
+
+  if (context.tipo === 'Incentivos y premios') {
+    if (!context.personalId) throw new Error('Los incentivos y premios requieren un colaborador asociado')
+    if (!detalles) throw new Error('Los incentivos y premios requieren descripción y fecha')
+    const d = detalles as Record<string, unknown>
+    const descripcion = cleanTrim(d.descripcion)
+    if (!descripcion) throw new Error('Ingrese la descripción del incentivo o premio')
+    const fecha = cleanTrim(d.fecha)
+    if (!fecha || !isValidDateString(fecha)) throw new Error('La fecha del incentivo o premio es inválida')
+    const montoRaw = d.monto != null && d.monto !== '' ? Number(d.monto) : null
+    if (montoRaw !== null && !isPositiveNumber(montoRaw)) throw new Error('El monto del incentivo debe ser mayor a cero')
+    return { descripcion, fecha, monto: montoRaw }
+  }
+
   return detalles
 }
 
@@ -530,7 +866,7 @@ export async function resolveSolicitudSideEffects(
       throw new Error('La solicitud de alta no tiene detalles válidos')
     }
 
-    await validarPuesto(connection, solicitud.sucursal_id, detalles.puesto_id)
+    await validarPuesto(connection, detalles.puesto_id)
 
     const [dniCheck] = await connection.execute<RowDataPacket[]>(`SELECT id FROM personal WHERE dni = ? LIMIT 1`, [
       detalles.dni.trim(),
@@ -547,19 +883,43 @@ export async function resolveSolicitudSideEffects(
 
     const [insertResult] = await connection.execute(
       `INSERT INTO personal
-       (legajo, nombre, dni, email, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (legajo, nombre, dni, cuil, email, telefono, fecha_nacimiento, domicilio_real, domicilio_dni,
+        puesto_id, sucursal_id, fecha_incorporacion, fecha_inicio_cobro,
+        periodo_prueba, periodo_prueba_dias, jornada_semanal_dias, jornada_diaria_horas,
+        propuesta_economica, beneficios, condicion_laboral, fecha_alta_temprana, banco, cbu,
+        carnet_manipulacion_alimentos, carnet_archivo_url, carnet_archivo_nombre, carnet_vencimiento,
+        solicitud_alta_id, datos_alta_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
         detalles.nombre.trim(),
         detalles.dni.trim(),
+        detalles.cuil?.trim() ?? null,
         detalles.email ?? null,
+        detalles.telefono.trim(),
+        detalles.fecha_nacimiento,
+        detalles.domicilio.trim(),
+        detalles.domicilio_dni.trim(),
         detalles.puesto_id,
         solicitud.sucursal_id,
         detalles.fecha_incorporacion,
+        detalles.fecha_inicio_cobro_oficina,
         detalles.periodo_prueba ? 1 : 0,
-        detalles.periodo_prueba ? (detalles.periodo_prueba_dias ?? null) : null,
+        detalles.periodo_prueba && detalles.periodo_prueba_dias ? detalles.periodo_prueba_dias : null,
+        detalles.jornada_semanal_dias,
+        detalles.jornada_diaria_horas_texto,
+        detalles.propuesta_economica,
+        detalles.beneficios,
+        detalles.condicion_laboral,
+        detalles.fecha_alta_temprana ?? null,
+        detalles.banco ?? null,
+        detalles.cbu ?? null,
         detalles.carnet_manipulacion_alimentos ? 1 : 0,
+        detalles.carnet_manipulacion_alimentos && detalles.carnet_adjunto ? detalles.carnet_adjunto.url : null,
+        detalles.carnet_manipulacion_alimentos && detalles.carnet_adjunto ? detalles.carnet_adjunto.nombre_original ?? null : null,
+        detalles.carnet_manipulacion_alimentos ? detalles.carnet_fecha_vencimiento : null,
+        solicitud.id,
+        JSON.stringify(detalles),
       ],
     )
 
@@ -622,6 +982,28 @@ export async function resolveSolicitudSideEffects(
       'Se generó la liquidación final automáticamente.',
     )
     liquidacionFinalEstado = 'Generada'
+  }
+
+  if (solicitud.tipo === 'Novedades de sueldo') {
+    const detalles = parseDetalles(solicitud.detalles) as NovedadSueldoDetalles | null
+    if (detalles?.empleados) {
+      for (const emp of detalles.empleados) {
+        if (emp.cambio_puesto && emp.nuevo_puesto_id != null) {
+          await connection.execute(
+            `UPDATE personal SET puesto_id = ? WHERE id = ? AND deleted_at IS NULL`,
+            [emp.nuevo_puesto_id, emp.personal_id],
+          )
+          await insertHistorial(
+            connection,
+            solicitud.id,
+            emp.personal_id,
+            usuarioId,
+            'Puesto actualizado',
+            `Puesto actualizado a ID ${emp.nuevo_puesto_id} por aprobación de novedad de sueldo.`,
+          )
+        }
+      }
+    }
   }
 
   return { personalId, personalCreadoId, liquidacionFinalEstado }

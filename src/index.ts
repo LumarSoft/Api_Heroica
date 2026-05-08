@@ -18,6 +18,7 @@ import escalasRoutes from './routes/escalasRoutes'
 import rrhhCalendarioRoutes from './routes/rrhhCalendarioRoutes'
 import rrhhIncentivosRoutes from './routes/rrhhIncentivosRoutes'
 import rrhhSolicitudesRoutes from './routes/rrhhSolicitudesRoutes'
+import rrhhMotivosBajaRoutes from './routes/rrhhMotivosBajaRoutes'
 import personalRoutes from './routes/personalRoutes'
 import puestosRoutes from './routes/puestosRoutes'
 import areasRoutes from './routes/areasRoutes'
@@ -108,6 +109,7 @@ app.use('/api/escalas-salariales', escalasRoutes)
 app.use('/api/rrhh/calendario', rrhhCalendarioRoutes)
 app.use('/api/rrhh/incentivos', rrhhIncentivosRoutes)
 app.use('/api/rrhh/solicitudes', rrhhSolicitudesRoutes)
+app.use('/api/rrhh/motivos-baja', rrhhMotivosBajaRoutes)
 app.use('/api/personal', personalRoutes)
 app.use('/api/puestos', puestosRoutes)
 app.use('/api/areas', areasRoutes)

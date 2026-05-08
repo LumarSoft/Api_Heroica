@@ -20,11 +20,18 @@ const storage = isProduction
       },
     })
 
+const MIME_SOLICITUD_PERMITIDOS = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+])
+
 export const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === 'application/pdf') cb(null, true)
-    else cb(new Error('Solo se permiten archivos PDF'))
+    if (MIME_SOLICITUD_PERMITIDOS.has(file.mimetype)) cb(null, true)
+    else cb(new Error('Solo se permiten archivos PDF o imagen (JPG, PNG, WebP)'))
   },
   limits: { fileSize: 10 * 1024 * 1024 },
 })

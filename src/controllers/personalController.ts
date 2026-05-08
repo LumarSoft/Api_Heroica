@@ -12,28 +12,35 @@ function isValidEmail(value: string | null): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+const PERSONAL_PUBLIC_FIELDS = `p.id, p.legajo, p.nombre, p.dni, p.cuil, p.puesto_id, pu.nombre AS puesto_nombre,
+              p.email, p.telefono, p.fecha_nacimiento, p.domicilio_real, p.domicilio_dni,
+              p.sucursal_id, p.fecha_incorporacion, p.fecha_inicio_cobro,
+              p.periodo_prueba, p.periodo_prueba_dias, p.jornada_semanal_dias, p.jornada_diaria_horas,
+              p.propuesta_economica, p.beneficios, p.condicion_laboral, p.fecha_alta_temprana,
+              p.banco, p.cbu, p.carnet_manipulacion_alimentos, p.carnet_archivo_url, p.carnet_archivo_nombre, p.carnet_vencimiento,
+              p.solicitud_alta_id, p.activo, p.created_at, p.updated_at`
+
 // GET /api/personal  —  ?sucursal_id=N filtra por sucursal
 export const getPersonal = async (req: Request, res: Response) => {
   try {
     const sucursalId = req.query.sucursal_id ? Number(req.query.sucursal_id) : null
 
-    const sql = sucursalId
-      ? `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-                p.email, p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
-                p.activo, p.created_at, p.updated_at
-         FROM personal p
-         LEFT JOIN puestos pu ON pu.id = p.puesto_id
-         WHERE p.deleted_at IS NULL AND p.sucursal_id = ${sucursalId}
-         ORDER BY p.legajo ASC`
-      : `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-                p.email, p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
-                p.activo, p.created_at, p.updated_at
-         FROM personal p
-         LEFT JOIN puestos pu ON pu.id = p.puesto_id
-         WHERE p.deleted_at IS NULL
-         ORDER BY p.legajo ASC`
-
-    const result = await query(sql)
+    const result = sucursalId
+      ? await query(
+          `SELECT ${PERSONAL_PUBLIC_FIELDS}
+           FROM personal p
+           LEFT JOIN puestos pu ON pu.id = p.puesto_id
+           WHERE p.deleted_at IS NULL AND p.sucursal_id = ?
+           ORDER BY p.legajo ASC`,
+          [sucursalId],
+        )
+      : await query(
+          `SELECT ${PERSONAL_PUBLIC_FIELDS}
+           FROM personal p
+           LEFT JOIN puestos pu ON pu.id = p.puesto_id
+           WHERE p.deleted_at IS NULL
+           ORDER BY p.legajo ASC`,
+        )
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Error al obtener personal:', error)
@@ -46,9 +53,7 @@ export const getPersonalById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
     const result: any = await query(
-      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-              p.email, p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
-              p.activo, p.created_at, p.updated_at
+      `SELECT ${PERSONAL_PUBLIC_FIELDS}, p.datos_alta_json
        FROM personal p
        LEFT JOIN puestos pu ON pu.id = p.puesto_id
        WHERE p.id = ? AND p.deleted_at IS NULL`,
@@ -122,9 +127,7 @@ export const createPersonal = async (req: Request, res: Response) => {
     )
 
     const [newRow]: any = await connection.execute(
-      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-              p.email, p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
-              p.activo, p.created_at, p.updated_at
+      `SELECT ${PERSONAL_PUBLIC_FIELDS}
        FROM personal p
        LEFT JOIN puestos pu ON pu.id = p.puesto_id
        WHERE p.id = ?`,
@@ -203,9 +206,7 @@ export const updatePersonal = async (req: Request, res: Response) => {
     )
 
     const [updated]: any = await connection.execute(
-      `SELECT p.id, p.legajo, p.nombre, p.dni, p.puesto_id, pu.nombre AS puesto_nombre,
-              p.email, p.sucursal_id, p.fecha_incorporacion, p.periodo_prueba, p.periodo_prueba_dias, p.carnet_manipulacion_alimentos,
-              p.activo, p.created_at, p.updated_at
+      `SELECT ${PERSONAL_PUBLIC_FIELDS}
        FROM personal p
        LEFT JOIN puestos pu ON pu.id = p.puesto_id
        WHERE p.id = ?`,
