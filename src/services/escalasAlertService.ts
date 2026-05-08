@@ -7,7 +7,7 @@ const DEFAULT_MESES_SIN_ACTUALIZAR = 3
 interface EscalaStaleRow {
   escala_id: number
   puesto_nombre: string
-  sucursal_nombre: string
+  area_nombre: string
   mes: number
   anio: number
   sueldo_base: string
@@ -35,26 +35,23 @@ async function getEscalasStale(): Promise<EscalaStaleRow[]> {
   const rows = await query(
     `SELECT e.id AS escala_id,
             p.nombre AS puesto_nombre,
-            s.nombre AS sucursal_nombre,
+            ar.nombre AS area_nombre,
             e.mes,
             e.anio,
             e.sueldo_base,
             DATE_FORMAT(COALESCE(e.updated_at, e.created_at), '%Y-%m-%d') AS ultima_actualizacion,
             TIMESTAMPDIFF(MONTH, COALESCE(e.updated_at, e.created_at), NOW()) AS meses_sin_actualizar
      FROM escalas_salariales e
-     INNER JOIN puestos p ON p.id = e.puesto_id
-     INNER JOIN sucursales s ON s.id = p.sucursal_id
+     INNER JOIN puestos p ON p.id = e.puesto_id AND p.deleted_at IS NULL
+     INNER JOIN areas ar ON ar.id = p.area_id AND ar.deleted_at IS NULL
      LEFT JOIN rrhh_alertas_escalas_salariales a
        ON a.escala_salarial_id = e.id
        AND a.anio_alerta = YEAR(NOW())
        AND a.mes_alerta = MONTH(NOW())
      WHERE e.deleted_at IS NULL
-       AND p.deleted_at IS NULL
-       AND s.deleted_at IS NULL
-       AND s.activo = 1
        AND COALESCE(e.updated_at, e.created_at) < NOW() - INTERVAL ? MONTH
        AND a.id IS NULL
-     ORDER BY meses_sin_actualizar DESC, s.nombre ASC, p.nombre ASC`,
+     ORDER BY meses_sin_actualizar DESC, ar.nombre ASC, p.nombre ASC`,
     [meses],
   )
 
@@ -93,7 +90,7 @@ export async function procesarAlertasEscalasSalariales(): Promise<void> {
       mesesUmbral: meses,
       escalas: rows.map(r => ({
         puestoNombre: r.puesto_nombre,
-        sucursal: r.sucursal_nombre,
+        sucursal: r.area_nombre,
         mes: r.mes,
         anio: r.anio,
         sueldoBase: Number(r.sueldo_base).toLocaleString('es-AR', { minimumFractionDigits: 2 }),

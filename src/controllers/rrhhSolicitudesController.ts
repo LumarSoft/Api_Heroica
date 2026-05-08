@@ -346,6 +346,7 @@ export const updateSolicitud = async (req: Request, res: Response) => {
       personalId,
       detalles: parseDetalles(req.body.detalles),
       solicitudId,
+      detallesAnteriores: parseDetalles(solicitud.detalles),
     })
 
     await connection.execute(

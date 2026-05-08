@@ -397,26 +397,24 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
       : []
     const ajustesMap = new Map<number, SueldoAjustes>(ajustesRows.map(row => [Number(row.personal_id), row]))
 
+    // Liquidaciones finales del período (generadas al aprobar una Baja)
     const liquidacionesRows = (await query(
       `SELECT
-         rs.id,
+         lf.id,
          p.nombre,
          p.legajo,
          pu.nombre          AS puesto,
-         rs.fecha_solicitud,
-         rs.estado,
-         rs.detalles
-       FROM  rrhh_solicitudes rs
-       JOIN  personal p
-         ON  p.id = COALESCE(rs.personal_id, rs.personal_creado_id)
-         AND p.deleted_at IS NULL
+         s.fecha_solicitud,
+         lf.estado,
+         s.detalles
+       FROM  rrhh_liquidaciones_finales lf
+       JOIN  rrhh_solicitudes s ON s.id = lf.solicitud_id AND s.deleted_at IS NULL
+       JOIN  personal p ON p.id = lf.personal_id AND p.deleted_at IS NULL
        JOIN  puestos pu ON pu.id = p.puesto_id AND pu.deleted_at IS NULL
-       WHERE rs.tipo       = 'Liquidación Final'
-         AND rs.deleted_at IS NULL
-         AND p.sucursal_id = ?
-         AND MONTH(rs.fecha_solicitud) = ?
-         AND YEAR(rs.fecha_solicitud)  = ?
-       ORDER BY rs.fecha_solicitud DESC`,
+       WHERE p.sucursal_id = ?
+         AND MONTH(s.fecha_solicitud) = ?
+         AND YEAR(s.fecha_solicitud)  = ?
+       ORDER BY s.fecha_solicitud DESC`,
       [sucursalId, mes, anio],
     )) as any[]
 
