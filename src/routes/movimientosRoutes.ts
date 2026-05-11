@@ -15,6 +15,7 @@ import {
   moverBulkMovimientos,
   updateComentarioEfectivo,
 } from '../controllers/movimientosController'
+import { exportEfectivoToExcel } from '../controllers/exportController'
 import {
   getDocumentos,
   uploadDocumento,
@@ -49,6 +50,9 @@ router.put('/efectivo/:id/mover-a-real', requirePermission('aprobar_movimientos'
 
 // Obtener totales de una sucursal
 router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), getTotalesEfectivo)
+
+// Exportar movimientos efectivo a Excel
+router.get('/:sucursalId/export', requirePermission('ver_movimientos'), exportEfectivoToExcel)
 
 // Obtener todos los movimientos de una sucursal
 router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosBySucursal)

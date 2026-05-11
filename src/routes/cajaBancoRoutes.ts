@@ -13,6 +13,7 @@ import {
   transferenciaInternaBanco,
   updateComentarioBanco,
 } from '../controllers/movimientosController'
+import { exportBancoToExcel } from '../controllers/exportController'
 import {
   getDocumentos,
   uploadDocumento,
@@ -36,6 +37,9 @@ router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosB
 
 // Obtener totales de una sucursal
 router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), getTotalesBanco)
+
+// Exportar movimientos banco a Excel
+router.get('/:sucursalId/export', requirePermission('ver_movimientos'), exportBancoToExcel)
 
 // Crear movimiento banco
 router.post('/', requirePermission('crear_movimientos'), createMovimientoBanco)
