@@ -34,6 +34,12 @@ export interface SolicitudHistorialItem {
   created_at: string
 }
 
+export interface SolicitudArchivo {
+  tipo_doc: string
+  url: string
+  nombre_original: string | null
+}
+
 export interface SolicitudRow extends RowDataPacket {
   id: number
   sucursal_id: number
@@ -126,7 +132,7 @@ interface LicenciaDetalles {
   motivo: string
 }
 
-interface EmpleadoNovedad {
+export interface EmpleadoNovedad {
   personal_id: number
   personal_nombre: string
   cambio_puesto: boolean
@@ -149,6 +155,10 @@ interface EmpleadoNovedad {
   ausencias_injustificadas: { cantidad: number | null; unidad: 'horas' | 'minutos'; motivo: string | null }
   tardanzas: { tiene: boolean; cantidad: number | null; unidad: 'horas' | 'minutos'; motivo: string | null }
   observaciones: string | null
+}
+
+export type EmpleadoNovedadInput = EmpleadoNovedad & {
+  tipo_origen: 'novedad_sueldo' | 'liquidacion_baja'
 }
 
 interface NovedadSueldoDetalles {
@@ -177,6 +187,12 @@ interface HorasExtrasDetalles {
   descripcion?: string
 }
 
+export interface ValidationResult {
+  detalles: Record<string, unknown> | null
+  archivos: SolicitudArchivo[]
+  empleados: EmpleadoNovedadInput[]
+}
+
 interface ResolveSideEffectsResult {
   personalId: number | null
   personalCreadoId: number | null
@@ -189,8 +205,7 @@ interface ValidationContext {
   personalId: number | null
   detalles: Record<string, unknown> | null
   solicitudId?: number
-  /** Detalles previos del registro (p. ej. al editar) para fusionar adjuntos no reenviados */
-  detallesAnteriores?: Record<string, unknown> | null
+  archivosAnteriores?: SolicitudArchivo[]
 }
 
 export function normalizeOptionalText(value: unknown): string | null {
@@ -327,7 +342,6 @@ function objetoEmpleadoRegistro(val: unknown): Record<string, unknown> | null {
   return val as Record<string, unknown>
 }
 
-/** Mismas reglas condicionales que en novedades de sueldo (un ítem empleados). */
 function validarLiquidacionEmpNovedadCliente(emp: Record<string, unknown>): void {
   const nombreEtiqueta = cleanTrim(emp.personal_nombre) || 'el colaborador'
 
@@ -369,11 +383,264 @@ function validarLiquidacionEmpNovedadCliente(emp: Record<string, unknown>): void
   }
 }
 
+function mapRawEmpleadoToInput(
+  raw: Record<string, unknown>,
+  tipoOrigen: 'novedad_sueldo' | 'liquidacion_baja',
+): EmpleadoNovedadInput {
+  const aperc = objetoEmpleadoRegistro(raw.apercibimiento) ?? {}
+  const susp = objetoEmpleadoRegistro(raw.suspension) ?? {}
+  const desc = objetoEmpleadoRegistro(raw.descuento) ?? {}
+  const ausJ = objetoEmpleadoRegistro(raw.ausencias_justificadas) ?? {}
+  const ausI = objetoEmpleadoRegistro(raw.ausencias_injustificadas) ?? {}
+  const tard = objetoEmpleadoRegistro(raw.tardanzas) ?? {}
+  const incentivos = Array.isArray(raw.incentivos)
+    ? (raw.incentivos as Array<{ incentivo_id: number; nombre: string; aplica: boolean }>)
+    : []
+
+  return {
+    tipo_origen: tipoOrigen,
+    personal_id: Number(raw.personal_id),
+    personal_nombre: cleanTrim(raw.personal_nombre),
+    cambio_puesto: Boolean(raw.cambio_puesto),
+    nuevo_puesto_id: normalizeNumber(raw.nuevo_puesto_id),
+    fecha_alta_puesto: normalizeOptionalText(raw.fecha_alta_puesto),
+    horas_trabajadas: normalizeNumber(raw.horas_trabajadas),
+    horas_feriados: normalizeNumber(raw.horas_feriados),
+    horas_extras_autorizadas: Boolean(raw.horas_extras_autorizadas),
+    horas_extras_cantidad: normalizeNumber(raw.horas_extras_cantidad),
+    incentivos,
+    apercibimiento: {
+      tiene: Boolean(aperc.tiene),
+      motivo: normalizeOptionalText(aperc.motivo),
+      archivo_url: normalizeOptionalText(aperc.archivo_url),
+      archivo_nombre: normalizeOptionalText(aperc.archivo_nombre),
+    },
+    suspension: {
+      tiene: Boolean(susp.tiene),
+      motivo: normalizeOptionalText(susp.motivo),
+      archivo_url: normalizeOptionalText(susp.archivo_url),
+      archivo_nombre: normalizeOptionalText(susp.archivo_nombre),
+    },
+    descuento: {
+      tiene: Boolean(desc.tiene),
+      monto: normalizeNumber(desc.monto),
+      motivo: normalizeOptionalText(desc.motivo),
+    },
+    ausencias_justificadas: {
+      tiene: Boolean(ausJ.tiene),
+      cantidad: normalizeNumber(ausJ.cantidad),
+      unidad: (ausJ.unidad === 'minutos' ? 'minutos' : 'horas') as 'horas' | 'minutos',
+      motivo: normalizeOptionalText(ausJ.motivo),
+    },
+    ausencias_injustificadas: {
+      cantidad: normalizeNumber(ausI.cantidad),
+      unidad: (ausI.unidad === 'minutos' ? 'minutos' : 'horas') as 'horas' | 'minutos',
+      motivo: normalizeOptionalText(ausI.motivo),
+    },
+    tardanzas: {
+      tiene: Boolean(tard.tiene),
+      cantidad: normalizeNumber(tard.cantidad),
+      unidad: (tard.unidad === 'minutos' ? 'minutos' : 'horas') as 'horas' | 'minutos',
+      motivo: normalizeOptionalText(tard.motivo),
+    },
+    observaciones: normalizeOptionalText(raw.observaciones),
+  }
+}
+
+function dbRowToEmpleadoNovedad(row: RowDataPacket): EmpleadoNovedad {
+  function parseIncentivos(val: unknown): Array<{ incentivo_id: number; nombre: string; aplica: boolean }> {
+    if (Array.isArray(val)) return val as Array<{ incentivo_id: number; nombre: string; aplica: boolean }>
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val)
+        if (Array.isArray(parsed)) return parsed
+      } catch {
+        /* noop */
+      }
+    }
+    return []
+  }
+
+  return {
+    personal_id: Number(row.personal_id),
+    personal_nombre: String(row.personal_nombre),
+    cambio_puesto: Number(row.cambio_puesto) === 1,
+    nuevo_puesto_id: row.nuevo_puesto_id != null ? Number(row.nuevo_puesto_id) : null,
+    fecha_alta_puesto: row.fecha_alta_puesto ?? null,
+    horas_trabajadas: row.horas_trabajadas != null ? Number(row.horas_trabajadas) : null,
+    horas_feriados: row.horas_feriados != null ? Number(row.horas_feriados) : null,
+    horas_extras_autorizadas: Number(row.horas_extras_autorizadas) === 1,
+    horas_extras_cantidad: row.horas_extras_cantidad != null ? Number(row.horas_extras_cantidad) : null,
+    incentivos: parseIncentivos(row.incentivos),
+    apercibimiento: {
+      tiene: Number(row.apercibimiento) === 1,
+      motivo: row.apercibimiento_motivo ?? null,
+      archivo_url: row.apercibimiento_archivo_url ?? null,
+      archivo_nombre: row.apercibimiento_archivo_nombre ?? null,
+    },
+    suspension: {
+      tiene: Number(row.suspension) === 1,
+      motivo: row.suspension_motivo ?? null,
+      archivo_url: row.suspension_archivo_url ?? null,
+      archivo_nombre: row.suspension_archivo_nombre ?? null,
+    },
+    descuento: {
+      tiene: Number(row.descuento) === 1,
+      monto: row.descuento_monto != null ? Number(row.descuento_monto) : null,
+      motivo: row.descuento_motivo ?? null,
+    },
+    ausencias_justificadas: {
+      tiene: Number(row.aus_just) === 1,
+      cantidad: row.aus_just_cantidad != null ? Number(row.aus_just_cantidad) : null,
+      unidad: row.aus_just_unidad ?? 'horas',
+      motivo: row.aus_just_motivo ?? null,
+    },
+    ausencias_injustificadas: {
+      cantidad: row.aus_injust_cantidad != null ? Number(row.aus_injust_cantidad) : null,
+      unidad: row.aus_injust_unidad ?? 'horas',
+      motivo: row.aus_injust_motivo ?? null,
+    },
+    tardanzas: {
+      tiene: Number(row.tardanzas) === 1,
+      cantidad: row.tardanzas_cantidad != null ? Number(row.tardanzas_cantidad) : null,
+      unidad: row.tardanzas_unidad ?? 'horas',
+      motivo: row.tardanzas_motivo ?? null,
+    },
+    observaciones: row.observaciones ?? null,
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Archivos
+// ──────────────────────────────────────────────────────────────────────────────
+
+export async function insertSolicitudArchivos(
+  connection: PoolConnection,
+  solicitudId: number,
+  archivos: SolicitudArchivo[],
+): Promise<void> {
+  for (const archivo of archivos) {
+    await connection.execute(
+      `INSERT INTO rrhh_solicitudes_archivos (solicitud_id, tipo_doc, url, nombre_original) VALUES (?, ?, ?, ?)`,
+      [solicitudId, archivo.tipo_doc, archivo.url, archivo.nombre_original ?? null],
+    )
+  }
+}
+
+export async function replaceSolicitudArchivos(
+  connection: PoolConnection,
+  solicitudId: number,
+  archivos: SolicitudArchivo[],
+): Promise<void> {
+  await connection.execute(`DELETE FROM rrhh_solicitudes_archivos WHERE solicitud_id = ?`, [solicitudId])
+  await insertSolicitudArchivos(connection, solicitudId, archivos)
+}
+
+export async function getSolicitudArchivos(solicitudId: number): Promise<SolicitudArchivo[]> {
+  const rows = (await query(
+    `SELECT tipo_doc, url, nombre_original FROM rrhh_solicitudes_archivos WHERE solicitud_id = ? ORDER BY id ASC`,
+    [solicitudId],
+  )) as Array<{ tipo_doc: string; url: string; nombre_original: string | null }>
+  return rows
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Empleados de novedades / liquidación de baja
+// ──────────────────────────────────────────────────────────────────────────────
+
+export async function insertSolicitudEmpleados(
+  connection: PoolConnection,
+  solicitudId: number,
+  empleados: EmpleadoNovedadInput[],
+): Promise<void> {
+  for (const emp of empleados) {
+    await connection.execute(
+      `INSERT INTO rrhh_solicitudes_novedades_empleados
+       (solicitud_id, personal_id, personal_nombre, tipo_origen,
+        cambio_puesto, nuevo_puesto_id, fecha_alta_puesto,
+        horas_trabajadas, horas_feriados, horas_extras_autorizadas, horas_extras_cantidad,
+        apercibimiento, apercibimiento_motivo, apercibimiento_archivo_url, apercibimiento_archivo_nombre,
+        suspension, suspension_motivo, suspension_archivo_url, suspension_archivo_nombre,
+        descuento, descuento_monto, descuento_motivo,
+        aus_just, aus_just_cantidad, aus_just_unidad, aus_just_motivo,
+        aus_injust_cantidad, aus_injust_unidad, aus_injust_motivo,
+        tardanzas, tardanzas_cantidad, tardanzas_unidad, tardanzas_motivo,
+        incentivos, observaciones)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        solicitudId,
+        emp.personal_id,
+        emp.personal_nombre,
+        emp.tipo_origen,
+        emp.cambio_puesto ? 1 : 0,
+        emp.nuevo_puesto_id ?? null,
+        emp.fecha_alta_puesto ?? null,
+        emp.horas_trabajadas ?? null,
+        emp.horas_feriados ?? null,
+        emp.horas_extras_autorizadas ? 1 : 0,
+        emp.horas_extras_cantidad ?? null,
+        emp.apercibimiento.tiene ? 1 : 0,
+        emp.apercibimiento.motivo ?? null,
+        emp.apercibimiento.archivo_url ?? null,
+        emp.apercibimiento.archivo_nombre ?? null,
+        emp.suspension.tiene ? 1 : 0,
+        emp.suspension.motivo ?? null,
+        emp.suspension.archivo_url ?? null,
+        emp.suspension.archivo_nombre ?? null,
+        emp.descuento.tiene ? 1 : 0,
+        emp.descuento.monto ?? null,
+        emp.descuento.motivo ?? null,
+        emp.ausencias_justificadas.tiene ? 1 : 0,
+        emp.ausencias_justificadas.cantidad ?? null,
+        emp.ausencias_justificadas.unidad,
+        emp.ausencias_justificadas.motivo ?? null,
+        emp.ausencias_injustificadas.cantidad ?? null,
+        emp.ausencias_injustificadas.unidad,
+        emp.ausencias_injustificadas.motivo ?? null,
+        emp.tardanzas.tiene ? 1 : 0,
+        emp.tardanzas.cantidad ?? null,
+        emp.tardanzas.unidad,
+        emp.tardanzas.motivo ?? null,
+        emp.incentivos.length > 0 ? JSON.stringify(emp.incentivos) : null,
+        emp.observaciones ?? null,
+      ],
+    )
+  }
+}
+
+export async function replaceSolicitudEmpleados(
+  connection: PoolConnection,
+  solicitudId: number,
+  empleados: EmpleadoNovedadInput[],
+): Promise<void> {
+  await connection.execute(`DELETE FROM rrhh_solicitudes_novedades_empleados WHERE solicitud_id = ?`, [solicitudId])
+  await insertSolicitudEmpleados(connection, solicitudId, empleados)
+}
+
+export async function getSolicitudEmpleados(solicitudId: number): Promise<EmpleadoNovedad[]> {
+  const rows = (await query(
+    `SELECT * FROM rrhh_solicitudes_novedades_empleados WHERE solicitud_id = ? ORDER BY id ASC`,
+    [solicitudId],
+  )) as RowDataPacket[]
+  return rows.map(dbRowToEmpleadoNovedad)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Validación de contexto
+// ──────────────────────────────────────────────────────────────────────────────
+
 export async function validateSolicitudContext(
   connection: PoolConnection,
   context: ValidationContext,
-): Promise<Record<string, unknown> | null> {
+): Promise<ValidationResult> {
   const detalles = context.detalles
+  const prevArchivos = context.archivosAnteriores ?? []
+
+  function getPrevArchivo(tipoDoc: string): AltaAdjuntoSlot | null {
+    const a = prevArchivos.find(x => x.tipo_doc === tipoDoc)
+    if (!a?.url) return null
+    return { url: a.url, nombre_original: a.nombre_original ?? null }
+  }
 
   if (context.personalId) {
     await validarPersonalAsignado(connection, context.sucursalId, context.personalId, context.tipo)
@@ -467,46 +734,44 @@ export async function validateSolicitudContext(
     }
 
     const tieneCarnet = Boolean(a.carnet_manipulacion_alimentos)
-    let carnetAdjunto: AltaAdjuntoSlot | null = null
     let carnetVencimiento: string | null = null
+    const archivos: SolicitudArchivo[] = []
+
     if (tieneCarnet) {
       const incomingCarnet = parseAltaAdjunto(a.carnet_adjunto)
-      const prevCarnet =
-        context.detallesAnteriores && typeof context.detallesAnteriores === 'object'
-          ? parseAltaAdjunto((context.detallesAnteriores as Record<string, unknown>).carnet_adjunto)
-          : undefined
-      carnetAdjunto = incomingCarnet ?? prevCarnet ?? null
-      if (!carnetAdjunto) {
+      const carnetSlot = incomingCarnet ?? getPrevArchivo('carnet_manipulacion_alimentos')
+      if (!carnetSlot) {
         throw new Error('Adjunte el archivo del carnet de manipulación de alimentos')
       }
       let vRaw = cleanTrim(a.carnet_fecha_vencimiento)
-      if (
-        !vRaw &&
-        context.detallesAnteriores &&
-        typeof context.detallesAnteriores === 'object'
-      ) {
-        vRaw = cleanTrim((context.detallesAnteriores as Record<string, unknown>).carnet_fecha_vencimiento)
+      if (!vRaw) {
+        const prevVenc = prevArchivos.find(x => x.tipo_doc === '_carnet_vencimiento')
+        vRaw = prevVenc?.nombre_original ?? ''
       }
       if (!isValidDateString(vRaw)) {
         throw new Error('Indique una fecha de vencimiento válida para el carnet de manipulación')
       }
       carnetVencimiento = vRaw
+      archivos.push({
+        tipo_doc: 'carnet_manipulacion_alimentos',
+        url: carnetSlot.url,
+        nombre_original: carnetSlot.nombre_original ?? null,
+      })
     }
 
     const adjuntosFuente = a.adjuntos as Record<string, unknown> | undefined
-    const prevAdj =
-      context.detallesAnteriores && typeof context.detallesAnteriores === 'object'
-        ? (context.detallesAnteriores as Record<string, unknown>).adjuntos as Record<string, unknown> | undefined
-        : undefined
-    const adjuntos: AltaDetalles['adjuntos'] = {} as AltaDetalles['adjuntos']
-    for (const key of ['dni_frente_dorso', 'ddjj_domicilio', 'descripcion_puesto_firmada', 'foto_colaborador'] as const) {
-      const incoming = parseAltaAdjunto(adjuntosFuente?.[key])
-      const persisted = parseAltaAdjunto(prevAdj?.[key])
-      const slot = incoming ?? persisted
+    for (const key of [
+      'dni_frente_dorso',
+      'ddjj_domicilio',
+      'descripcion_puesto_firmada',
+      'foto_colaborador',
+    ] as const) {
+      const incomingSlot = parseAltaAdjunto((adjuntosFuente as Record<string, unknown> | undefined)?.[key])
+      const slot = incomingSlot ?? getPrevArchivo(key)
       if (!slot) {
         throw new Error(`Falta subir escaneado: ${ADJUNTOS_LABELS[key]}`)
       }
-      adjuntos[key] = slot
+      archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
     }
 
     const periodoPrueba = Boolean(a.periodo_prueba)
@@ -521,32 +786,34 @@ export async function validateSolicitudContext(
     const otrasObs = normalizeOptionalText(a.otras_observaciones_alta)
 
     return {
-      nombre,
-      dni,
-      cuil: cuilParsed,
-      domicilio,
-      domicilio_dni: domicilioDni,
-      fecha_nacimiento: fechaNacimiento,
-      telefono,
-      email,
-      banco: bancoNombre,
-      cbu,
-      puesto_id: Number(a.puesto_id),
-      fecha_incorporacion: a.fecha_incorporacion,
-      fecha_inicio_cobro_oficina: fechaInicioCobro,
-      jornada_semanal_dias: JORNADA_DIAS,
-      jornada_diaria_horas_texto: jornadaHorasTexto,
-      propuesta_economica: PROPUESTA,
-      beneficios,
-      otras_observaciones_alta: otrasObs,
-      condicion_laboral: condicionLaboral as 1 | 2,
-      fecha_alta_temprana: fechaAltaTemprana,
-      periodo_prueba: periodoPrueba,
-      periodo_prueba_dias: periodoPruebaDias,
-      carnet_manipulacion_alimentos: tieneCarnet,
-      carnet_adjunto: tieneCarnet ? carnetAdjunto : null,
-      carnet_fecha_vencimiento: tieneCarnet ? carnetVencimiento : null,
-      adjuntos,
+      detalles: {
+        nombre,
+        dni,
+        cuil: cuilParsed,
+        domicilio,
+        domicilio_dni: domicilioDni,
+        fecha_nacimiento: fechaNacimiento,
+        telefono,
+        email,
+        banco: bancoNombre,
+        cbu,
+        puesto_id: Number(a.puesto_id),
+        fecha_incorporacion: a.fecha_incorporacion,
+        fecha_inicio_cobro_oficina: fechaInicioCobro,
+        jornada_semanal_dias: JORNADA_DIAS,
+        jornada_diaria_horas_texto: jornadaHorasTexto,
+        propuesta_economica: PROPUESTA,
+        beneficios,
+        otras_observaciones_alta: otrasObs,
+        condicion_laboral: condicionLaboral as 1 | 2,
+        fecha_alta_temprana: fechaAltaTemprana,
+        periodo_prueba: periodoPrueba,
+        periodo_prueba_dias: periodoPruebaDias,
+        carnet_manipulacion_alimentos: tieneCarnet,
+        carnet_fecha_vencimiento: tieneCarnet ? carnetVencimiento : null,
+      },
+      archivos,
+      empleados: [],
     }
   }
 
@@ -584,24 +851,20 @@ export async function validateSolicitudContext(
     validarLiquidacionEmpNovedadCliente(liqRaw)
 
     const incomingCarta = parseAltaAdjunto(b.carta_documento_adjunto)
-    const prevCarta =
-      context.detallesAnteriores && typeof context.detallesAnteriores === 'object'
-        ? parseAltaAdjunto((context.detallesAnteriores as Record<string, unknown>).carta_documento_adjunto)
-        : undefined
-    const cartaDoc = incomingCarta ?? prevCarta ?? null
+    const cartaDoc = incomingCarta ?? getPrevArchivo('carta_documento')
     if (!cartaDoc?.url) {
       throw new Error('Adjunte la carta documento en PDF')
     }
 
-    const liquidacionGuardada = JSON.parse(JSON.stringify(liqRaw)) as Record<string, unknown>
-
     return {
-      motivo_baja_id: motivoId,
-      motivo_baja_nombre: motivoCatalogo.nombre,
-      motivo_baja_detalle: normalizeOptionalText(b.motivo_baja_detalle),
-      fecha_baja: fechaBaja,
-      liquidacion_empleado: liquidacionGuardada,
-      carta_documento_adjunto: cartaDoc,
+      detalles: {
+        motivo_baja_id: motivoId,
+        motivo_baja_nombre: motivoCatalogo.nombre,
+        motivo_baja_detalle: normalizeOptionalText(b.motivo_baja_detalle),
+        fecha_baja: fechaBaja,
+      },
+      archivos: [{ tipo_doc: 'carta_documento', url: cartaDoc.url, nombre_original: cartaDoc.nombre_original ?? null }],
+      empleados: [mapRawEmpleadoToInput(liqRaw, 'liquidacion_baja')],
     }
   }
 
@@ -629,9 +892,13 @@ export async function validateSolicitudContext(
     }
 
     return {
-      fecha_desde: vacacionesDetalles.fecha_desde,
-      fecha_hasta: vacacionesDetalles.fecha_hasta,
-      cantidad_dias: Number(vacacionesDetalles.cantidad_dias),
+      detalles: {
+        fecha_desde: vacacionesDetalles.fecha_desde,
+        fecha_hasta: vacacionesDetalles.fecha_hasta,
+        cantidad_dias: Number(vacacionesDetalles.cantidad_dias),
+      },
+      archivos: [],
+      empleados: [],
     }
   }
 
@@ -657,10 +924,14 @@ export async function validateSolicitudContext(
     )
 
     return {
-      tipo_licencia: String(licenciaDetalles.tipo_licencia).trim(),
-      fecha_desde: licenciaDetalles.fecha_desde,
-      fecha_hasta: licenciaDetalles.fecha_hasta,
-      motivo: String(licenciaDetalles.motivo).trim(),
+      detalles: {
+        tipo_licencia: String(licenciaDetalles.tipo_licencia).trim(),
+        fecha_desde: licenciaDetalles.fecha_desde,
+        fecha_hasta: licenciaDetalles.fecha_hasta,
+        motivo: String(licenciaDetalles.motivo).trim(),
+      },
+      archivos: [],
+      empleados: [],
     }
   }
 
@@ -679,10 +950,13 @@ export async function validateSolicitudContext(
     }
 
     return {
-      area_id: Number(d.area_id),
-      mes,
-      anio: Number(d.anio),
-      empleados: d.empleados,
+      detalles: {
+        area_id: Number(d.area_id),
+        mes,
+        anio: Number(d.anio),
+      },
+      archivos: [],
+      empleados: d.empleados.map(e => mapRawEmpleadoToInput(e as unknown as Record<string, unknown>, 'novedad_sueldo')),
     }
   }
 
@@ -698,9 +972,13 @@ export async function validateSolicitudContext(
     }
 
     return {
-      fecha: apercibimientoDetalles.fecha,
-      severidad: apercibimientoDetalles.severidad,
-      motivo: String(apercibimientoDetalles.motivo).trim(),
+      detalles: {
+        fecha: apercibimientoDetalles.fecha,
+        severidad: apercibimientoDetalles.severidad,
+        motivo: String(apercibimientoDetalles.motivo).trim(),
+      },
+      archivos: [],
+      empleados: [],
     }
   }
 
@@ -720,9 +998,13 @@ export async function validateSolicitudContext(
     }
 
     return {
-      motivo: String(descuentoDetalles.motivo).trim(),
-      monto,
-      fecha: descuentoDetalles.fecha,
+      detalles: {
+        motivo: String(descuentoDetalles.motivo).trim(),
+        monto,
+        fecha: descuentoDetalles.fecha,
+      },
+      archivos: [],
+      empleados: [],
     }
   }
 
@@ -742,10 +1024,14 @@ export async function validateSolicitudContext(
     }
 
     return {
-      cantidad_horas: cantidadHoras,
-      fecha: horasDetalles.fecha,
-      ...(horasDetalles.valor_hora != null && { valor_hora: Number(horasDetalles.valor_hora) }),
-      ...(horasDetalles.descripcion && { descripcion: String(horasDetalles.descripcion).trim() }),
+      detalles: {
+        cantidad_horas: cantidadHoras,
+        fecha: horasDetalles.fecha,
+        ...(horasDetalles.valor_hora != null && { valor_hora: Number(horasDetalles.valor_hora) }),
+        ...(horasDetalles.descripcion && { descripcion: String(horasDetalles.descripcion).trim() }),
+      },
+      archivos: [],
+      empleados: [],
     }
   }
 
@@ -756,11 +1042,16 @@ export async function validateSolicitudContext(
     const fechaDesde = cleanTrim(d.fecha_desde)
     const fechaHasta = cleanTrim(d.fecha_hasta)
     const motivo = cleanTrim(d.motivo)
-    if (!fechaDesde || !isValidDateString(fechaDesde)) throw new Error('La fecha de inicio de la suspensión es inválida')
+    if (!fechaDesde || !isValidDateString(fechaDesde))
+      throw new Error('La fecha de inicio de la suspensión es inválida')
     if (!fechaHasta || !isValidDateString(fechaHasta)) throw new Error('La fecha de fin de la suspensión es inválida')
-    validarRangoFechas(fechaDesde, fechaHasta, 'La fecha de inicio no puede ser posterior a la fecha de fin de la suspensión')
+    validarRangoFechas(
+      fechaDesde,
+      fechaHasta,
+      'La fecha de inicio no puede ser posterior a la fecha de fin de la suspensión',
+    )
     if (!motivo) throw new Error('Ingrese el motivo de la suspensión')
-    return { fecha_desde: fechaDesde, fecha_hasta: fechaHasta, motivo }
+    return { detalles: { fecha_desde: fechaDesde, fecha_hasta: fechaHasta, motivo }, archivos: [], empleados: [] }
   }
 
   if (context.tipo === 'Capacitaciones') {
@@ -770,7 +1061,7 @@ export async function validateSolicitudContext(
     const fecha = cleanTrim(d.fecha)
     if (!tema) throw new Error('Ingrese el tema de la capacitación')
     if (!fecha || !isValidDateString(fecha)) throw new Error('La fecha de la capacitación es inválida')
-    return { tema, fecha, descripcion: normalizeOptionalText(d.descripcion) }
+    return { detalles: { tema, fecha, descripcion: normalizeOptionalText(d.descripcion) }, archivos: [], empleados: [] }
   }
 
   if (context.tipo === 'Pedido de uniforme') {
@@ -781,7 +1072,11 @@ export async function validateSolicitudContext(
     const items = cleanTrim(d.items)
     if (!talle) throw new Error('Ingrese el talle del colaborador')
     if (!items) throw new Error('Ingrese los items solicitados')
-    return { talle, items, observaciones: normalizeOptionalText(d.observaciones) }
+    return {
+      detalles: { talle, items, observaciones: normalizeOptionalText(d.observaciones) },
+      archivos: [],
+      empleados: [],
+    }
   }
 
   if (context.tipo === 'Adelantos') {
@@ -794,7 +1089,7 @@ export async function validateSolicitudContext(
     if (!fecha || !isValidDateString(fecha)) throw new Error('La fecha del adelanto es inválida')
     const motivo = cleanTrim(d.motivo)
     if (!motivo) throw new Error('Ingrese el motivo del adelanto')
-    return { monto, fecha, motivo }
+    return { detalles: { monto, fecha, motivo }, archivos: [], empleados: [] }
   }
 
   if (context.tipo === 'Incentivos y premios') {
@@ -806,12 +1101,17 @@ export async function validateSolicitudContext(
     const fecha = cleanTrim(d.fecha)
     if (!fecha || !isValidDateString(fecha)) throw new Error('La fecha del incentivo o premio es inválida')
     const montoRaw = d.monto != null && d.monto !== '' ? Number(d.monto) : null
-    if (montoRaw !== null && !isPositiveNumber(montoRaw)) throw new Error('El monto del incentivo debe ser mayor a cero')
-    return { descripcion, fecha, monto: montoRaw }
+    if (montoRaw !== null && !isPositiveNumber(montoRaw))
+      throw new Error('El monto del incentivo debe ser mayor a cero')
+    return { detalles: { descripcion, fecha, monto: montoRaw }, archivos: [], empleados: [] }
   }
 
-  return detalles
+  return { detalles, archivos: [], empleados: [] }
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Historial
+// ──────────────────────────────────────────────────────────────────────────────
 
 export async function insertHistorial(
   connection: PoolConnection,
@@ -841,15 +1141,96 @@ export async function getSolicitudHistorial(solicitudId: number): Promise<Solici
   return rows
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Enriquecimiento de respuesta
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Extrae archivos del campo JSON detalles para registros anteriores a RH-60. */
+function extractArchivosFromLegacyDetalles(row: SolicitudRow): SolicitudArchivo[] {
+  const detalles = parseDetalles(row.detalles)
+  if (!detalles) return []
+  const archivos: SolicitudArchivo[] = []
+
+  if (row.tipo === 'Altas') {
+    const adj = detalles.adjuntos as Record<string, { url?: string; nombre_original?: string } | null> | undefined
+    for (const key of ['dni_frente_dorso', 'ddjj_domicilio', 'descripcion_puesto_firmada', 'foto_colaborador']) {
+      const slot = adj?.[key]
+      if (slot?.url) archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
+    }
+    const carnet = detalles.carnet_adjunto as { url?: string; nombre_original?: string } | null | undefined
+    if (carnet?.url)
+      archivos.push({
+        tipo_doc: 'carnet_manipulacion_alimentos',
+        url: carnet.url,
+        nombre_original: carnet.nombre_original ?? null,
+      })
+  }
+
+  if (row.tipo === 'Bajas') {
+    const carta = detalles.carta_documento_adjunto as { url?: string; nombre_original?: string | null } | undefined
+    if (carta?.url)
+      archivos.push({ tipo_doc: 'carta_documento', url: carta.url, nombre_original: carta.nombre_original ?? null })
+  }
+
+  return archivos
+}
+
+/** Extrae empleados del campo JSON detalles para registros anteriores a RH-61. */
+function extractEmpleadosFromLegacyDetalles(row: SolicitudRow): EmpleadoNovedad[] {
+  const detalles = parseDetalles(row.detalles)
+  if (!detalles) return []
+
+  if (row.tipo === 'Novedades de sueldo') {
+    const empleados = detalles.empleados
+    if (Array.isArray(empleados)) {
+      return empleados.map(e => {
+        const raw = e as Record<string, unknown>
+        const input = mapRawEmpleadoToInput(raw, 'novedad_sueldo')
+        const { tipo_origen: _ignored, ...emp } = input
+        return emp
+      })
+    }
+  }
+
+  if (row.tipo === 'Bajas') {
+    const liq = detalles.liquidacion_empleado
+    if (liq && typeof liq === 'object' && !Array.isArray(liq)) {
+      const input = mapRawEmpleadoToInput(liq as Record<string, unknown>, 'liquidacion_baja')
+      const { tipo_origen: _ignored, ...emp } = input
+      return [emp]
+    }
+  }
+
+  return []
+}
+
 export async function enrichSolicitud(
   row: SolicitudRow,
-): Promise<SolicitudRow & { historial: SolicitudHistorialItem[] }> {
+): Promise<
+  SolicitudRow & { historial: SolicitudHistorialItem[]; archivos: SolicitudArchivo[]; empleados: EmpleadoNovedad[] }
+> {
+  const [historial, archivosTabla, empleadosTabla] = await Promise.all([
+    getSolicitudHistorial(row.id),
+    getSolicitudArchivos(row.id),
+    getSolicitudEmpleados(row.id),
+  ])
+
+  // Para registros anteriores a RH-60/61, se cae en el fallback JSON.
+  const archivos = archivosTabla.length > 0 ? archivosTabla : extractArchivosFromLegacyDetalles(row)
+  const empleados = empleadosTabla.length > 0 ? empleadosTabla : extractEmpleadosFromLegacyDetalles(row)
+
   return {
     ...row,
     detalles: parseDetalles(row.detalles),
-    historial: await getSolicitudHistorial(row.id),
+    historial,
+    archivos,
+    empleados,
   }
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Efectos secundarios al aprobar
+// ──────────────────────────────────────────────────────────────────────────────
 
 export async function resolveSolicitudSideEffects(
   connection: PoolConnection,
@@ -861,7 +1242,9 @@ export async function resolveSolicitudSideEffects(
   let liquidacionFinalEstado: ResolveSideEffectsResult['liquidacionFinalEstado'] = 'No aplica'
 
   if (solicitud.tipo === 'Altas') {
-    const detalles = parseDetalles(solicitud.detalles) as AltaDetalles | null
+    const detalles = parseDetalles(solicitud.detalles) as
+      | (Omit<AltaDetalles, 'adjuntos' | 'carnet_adjunto'> & { carnet_fecha_vencimiento?: string | null })
+      | null
     if (!detalles) {
       throw new Error('La solicitud de alta no tiene detalles válidos')
     }
@@ -880,6 +1263,13 @@ export async function resolveSolicitudSideEffects(
     )
     const maxNum = lastRow.length > 0 && lastRow[0].max_num != null ? Number(lastRow[0].max_num) : 0
     const nuevoLegajo = String(maxNum + 1).padStart(6, '0')
+
+    // Leer carnet desde la tabla de archivos
+    const [carnetRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT url, nombre_original FROM rrhh_solicitudes_archivos WHERE solicitud_id = ? AND tipo_doc = 'carnet_manipulacion_alimentos'`,
+      [solicitud.id],
+    )
+    const carnetArchivo = carnetRows[0] ?? null
 
     const [insertResult] = await connection.execute(
       `INSERT INTO personal
@@ -915,9 +1305,9 @@ export async function resolveSolicitudSideEffects(
         detalles.banco ?? null,
         detalles.cbu ?? null,
         detalles.carnet_manipulacion_alimentos ? 1 : 0,
-        detalles.carnet_manipulacion_alimentos && detalles.carnet_adjunto ? detalles.carnet_adjunto.url : null,
-        detalles.carnet_manipulacion_alimentos && detalles.carnet_adjunto ? detalles.carnet_adjunto.nombre_original ?? null : null,
-        detalles.carnet_manipulacion_alimentos ? detalles.carnet_fecha_vencimiento : null,
+        detalles.carnet_manipulacion_alimentos && carnetArchivo ? carnetArchivo.url : null,
+        detalles.carnet_manipulacion_alimentos && carnetArchivo ? (carnetArchivo.nombre_original ?? null) : null,
+        detalles.carnet_manipulacion_alimentos ? (detalles.carnet_fecha_vencimiento ?? null) : null,
         solicitud.id,
         JSON.stringify(detalles),
       ],
@@ -985,23 +1375,36 @@ export async function resolveSolicitudSideEffects(
   }
 
   if (solicitud.tipo === 'Novedades de sueldo') {
-    const detalles = parseDetalles(solicitud.detalles) as NovedadSueldoDetalles | null
-    if (detalles?.empleados) {
-      for (const emp of detalles.empleados) {
-        if (emp.cambio_puesto && emp.nuevo_puesto_id != null) {
-          await connection.execute(
-            `UPDATE personal SET puesto_id = ? WHERE id = ? AND deleted_at IS NULL`,
-            [emp.nuevo_puesto_id, emp.personal_id],
-          )
-          await insertHistorial(
-            connection,
-            solicitud.id,
-            emp.personal_id,
-            usuarioId,
-            'Puesto actualizado',
-            `Puesto actualizado a ID ${emp.nuevo_puesto_id} por aprobación de novedad de sueldo.`,
-          )
-        }
+    const [empRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT personal_id, cambio_puesto, nuevo_puesto_id FROM rrhh_solicitudes_novedades_empleados WHERE solicitud_id = ?`,
+      [solicitud.id],
+    )
+
+    // Fallback para registros anteriores a RH-61
+    const empleados =
+      empRows.length > 0
+        ? empRows
+        : (() => {
+            const d = parseDetalles(solicitud.detalles) as {
+              empleados?: Array<{ personal_id: number; cambio_puesto: boolean; nuevo_puesto_id: number | null }>
+            } | null
+            return d?.empleados ?? []
+          })()
+
+    for (const emp of empleados) {
+      if ((Number(emp.cambio_puesto) === 1 || emp.cambio_puesto === true) && emp.nuevo_puesto_id != null) {
+        await connection.execute(`UPDATE personal SET puesto_id = ? WHERE id = ? AND deleted_at IS NULL`, [
+          emp.nuevo_puesto_id,
+          emp.personal_id,
+        ])
+        await insertHistorial(
+          connection,
+          solicitud.id,
+          emp.personal_id,
+          usuarioId,
+          'Puesto actualizado',
+          `Puesto actualizado a ID ${emp.nuevo_puesto_id} por aprobación de novedad de sueldo.`,
+        )
       }
     }
   }

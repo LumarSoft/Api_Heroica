@@ -1,16 +1,27 @@
 import type { Request, Response } from 'express'
+import type { RowDataPacket } from 'mysql2/promise'
 import { getConnection, query } from '../config/database'
-import { sendNuevaSolicitudEmail, sendSolicitudColaboradorEmail, sendSolicitudEventoEmail, sendSolicitudResueltaEmail } from '../services/rrhhSolicitudesEmailService'
+import {
+  sendNuevaSolicitudEmail,
+  sendSolicitudColaboradorEmail,
+  sendSolicitudEventoEmail,
+  sendSolicitudResueltaEmail,
+} from '../services/rrhhSolicitudesEmailService'
 import {
   ESTADOS_VALIDOS,
   SOLICITUD_SELECT,
   TIPOS_VALIDOS,
   enrichSolicitud,
+  getSolicitudArchivos,
   hasPermission,
   insertHistorial,
+  insertSolicitudArchivos,
+  insertSolicitudEmpleados,
   normalizeNumber,
   normalizeOptionalText,
   parseDetalles,
+  replaceSolicitudArchivos,
+  replaceSolicitudEmpleados,
   resolveSolicitudSideEffects,
   validateSolicitudContext,
   verificarAccesoSucursal,
@@ -40,21 +51,22 @@ function uniqueEmails(emails: Array<string | null | undefined>): string[] {
 }
 
 async function getSucursalEmail(sucursalId: number): Promise<string | null> {
-  const rows = (await query(
-    `SELECT email_correspondencia FROM sucursales WHERE id = ? AND deleted_at IS NULL`,
-    [sucursalId],
-  )) as Array<{ email_correspondencia: string | null }>
+  const rows = (await query(`SELECT email_correspondencia FROM sucursales WHERE id = ? AND deleted_at IS NULL`, [
+    sucursalId,
+  ])) as Array<{ email_correspondencia: string | null }>
 
   return rows[0]?.email_correspondencia ?? null
 }
 
 async function getResponsableEmails(sucursalId: number): Promise<string[]> {
-  const [superAdminEmails, sucursalEmail] = await Promise.all([
-    getSuperAdminEmails(),
-    getSucursalEmail(sucursalId),
-  ])
+  const [superAdminEmails, sucursalEmail] = await Promise.all([getSuperAdminEmails(), getSucursalEmail(sucursalId)])
 
-  return uniqueEmails([process.env.RRHH_RESPONSABLE_EMAIL, sucursalEmail, process.env.EMAIL_APROBACION, ...superAdminEmails])
+  return uniqueEmails([
+    process.env.RRHH_RESPONSABLE_EMAIL,
+    sucursalEmail,
+    process.env.EMAIL_APROBACION,
+    ...superAdminEmails,
+  ])
 }
 
 async function getSeguimientoSolicitudEmails(solicitud: SolicitudRow): Promise<string[]> {
@@ -67,7 +79,9 @@ async function getSeguimientoSolicitudEmails(solicitud: SolicitudRow): Promise<s
 }
 
 async function getUserEmail(userId: number): Promise<{ email: string; nombre: string } | null> {
-  const rows = (await query(`SELECT email, nombre FROM usuarios WHERE id = ? AND activo = 1 AND deleted_at IS NULL`, [userId])) as Array<{
+  const rows = (await query(`SELECT email, nombre FROM usuarios WHERE id = ? AND activo = 1 AND deleted_at IS NULL`, [
+    userId,
+  ])) as Array<{
     email: string
     nombre: string
   }>
@@ -111,7 +125,10 @@ async function notifyColaborador(
 }
 
 async function canViewGlobalSolicitudes(user: NonNullable<Request['user']>): Promise<boolean> {
-  return (await hasPermission(user, 'ver_solicitudes_todas_sucursales')) || (await hasPermission(user, 'ver_historial_solicitudes_global'))
+  return (
+    (await hasPermission(user, 'ver_solicitudes_todas_sucursales')) ||
+    (await hasPermission(user, 'ver_historial_solicitudes_global'))
+  )
 }
 
 async function ensureSolicitudAccess(user: NonNullable<Request['user']>, solicitud: SolicitudRow): Promise<void> {
@@ -141,7 +158,9 @@ export const getSolicitudes = async (req: Request, res: Response) => {
       conditions.push('s.sucursal_id = ?')
       params.push(normalizedSucursalId)
     } else if (!(await canViewGlobalSolicitudes(user))) {
-      conditions.push('EXISTS (SELECT 1 FROM usuarios_sucursales us WHERE us.usuario_id = ? AND us.sucursal_id = s.sucursal_id)')
+      conditions.push(
+        'EXISTS (SELECT 1 FROM usuarios_sucursales us WHERE us.usuario_id = ? AND us.sucursal_id = s.sucursal_id)',
+      )
       params.push(user.id)
     }
 
@@ -242,7 +261,11 @@ export const createSolicitud = async (req: Request, res: Response) => {
     connection = await getConnection()
     await connection.beginTransaction()
 
-    const detallesNormalizados = await validateSolicitudContext(connection, {
+    const {
+      detalles: detallesNormalizados,
+      archivos,
+      empleados,
+    } = await validateSolicitudContext(connection, {
       tipo: tipo as SolicitudTipo,
       sucursalId: normalizedSucursalId,
       personalId: normalizedPersonalId,
@@ -265,6 +288,8 @@ export const createSolicitud = async (req: Request, res: Response) => {
     )
 
     const solicitudId = Number((insertResult as { insertId: number }).insertId)
+    await insertSolicitudArchivos(connection, solicitudId, archivos)
+    await insertSolicitudEmpleados(connection, solicitudId, empleados)
     await insertHistorial(connection, solicitudId, normalizedPersonalId, user.id, 'Creada', 'Solicitud creada.')
     await connection.commit()
     connection.release()
@@ -289,7 +314,9 @@ export const createSolicitud = async (req: Request, res: Response) => {
   } catch (error) {
     if (connection) await connection.rollback()
     console.error('Error al crear solicitud de RRHH:', error)
-    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al crear solicitud' })
+    res
+      .status(500)
+      .json({ success: false, message: error instanceof Error ? error.message : 'Error al crear solicitud' })
   } finally {
     if (connection) connection.release()
   }
@@ -340,13 +367,27 @@ export const updateSolicitud = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
     }
 
-    const detallesNormalizados = await validateSolicitudContext(connection, {
+    const [archivosAnterioresRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT tipo_doc, url, nombre_original FROM rrhh_solicitudes_archivos WHERE solicitud_id = ?`,
+      [solicitudId],
+    )
+    const archivosAnteriores = archivosAnterioresRows as Array<{
+      tipo_doc: string
+      url: string
+      nombre_original: string | null
+    }>
+
+    const {
+      detalles: detallesNormalizados,
+      archivos,
+      empleados,
+    } = await validateSolicitudContext(connection, {
       tipo,
       sucursalId,
       personalId,
       detalles: parseDetalles(req.body.detalles),
       solicitudId,
-      detallesAnteriores: parseDetalles(solicitud.detalles),
+      archivosAnteriores,
     })
 
     await connection.execute(
@@ -364,7 +405,16 @@ export const updateSolicitud = async (req: Request, res: Response) => {
       ],
     )
 
-    await insertHistorial(connection, solicitudId, personalId, user.id, 'Editada', 'Solicitud actualizada mientras seguía pendiente.')
+    await replaceSolicitudArchivos(connection, solicitudId, archivos)
+    await replaceSolicitudEmpleados(connection, solicitudId, empleados)
+    await insertHistorial(
+      connection,
+      solicitudId,
+      personalId,
+      user.id,
+      'Editada',
+      'Solicitud actualizada mientras seguía pendiente.',
+    )
     await connection.commit()
     connection.release()
     connection = null
@@ -394,7 +444,9 @@ export const updateSolicitud = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
     }
     console.error('Error al editar solicitud de RRHH:', error)
-    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al editar solicitud' })
+    res
+      .status(500)
+      .json({ success: false, message: error instanceof Error ? error.message : 'Error al editar solicitud' })
   } finally {
     if (connection) connection.release()
   }
@@ -462,7 +514,15 @@ export const updateEstadoSolicitud = async (req: Request, res: Response) => {
        SET estado = ?, resuelto_por_usuario_id = ?, fecha_resolucion = NOW(), motivo_resolucion = ?,
            personal_id = ?, personal_creado_id = ?, liquidacion_final_estado = ?, updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
-      [nuevoEstado, user.id, motivoResolucion, resolvedPersonalId, personalCreadoId, liquidacionFinalEstado, solicitudId],
+      [
+        nuevoEstado,
+        user.id,
+        motivoResolucion,
+        resolvedPersonalId,
+        personalCreadoId,
+        liquidacionFinalEstado,
+        solicitudId,
+      ],
     )
 
     await insertHistorial(
@@ -521,7 +581,9 @@ export const updateEstadoSolicitud = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
     }
     console.error('Error al actualizar estado de la solicitud de RRHH:', error)
-    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al actualizar la solicitud' })
+    res
+      .status(500)
+      .json({ success: false, message: error instanceof Error ? error.message : 'Error al actualizar la solicitud' })
   } finally {
     if (connection) connection.release()
   }
@@ -597,7 +659,9 @@ export const cancelSolicitud = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
     }
     console.error('Error al cancelar solicitud de RRHH:', error)
-    res.status(500).json({ success: false, message: error instanceof Error ? error.message : 'Error al cancelar la solicitud' })
+    res
+      .status(500)
+      .json({ success: false, message: error instanceof Error ? error.message : 'Error al cancelar la solicitud' })
   } finally {
     if (connection) connection.release()
   }
