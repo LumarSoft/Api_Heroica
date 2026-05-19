@@ -103,6 +103,132 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Configuración',
   },
 
+  // ── MÓDULO: RRHH - LEGAJOS / PERSONAL ───────────────────────────────────
+  {
+    clave: 'ver_personal',
+    descripcion: 'Ver el listado de colaboradores y sus legajos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'crear_personal',
+    descripcion: 'Agregar nuevos colaboradores al sistema',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_personal',
+    descripcion: 'Editar datos personales y profesionales de colaboradores',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'eliminar_personal',
+    descripcion: 'Eliminar colaboradores del sistema',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - ÁREAS ────────────────────────────────────────────────
+  {
+    clave: 'ver_areas',
+    descripcion: 'Ver áreas de la organización',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_areas',
+    descripcion: 'Crear, editar y eliminar áreas',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - PUESTOS ──────────────────────────────────────────────
+  {
+    clave: 'ver_puestos',
+    descripcion: 'Ver puestos de trabajo disponibles',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_puestos',
+    descripcion: 'Crear, editar y eliminar puestos de trabajo',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - ESCALAS SALARIALES ───────────────────────────────────
+  {
+    clave: 'ver_escalas',
+    descripcion: 'Ver escalas salariales',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_escalas',
+    descripcion: 'Crear, editar y eliminar escalas salariales',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - INCENTIVOS Y PREMIOS ─────────────────────────────────
+  {
+    clave: 'ver_incentivos',
+    descripcion: 'Ver incentivos y premios de RRHH',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_incentivos',
+    descripcion: 'Crear, editar y desactivar incentivos y premios de RRHH',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - CALENDARIO ────────────────────────────────────────────
+  {
+    clave: 'ver_calendario',
+    descripcion: 'Ver el calendario de eventos de RRHH',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_calendario',
+    descripcion: 'Crear, editar y eliminar eventos del calendario de RRHH',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - SOLICITUDES ──────────────────────────────────────────
+  {
+    clave: 'ver_solicitudes',
+    descripcion: 'Ver solicitudes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'crear_solicitudes',
+    descripcion: 'Crear solicitudes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'editar_solicitudes',
+    descripcion: 'Editar solicitudes pendientes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'cancelar_solicitudes',
+    descripcion: 'Cancelar solicitudes pendientes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'aprobar_solicitudes',
+    descripcion: 'Aprobar o rechazar solicitudes de Recursos Humanos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'ver_historial_solicitudes_global',
+    descripcion: 'Ver historial global de solicitudes de todas las sucursales',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'ver_solicitudes_todas_sucursales',
+    descripcion: 'Ver solicitudes de Recursos Humanos de todas las sucursales',
+    categoria: 'Recursos Humanos',
+  },
+
+  // ── MÓDULO: RRHH - SUELDOS ──────────────────────────────────────────────
+  {
+    clave: 'ver_sueldos',
+    descripcion: 'Ver el panel de sueldos y liquidaciones del período',
+    categoria: 'Recursos Humanos',
+  },
+
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
   // Al agregar un nuevo módulo, copiá el bloque de abajo y completalo:
   //
