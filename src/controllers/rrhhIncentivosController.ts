@@ -12,8 +12,8 @@ function normalizeOptionalText(value: unknown): string | null {
 
 function normalizeNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
 }
 
 function normalizeBoolean(value: unknown): boolean {
@@ -26,14 +26,12 @@ function normalizeBoolean(value: unknown): boolean {
 function normalizePayload(body: Record<string, unknown>) {
   const mes = normalizeNumber(body.mes)
   const anio = normalizeNumber(body.anio)
-  const escalaSalarialId = normalizeNumber(body.escala_salarial_id)
   const valor = normalizeNumber(body.valor)
   const tipo = typeof body.tipo === 'string' ? body.tipo.trim() : 'Incentivo'
   const metodoCalculo = typeof body.metodo_calculo === 'string' ? body.metodo_calculo.trim() : 'porcentaje_escala'
 
   return {
     sucursal_id: normalizeNumber(body.sucursal_id),
-    escala_salarial_id: escalaSalarialId,
     nombre: typeof body.nombre === 'string' ? body.nombre.trim() : '',
     tipo,
     descripcion: normalizeOptionalText(body.descripcion),
@@ -53,25 +51,20 @@ function validatePayload(payload: ReturnType<typeof normalizePayload>): string |
   if (!payload.anio || payload.anio < 2000) return 'Año inválido'
   if (!METODOS_VALIDOS.includes(payload.metodo_calculo)) return 'Método de cálculo inválido'
   if (payload.valor === null || payload.valor < 0) return 'Valor inválido'
-  if (!payload.escala_salarial_id) return 'La escala salarial es obligatoria'
   return null
 }
 
-const selectIncentivosSql = `
-  SELECT i.id, i.sucursal_id, s.nombre AS sucursal_nombre, i.escala_salarial_id,
-         pu.nombre AS escala_puesto, e.sueldo_base AS escala_sueldo_base, e.valor_hora AS escala_valor_hora,
+const selectSql = `
+  SELECT i.id, i.sucursal_id, s.nombre AS sucursal_nombre,
          i.nombre, i.tipo, i.descripcion, i.mes, i.anio, i.metodo_calculo, i.valor, i.activo,
-         CASE
-           WHEN i.metodo_calculo = 'porcentaje_escala' THEN ROUND(COALESCE(e.sueldo_base, 0) * i.valor / 100, 2)
-           WHEN i.metodo_calculo = 'multiplicador_valor_hora' THEN ROUND(COALESCE(e.valor_hora, 0) * i.valor, 2)
-           ELSE i.valor
-         END AS monto_calculado,
          i.fecha_ultima_actualizacion, i.created_at, i.updated_at
   FROM rrhh_incentivos_premios i
   INNER JOIN sucursales s ON i.sucursal_id = s.id
-  LEFT JOIN escalas_salariales e ON i.escala_salarial_id = e.id AND e.deleted_at IS NULL
-  LEFT JOIN puestos pu ON e.puesto_id = pu.id AND pu.deleted_at IS NULL
 `
+
+function formatRow(row: any) {
+  return { ...row, activo: Boolean(row.activo) }
+}
 
 // GET /api/rrhh/incentivos
 export const getIncentivos = async (req: Request, res: Response) => {
@@ -84,32 +77,27 @@ export const getIncentivos = async (req: Request, res: Response) => {
       conditions.push('i.sucursal_id = ?')
       params.push(Number(sucursal_id))
     }
-
     if (mes) {
       conditions.push('i.mes = ?')
       params.push(Number(mes))
     }
-
     if (anio) {
       conditions.push('i.anio = ?')
       params.push(Number(anio))
     }
-
     if (activo === 'true' || activo === 'false') {
       conditions.push('i.activo = ?')
       params.push(activo === 'true' ? 1 : 0)
     }
 
-    const result = await query(
-      `${selectIncentivosSql}
-       WHERE ${conditions.join(' AND ')}
-       ORDER BY i.anio DESC, i.mes DESC, i.activo DESC, i.nombre ASC`,
+    const rows = (await query(
+      `${selectSql} WHERE ${conditions.join(' AND ')} ORDER BY i.anio DESC, i.mes DESC, i.activo DESC, i.nombre ASC`,
       params,
-    )
+    )) as any[]
 
-    res.json({ success: true, data: result })
-  } catch (error) {
-    console.error('Error al obtener incentivos de RRHH:', error)
+    res.json({ success: true, data: rows.map(formatRow) })
+  } catch (err: unknown) {
+    console.error('Error al obtener incentivos de RRHH:', err)
     res.status(500).json({ success: false, message: 'Error al obtener incentivos y premios' })
   }
 }
@@ -123,11 +111,10 @@ export const createIncentivo = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO rrhh_incentivos_premios
-       (sucursal_id, escala_salarial_id, nombre, tipo, descripcion, mes, anio, metodo_calculo, valor, activo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (sucursal_id, nombre, tipo, descripcion, mes, anio, metodo_calculo, valor, activo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.sucursal_id,
-        payload.escala_salarial_id,
         payload.nombre,
         payload.tipo,
         payload.descripcion,
@@ -139,10 +126,10 @@ export const createIncentivo = async (req: Request, res: Response) => {
       ],
     )
 
-    const created: any = await query(`${selectIncentivosSql} WHERE i.id = ? AND i.deleted_at IS NULL`, [result.insertId])
-    res.status(201).json({ success: true, data: created[0] })
-  } catch (error) {
-    console.error('Error al crear incentivo de RRHH:', error)
+    const created = (await query(`${selectSql} WHERE i.id = ? AND i.deleted_at IS NULL`, [result.insertId])) as any[]
+    res.status(201).json({ success: true, data: formatRow(created[0]) })
+  } catch (err: unknown) {
+    console.error('Error al crear incentivo de RRHH:', err)
     res.status(500).json({ success: false, message: 'Error al crear incentivo o premio' })
   }
 }
@@ -155,19 +142,18 @@ export const updateIncentivo = async (req: Request, res: Response) => {
     const validationError = validatePayload(payload)
     if (validationError) return res.status(400).json({ success: false, message: validationError })
 
-    const existing: any = await query('SELECT id FROM rrhh_incentivos_premios WHERE id = ? AND deleted_at IS NULL', [id])
-    if (!Array.isArray(existing) || existing.length === 0) {
-      return res.status(404).json({ success: false, message: 'Incentivo o premio no encontrado' })
-    }
+    const existing = (await query('SELECT id FROM rrhh_incentivos_premios WHERE id = ? AND deleted_at IS NULL', [
+      id,
+    ])) as any[]
+    if (!existing.length) return res.status(404).json({ success: false, message: 'Incentivo o premio no encontrado' })
 
     await query(
       `UPDATE rrhh_incentivos_premios
-       SET sucursal_id = ?, escala_salarial_id = ?, nombre = ?, tipo = ?, descripcion = ?, mes = ?, anio = ?,
+       SET sucursal_id = ?, nombre = ?, tipo = ?, descripcion = ?, mes = ?, anio = ?,
            metodo_calculo = ?, valor = ?, activo = ?, fecha_ultima_actualizacion = NOW(), updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
       [
         payload.sucursal_id,
-        payload.escala_salarial_id,
         payload.nombre,
         payload.tipo,
         payload.descripcion,
@@ -180,10 +166,10 @@ export const updateIncentivo = async (req: Request, res: Response) => {
       ],
     )
 
-    const updated: any = await query(`${selectIncentivosSql} WHERE i.id = ? AND i.deleted_at IS NULL`, [id])
-    res.json({ success: true, data: updated[0] })
-  } catch (error) {
-    console.error('Error al actualizar incentivo de RRHH:', error)
+    const updated = (await query(`${selectSql} WHERE i.id = ? AND i.deleted_at IS NULL`, [id])) as any[]
+    res.json({ success: true, data: formatRow(updated[0]) })
+  } catch (err: unknown) {
+    console.error('Error al actualizar incentivo de RRHH:', err)
     res.status(500).json({ success: false, message: 'Error al actualizar incentivo o premio' })
   }
 }
@@ -192,17 +178,20 @@ export const updateIncentivo = async (req: Request, res: Response) => {
 export const deactivateIncentivo = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const existing: any = await query('SELECT id FROM rrhh_incentivos_premios WHERE id = ? AND deleted_at IS NULL', [id])
-    if (!Array.isArray(existing) || existing.length === 0) {
-      return res.status(404).json({ success: false, message: 'Incentivo o premio no encontrado' })
-    }
+    const existing = (await query('SELECT id FROM rrhh_incentivos_premios WHERE id = ? AND deleted_at IS NULL', [
+      id,
+    ])) as any[]
+    if (!existing.length) return res.status(404).json({ success: false, message: 'Incentivo o premio no encontrado' })
 
-    await query('UPDATE rrhh_incentivos_premios SET activo = 0, fecha_ultima_actualizacion = NOW(), updated_at = NOW() WHERE id = ?', [id])
+    await query(
+      'UPDATE rrhh_incentivos_premios SET activo = 0, fecha_ultima_actualizacion = NOW(), updated_at = NOW() WHERE id = ?',
+      [id],
+    )
 
-    const updated: any = await query(`${selectIncentivosSql} WHERE i.id = ? AND i.deleted_at IS NULL`, [id])
-    res.json({ success: true, data: updated[0], message: 'Incentivo o premio desactivado' })
-  } catch (error) {
-    console.error('Error al desactivar incentivo de RRHH:', error)
+    const updated = (await query(`${selectSql} WHERE i.id = ? AND i.deleted_at IS NULL`, [id])) as any[]
+    res.json({ success: true, data: formatRow(updated[0]), message: 'Incentivo o premio desactivado' })
+  } catch (err: unknown) {
+    console.error('Error al desactivar incentivo de RRHH:', err)
     res.status(500).json({ success: false, message: 'Error al desactivar incentivo o premio' })
   }
 }

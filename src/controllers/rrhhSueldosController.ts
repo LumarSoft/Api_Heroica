@@ -355,17 +355,9 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
       }
     }
 
-    const incentivosRows = (await query(
-      `SELECT i.id,
-              i.escala_salarial_id,
-              i.nombre,
-              CASE
-                WHEN i.metodo_calculo = 'porcentaje_escala' THEN ROUND(COALESCE(e.sueldo_base, 0) * i.valor / 100, 2)
-                WHEN i.metodo_calculo = 'multiplicador_valor_hora' THEN ROUND(COALESCE(e.valor_hora, 0) * i.valor, 2)
-                ELSE i.valor
-              END AS monto
+    const incentivosGlobales = (await query(
+      `SELECT i.id, i.nombre, i.metodo_calculo, i.valor
        FROM rrhh_incentivos_premios i
-       LEFT JOIN escalas_salariales e ON e.id = i.escala_salarial_id AND e.deleted_at IS NULL
        WHERE i.deleted_at IS NULL
          AND i.activo = 1
          AND i.sucursal_id = ?
@@ -374,16 +366,6 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
        ORDER BY i.nombre ASC`,
       [sucursalId, mes, anio],
     )) as any[]
-    const incentivosPorEscala = new Map<number, IncentivoPeriodo[]>()
-    for (const row of incentivosRows) {
-      const escalaId = Number(row.escala_salarial_id)
-      if (!incentivosPorEscala.has(escalaId)) incentivosPorEscala.set(escalaId, [])
-      incentivosPorEscala.get(escalaId)!.push({
-        id: Number(row.id),
-        nombre: String(row.nombre),
-        monto: toNumber(row.monto),
-      })
-    }
 
     const ajustesRows = personalIds.length
       ? ((await query(
@@ -421,9 +403,17 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
     const tablaMensual = conSueldo.map(p => {
       const sueldoBase = toNumber(p.sueldo_base)
       const valorHora = toNumber(p.valor_hora)
+      const valorHoraCalculado = valorHora || (sueldoBase > 0 ? sueldoBase / 26 / 8 : 0)
       const solicitudes = solicitudesMap.get(Number(p.id))
       const novedad = novedadesMap.get(Number(p.id))
-      const incentivoItemsBase = incentivosPorEscala.get(Number(p.escala_id)) ?? []
+      const incentivoItemsBase: IncentivoPeriodo[] = incentivosGlobales.map((i: any) => {
+        const v = toNumber(i.valor)
+        let monto: number
+        if (i.metodo_calculo === 'monto_fijo') monto = v
+        else if (i.metodo_calculo === 'porcentaje_escala') monto = Math.round(sueldoBase * v) / 100
+        else monto = Math.round(valorHoraCalculado * v * 100) / 100
+        return { id: Number(i.id), nombre: String(i.nombre), monto }
+      })
       const ajustes = ajustesMap.get(Number(p.id))
       const selectedIdsFromAjuste = parseSelectedIds(ajustes?.incentivos_seleccionados)
       const selectedIds =
@@ -433,7 +423,6 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
         toNumber(solicitudes?.incentivos)
       const descuentos = toNumber(solicitudes?.descuentos)
       const adelantos = toNumber(solicitudes?.adelantos)
-      const valorHoraCalculado = valorHora || (sueldoBase > 0 ? sueldoBase / 26 / 8 : 0)
       const horasExtraImporte = toNumber(solicitudes?.horasExtraHoras) * valorHoraCalculado * 1.5
       const horasFeriadoImporte = toNumber(solicitudes?.horasFeriadoHoras) * valorHoraCalculado
       const ausenciasJustificadasImporte = toNumber(solicitudes?.ausenciasJustificadasHoras) * valorHoraCalculado
