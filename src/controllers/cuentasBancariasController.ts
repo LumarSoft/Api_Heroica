@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
+import { CBU_DIGITOS } from '../config/constants'
 
 // GET /api/cuentas-bancarias/:sucursalId
 export const getCuentasBancarias = async (req: Request, res: Response) => {
@@ -30,9 +31,12 @@ export const createCuentaBancaria = async (req: Request, res: Response) => {
     const { cbu, alias, tipo_cuenta, banco } = req.body
 
     if (!cbu) {
+      return res.status(400).json({ success: false, message: 'El CBU es requerido' })
+    }
+    if (!/^\d+$/.test(cbu) || cbu.length !== CBU_DIGITOS) {
       return res.status(400).json({
         success: false,
-        message: 'El CBU es requerido',
+        message: `El CBU o CVU debe tener exactamente ${CBU_DIGITOS} dígitos`,
       })
     }
 
@@ -68,9 +72,12 @@ export const updateCuentaBancaria = async (req: Request, res: Response) => {
     const { cbu, alias, tipo_cuenta, banco } = req.body
 
     if (!cbu) {
+      return res.status(400).json({ success: false, message: 'El CBU es requerido' })
+    }
+    if (!/^\d+$/.test(cbu) || cbu.length !== CBU_DIGITOS) {
       return res.status(400).json({
         success: false,
-        message: 'El CBU es requerido',
+        message: `El CBU o CVU debe tener exactamente ${CBU_DIGITOS} dígitos`,
       })
     }
 

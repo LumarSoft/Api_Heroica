@@ -1,5 +1,6 @@
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise'
 import { query } from '../config/database'
+import { CBU_DIGITOS } from '../config/constants'
 import { getMotivoBajaActivoEnSucursal } from './rrhhMotivosBajaService'
 
 export const TIPOS_VALIDOS = [
@@ -695,7 +696,7 @@ export async function validateSolicitudContext(
     let cbu: string | null = null
     if (cbuTexto) {
       cbu = onlyDigits(cbuTexto)
-      if (cbu.length !== 22) throw new Error('El CBU o CVU debe tener 22 dígitos')
+      if (cbu.length !== CBU_DIGITOS) throw new Error(`El CBU o CVU debe tener ${CBU_DIGITOS} dígitos`)
       if (!bancoNombre) throw new Error('Si informa CBU, indique la entidad bancaria')
     }
 
