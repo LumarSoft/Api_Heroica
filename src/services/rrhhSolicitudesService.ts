@@ -17,6 +17,7 @@ export const TIPOS_VALIDOS = [
   'Adelantos',
   'Descuentos',
   'Horas extras',
+  'Cambio de puesto/sucursal',
 ] as const
 
 export const ESTADOS_VALIDOS = ['Pendiente', 'Aprobada', 'Rechazada', 'Cancelada'] as const
@@ -188,6 +189,13 @@ interface HorasExtrasDetalles {
   descripcion?: string
 }
 
+interface CambioPuestoSucursalDetalles {
+  puesto_id_nuevo: number | null
+  sucursal_id_nueva: number | null
+  fecha_efectiva: string
+  motivo?: string | null
+}
+
 export interface ValidationResult {
   detalles: Record<string, unknown> | null
   archivos: SolicitudArchivo[]
@@ -329,6 +337,17 @@ async function validarPuesto(connection: PoolConnection, puestoId: number): Prom
 
   if (puestoRows.length === 0) {
     throw new Error('El puesto seleccionado no existe o fue eliminado')
+  }
+}
+
+async function validarSucursal(connection: PoolConnection, sucursalId: number): Promise<void> {
+  const [sucursalRows] = await connection.execute<RowDataPacket[]>(
+    `SELECT id FROM sucursales WHERE id = ? AND activo = 1 AND deleted_at IS NULL`,
+    [sucursalId],
+  )
+
+  if (sucursalRows.length === 0) {
+    throw new Error('La sucursal seleccionada no existe o está inactiva')
   }
 }
 
@@ -1107,6 +1126,58 @@ export async function validateSolicitudContext(
     return { detalles: { descripcion, fecha, monto: montoRaw }, archivos: [], empleados: [] }
   }
 
+  if (context.tipo === 'Cambio de puesto/sucursal') {
+    if (!context.personalId) throw new Error('El cambio de puesto o sucursal requiere un colaborador asociado')
+    if (!detalles) throw new Error('Indique el nuevo puesto o la nueva sucursal y la fecha efectiva')
+    const d = detalles as Partial<CambioPuestoSucursalDetalles>
+
+    const nuevoPuestoId = normalizeNumber(d.puesto_id_nuevo)
+    const nuevaSucursalId = normalizeNumber(d.sucursal_id_nueva)
+    if (!nuevoPuestoId && !nuevaSucursalId) {
+      throw new Error('Seleccione al menos un nuevo puesto o una nueva sucursal')
+    }
+
+    const fechaEfectiva = cleanTrim(d.fecha_efectiva)
+    if (!fechaEfectiva || !isValidDateString(fechaEfectiva)) {
+      throw new Error('La fecha efectiva del cambio es inválida')
+    }
+
+    const [personalActualRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT puesto_id, sucursal_id FROM personal WHERE id = ? AND deleted_at IS NULL`,
+      [context.personalId],
+    )
+    if (personalActualRows.length === 0) {
+      throw new Error('El colaborador seleccionado ya no existe')
+    }
+    const puestoActualId = Number(personalActualRows[0].puesto_id)
+    const sucursalActualId = Number(personalActualRows[0].sucursal_id)
+
+    if (nuevoPuestoId) {
+      await validarPuesto(connection, nuevoPuestoId)
+      if (nuevoPuestoId === puestoActualId && !nuevaSucursalId) {
+        throw new Error('El nuevo puesto debe ser distinto al actual')
+      }
+    }
+
+    if (nuevaSucursalId) {
+      await validarSucursal(connection, nuevaSucursalId)
+      if (nuevaSucursalId === sucursalActualId && !nuevoPuestoId) {
+        throw new Error('La nueva sucursal debe ser distinta a la actual')
+      }
+    }
+
+    return {
+      detalles: {
+        puesto_id_nuevo: nuevoPuestoId,
+        sucursal_id_nueva: nuevaSucursalId,
+        fecha_efectiva: fechaEfectiva,
+        motivo: normalizeOptionalText(d.motivo),
+      },
+      archivos: [],
+      empleados: [],
+    }
+  }
+
   return { detalles, archivos: [], empleados: [] }
 }
 
@@ -1373,6 +1444,52 @@ export async function resolveSolicitudSideEffects(
       'Se generó la liquidación final automáticamente.',
     )
     liquidacionFinalEstado = 'Generada'
+  }
+
+  if (solicitud.tipo === 'Cambio de puesto/sucursal') {
+    if (!solicitud.personal_id) {
+      throw new Error('La solicitud de cambio no tiene colaborador asociado')
+    }
+
+    const detalles = parseDetalles(solicitud.detalles) as Partial<CambioPuestoSucursalDetalles> | null
+    if (!detalles) {
+      throw new Error('La solicitud de cambio no tiene detalles válidos')
+    }
+
+    const nuevoPuestoId = normalizeNumber(detalles.puesto_id_nuevo)
+    const nuevaSucursalId = normalizeNumber(detalles.sucursal_id_nueva)
+    if (!nuevoPuestoId && !nuevaSucursalId) {
+      throw new Error('El cambio aprobado no tiene un nuevo puesto ni una nueva sucursal')
+    }
+
+    if (nuevoPuestoId) await validarPuesto(connection, nuevoPuestoId)
+    if (nuevaSucursalId) await validarSucursal(connection, nuevaSucursalId)
+
+    const sets: string[] = []
+    const values: Array<number> = []
+    const cambios: string[] = []
+    if (nuevoPuestoId) {
+      sets.push('puesto_id = ?')
+      values.push(nuevoPuestoId)
+      cambios.push(`puesto #${nuevoPuestoId}`)
+    }
+    if (nuevaSucursalId) {
+      sets.push('sucursal_id = ?')
+      values.push(nuevaSucursalId)
+      cambios.push(`sucursal #${nuevaSucursalId}`)
+    }
+    values.push(solicitud.personal_id)
+
+    await connection.execute(`UPDATE personal SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`, values)
+
+    await insertHistorial(
+      connection,
+      solicitud.id,
+      solicitud.personal_id,
+      usuarioId,
+      'Puesto actualizado',
+      `Cambio aplicado por aprobación de solicitud: ${cambios.join(' y ')}.`,
+    )
   }
 
   if (solicitud.tipo === 'Novedades de sueldo') {
