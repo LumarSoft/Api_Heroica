@@ -32,6 +32,8 @@ function normalizePayload(body: Record<string, unknown>) {
 
   return {
     sucursal_id: normalizeNumber(body.sucursal_id),
+    area_id: normalizeNumber(body.area_id),
+    puesto_id: normalizeNumber(body.puesto_id),
     nombre: typeof body.nombre === 'string' ? body.nombre.trim() : '',
     tipo,
     descripcion: normalizeOptionalText(body.descripcion),
@@ -51,15 +53,21 @@ function validatePayload(payload: ReturnType<typeof normalizePayload>): string |
   if (!payload.anio || payload.anio < 2000) return 'Año inválido'
   if (!METODOS_VALIDOS.includes(payload.metodo_calculo)) return 'Método de cálculo inválido'
   if (payload.valor === null || payload.valor < 0) return 'Valor inválido'
+  if (payload.area_id !== null && payload.puesto_id !== null)
+    return 'Un incentivo no puede tener área y puesto simultáneamente'
   return null
 }
 
 const selectSql = `
   SELECT i.id, i.sucursal_id, s.nombre AS sucursal_nombre,
+         i.area_id, a.nombre AS area_nombre,
+         i.puesto_id, p.nombre AS puesto_nombre,
          i.nombre, i.tipo, i.descripcion, i.mes, i.anio, i.metodo_calculo, i.valor, i.activo,
          i.fecha_ultima_actualizacion, i.created_at, i.updated_at
   FROM rrhh_incentivos_premios i
   INNER JOIN sucursales s ON i.sucursal_id = s.id
+  LEFT JOIN areas a ON i.area_id = a.id
+  LEFT JOIN puestos p ON i.puesto_id = p.id
 `
 
 function formatRow(row: any) {
@@ -111,10 +119,12 @@ export const createIncentivo = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO rrhh_incentivos_premios
-       (sucursal_id, nombre, tipo, descripcion, mes, anio, metodo_calculo, valor, activo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (sucursal_id, area_id, puesto_id, nombre, tipo, descripcion, mes, anio, metodo_calculo, valor, activo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.sucursal_id,
+        payload.area_id,
+        payload.puesto_id,
         payload.nombre,
         payload.tipo,
         payload.descripcion,
@@ -149,11 +159,13 @@ export const updateIncentivo = async (req: Request, res: Response) => {
 
     await query(
       `UPDATE rrhh_incentivos_premios
-       SET sucursal_id = ?, nombre = ?, tipo = ?, descripcion = ?, mes = ?, anio = ?,
+       SET sucursal_id = ?, area_id = ?, puesto_id = ?, nombre = ?, tipo = ?, descripcion = ?, mes = ?, anio = ?,
            metodo_calculo = ?, valor = ?, activo = ?, fecha_ultima_actualizacion = NOW(), updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
       [
         payload.sucursal_id,
+        payload.area_id,
+        payload.puesto_id,
         payload.nombre,
         payload.tipo,
         payload.descripcion,
