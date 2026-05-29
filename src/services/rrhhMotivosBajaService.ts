@@ -40,7 +40,7 @@ export async function createMotivoBaja(
   sucursalId: number,
   nombreTrim: string,
 ): Promise<{ id: number; nombre: string }> {
-  const [result] = await query(`INSERT INTO rrhh_motivos_baja (sucursal_id, nombre, orden) VALUES (?, ?, 100)`, [
+  const result = await query(`INSERT INTO rrhh_motivos_baja (sucursal_id, nombre, orden) VALUES (?, ?, 100)`, [
     sucursalId,
     nombreTrim,
   ])
