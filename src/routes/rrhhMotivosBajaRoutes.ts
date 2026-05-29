@@ -1,5 +1,10 @@
 import { Router } from 'express'
-import { getMotivosBajaPorSucursal, postMotivoBaja } from '../controllers/rrhhMotivosBajaController'
+import {
+  deleteMotivoBajaCtrl,
+  getMotivosBajaPorSucursal,
+  postMotivoBaja,
+  putMotivoBaja,
+} from '../controllers/rrhhMotivosBajaController'
 import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
 
 const router = Router()
@@ -8,5 +13,7 @@ router.use(requireAuth)
 
 router.get('/', requirePermission('ver_solicitudes'), getMotivosBajaPorSucursal)
 router.post('/', requirePermission('crear_solicitudes'), postMotivoBaja)
+router.put('/:id', requirePermission('crear_solicitudes'), putMotivoBaja)
+router.delete('/:id', requirePermission('crear_solicitudes'), deleteMotivoBajaCtrl)
 
 export default router

@@ -686,6 +686,8 @@ export async function validateSolicitudContext(
       ddjj_domicilio: 'Declaración jurada de domicilio',
       descripcion_puesto_firmada: 'Descripción de puesto firmada',
       foto_colaborador: 'Foto del colaborador',
+      normas_convivencia: 'Normas de convivencia firmadas',
+      constancia_uniforme: 'Constancia de entrega de uniforme',
     } as const
 
     if (!nombre) throw new Error('Ingrese nombres y apellidos del colaborador')
@@ -747,10 +749,12 @@ export async function validateSolicitudContext(
     let fechaAltaTemprana: string | null = null
     if (condicionLaboral === 1) {
       const fa = cleanTrim(a.fecha_alta_temprana)
-      if (!isValidDateString(fa)) {
-        throw new Error('Ingrese la fecha de alta temprana (condición laboral 1)')
+      if (fa) {
+        if (!isValidDateString(fa)) {
+          throw new Error('La fecha de alta temprana no es válida')
+        }
+        fechaAltaTemprana = fa
       }
-      fechaAltaTemprana = fa
     }
 
     const tieneCarnet = Boolean(a.carnet_manipulacion_alimentos)
@@ -785,6 +789,8 @@ export async function validateSolicitudContext(
       'ddjj_domicilio',
       'descripcion_puesto_firmada',
       'foto_colaborador',
+      'normas_convivencia',
+      'constancia_uniforme',
     ] as const) {
       const incomingSlot = parseAltaAdjunto((adjuntosFuente as Record<string, unknown> | undefined)?.[key])
       const slot = incomingSlot ?? getPrevArchivo(key)
@@ -870,11 +876,7 @@ export async function validateSolicitudContext(
 
     validarLiquidacionEmpNovedadCliente(liqRaw)
 
-    const incomingCarta = parseAltaAdjunto(b.carta_documento_adjunto)
-    const cartaDoc = incomingCarta ?? getPrevArchivo('carta_documento')
-    if (!cartaDoc?.url) {
-      throw new Error('Adjunte la carta documento en PDF')
-    }
+    const cartaDoc = parseAltaAdjunto(b.carta_documento_adjunto)
 
     return {
       detalles: {
@@ -883,7 +885,9 @@ export async function validateSolicitudContext(
         motivo_baja_detalle: normalizeOptionalText(b.motivo_baja_detalle),
         fecha_baja: fechaBaja,
       },
-      archivos: [{ tipo_doc: 'carta_documento', url: cartaDoc.url, nombre_original: cartaDoc.nombre_original ?? null }],
+      archivos: cartaDoc?.url
+        ? [{ tipo_doc: 'carta_documento', url: cartaDoc.url, nombre_original: cartaDoc.nombre_original ?? null }]
+        : [],
       empleados: [mapRawEmpleadoToInput(liqRaw, 'liquidacion_baja')],
     }
   }
@@ -983,7 +987,7 @@ export async function validateSolicitudContext(
   if (context.tipo === 'Apercibimientos') {
     if (!context.personalId) throw new Error('Los apercibimientos requieren un colaborador asociado')
     if (!detalles) throw new Error('Los apercibimientos requieren fecha, severidad y motivo')
-    const apercibimientoDetalles = detalles as Partial<ApercibimientoDetalles>
+    const apercibimientoDetalles = detalles as Partial<ApercibimientoDetalles> & Record<string, unknown>
     if (!apercibimientoDetalles.fecha || !apercibimientoDetalles.severidad || !apercibimientoDetalles.motivo) {
       throw new Error('Los apercibimientos requieren fecha, severidad y motivo')
     }
@@ -991,13 +995,17 @@ export async function validateSolicitudContext(
       throw new Error('La fecha del apercibimiento es inválida')
     }
 
+    const adjunto = parseAltaAdjunto(apercibimientoDetalles.archivo_adjunto)
+
     return {
       detalles: {
         fecha: apercibimientoDetalles.fecha,
         severidad: apercibimientoDetalles.severidad,
         motivo: String(apercibimientoDetalles.motivo).trim(),
       },
-      archivos: [],
+      archivos: adjunto?.url
+        ? [{ tipo_doc: 'apercibimiento_adjunto', url: adjunto.url, nombre_original: adjunto.nombre_original ?? null }]
+        : [],
       empleados: [],
     }
   }
@@ -1071,7 +1079,16 @@ export async function validateSolicitudContext(
       'La fecha de inicio no puede ser posterior a la fecha de fin de la suspensión',
     )
     if (!motivo) throw new Error('Ingrese el motivo de la suspensión')
-    return { detalles: { fecha_desde: fechaDesde, fecha_hasta: fechaHasta, motivo }, archivos: [], empleados: [] }
+
+    const adjunto = parseAltaAdjunto(d.archivo_adjunto)
+
+    return {
+      detalles: { fecha_desde: fechaDesde, fecha_hasta: fechaHasta, motivo },
+      archivos: adjunto?.url
+        ? [{ tipo_doc: 'suspension_adjunto', url: adjunto.url, nombre_original: adjunto.nombre_original ?? null }]
+        : [],
+      empleados: [],
+    }
   }
 
   if (context.tipo === 'Capacitaciones') {
@@ -1123,7 +1140,16 @@ export async function validateSolicitudContext(
     const montoRaw = d.monto != null && d.monto !== '' ? Number(d.monto) : null
     if (montoRaw !== null && !isPositiveNumber(montoRaw))
       throw new Error('El monto del incentivo debe ser mayor a cero')
-    return { detalles: { descripcion, fecha, monto: montoRaw }, archivos: [], empleados: [] }
+
+    const adjunto = parseAltaAdjunto(d.archivo_adjunto)
+
+    return {
+      detalles: { descripcion, fecha, monto: montoRaw },
+      archivos: adjunto?.url
+        ? [{ tipo_doc: 'incentivo_adjunto', url: adjunto.url, nombre_original: adjunto.nombre_original ?? null }]
+        : [],
+      empleados: [],
+    }
   }
 
   if (context.tipo === 'Cambio de puesto/sucursal') {
@@ -1225,7 +1251,14 @@ function extractArchivosFromLegacyDetalles(row: SolicitudRow): SolicitudArchivo[
 
   if (row.tipo === 'Altas') {
     const adj = detalles.adjuntos as Record<string, { url?: string; nombre_original?: string } | null> | undefined
-    for (const key of ['dni_frente_dorso', 'ddjj_domicilio', 'descripcion_puesto_firmada', 'foto_colaborador']) {
+    for (const key of [
+      'dni_frente_dorso',
+      'ddjj_domicilio',
+      'descripcion_puesto_firmada',
+      'foto_colaborador',
+      'normas_convivencia',
+      'constancia_uniforme',
+    ]) {
       const slot = adj?.[key]
       if (slot?.url) archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
     }
