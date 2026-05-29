@@ -4,7 +4,6 @@ import { getConnection, query } from '../config/database'
 import {
   sendNuevaSolicitudEmail,
   sendSolicitudColaboradorEmail,
-  sendSolicitudEventoEmail,
   sendSolicitudResueltaEmail,
 } from '../services/rrhhSolicitudesEmailService'
 import {
@@ -35,19 +34,14 @@ async function getSolicitudRowById(id: number): Promise<SolicitudRow | null> {
   return rows[0] ?? null
 }
 
-async function getSuperAdminEmails(): Promise<string[]> {
-  const rows = (await query(
-    `SELECT u.email
-     FROM usuarios u
-     INNER JOIN roles r ON r.id = u.rol_id
-     WHERE r.nombre = 'superadmin' AND u.activo = 1 AND u.deleted_at IS NULL`,
-  )) as Array<{ email: string }>
-
-  return rows.map(row => row.email).filter(Boolean)
-}
-
 function uniqueEmails(emails: Array<string | null | undefined>): string[] {
   return [...new Set(emails.filter((email): email is string => Boolean(email)))]
+}
+
+function excludeActor(emails: string[], actorEmail: string | null | undefined): string[] {
+  if (!actorEmail) return emails
+  const normalized = actorEmail.trim().toLowerCase()
+  return emails.filter(email => email.trim().toLowerCase() !== normalized)
 }
 
 async function getSucursalEmail(sucursalId: number): Promise<string | null> {
@@ -59,23 +53,8 @@ async function getSucursalEmail(sucursalId: number): Promise<string | null> {
 }
 
 async function getResponsableEmails(sucursalId: number): Promise<string[]> {
-  const [superAdminEmails, sucursalEmail] = await Promise.all([getSuperAdminEmails(), getSucursalEmail(sucursalId)])
-
-  return uniqueEmails([
-    process.env.RRHH_RESPONSABLE_EMAIL,
-    sucursalEmail,
-    process.env.EMAIL_APROBACION,
-    ...superAdminEmails,
-  ])
-}
-
-async function getSeguimientoSolicitudEmails(solicitud: SolicitudRow): Promise<string[]> {
-  const [responsables, solicitante] = await Promise.all([
-    getResponsableEmails(solicitud.sucursal_id),
-    getUserEmail(solicitud.usuario_id),
-  ])
-
-  return uniqueEmails([...responsables, solicitante?.email])
+  const sucursalEmail = await getSucursalEmail(sucursalId)
+  return uniqueEmails([process.env.RRHH_RESPONSABLE_EMAIL, sucursalEmail])
 }
 
 async function getUserEmail(userId: number): Promise<{ email: string; nombre: string } | null> {
@@ -107,10 +86,12 @@ async function notifyColaborador(
   solicitud: SolicitudRow,
   estado: 'Creada' | 'Editada' | 'Aprobada' | 'Rechazada' | 'Cancelada' | 'Eliminada',
   motivoResolucion?: string | null,
+  actorEmail?: string | null,
 ): Promise<void> {
   const destinatario = getSolicitudColaboradorEmail(solicitud)
   const colaboradorNombre = getSolicitudColaboradorNombre(solicitud)
   if (!destinatario || !colaboradorNombre) return
+  if (actorEmail && destinatario.trim().toLowerCase() === actorEmail.trim().toLowerCase()) return
 
   await sendSolicitudColaboradorEmail({
     destinatario,
@@ -300,15 +281,18 @@ export const createSolicitud = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Solicitud creada no encontrada' })
     }
 
-    await sendNuevaSolicitudEmail({
-      destinatarios: await getResponsableEmails(created.sucursal_id),
-      sucursalNombre: created.sucursal_nombre,
-      tipo: created.tipo,
-      solicitanteNombre: created.usuario_nombre,
-      colaboradorNombre: getSolicitudColaboradorNombre(created),
-      fechaSolicitud: created.fecha_solicitud,
-    })
-    await notifyColaborador(created, 'Creada')
+    const responsables = excludeActor(await getResponsableEmails(created.sucursal_id), user.email)
+    if (responsables.length > 0) {
+      await sendNuevaSolicitudEmail({
+        destinatarios: responsables,
+        sucursalNombre: created.sucursal_nombre,
+        tipo: created.tipo,
+        solicitanteNombre: created.usuario_nombre,
+        colaboradorNombre: getSolicitudColaboradorNombre(created),
+        fechaSolicitud: created.fecha_solicitud,
+      })
+    }
+    await notifyColaborador(created, 'Creada', undefined, user.email)
 
     res.status(201).json({ success: true, data: await enrichSolicitud(created) })
   } catch (error) {
@@ -424,19 +408,6 @@ export const updateSolicitud = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Solicitud actualizada no encontrada' })
     }
 
-    await sendSolicitudEventoEmail({
-      destinatarios: await getSeguimientoSolicitudEmails(updated),
-      titulo: 'Solicitud RRHH editada',
-      descripcion: 'Se editó una solicitud pendiente de RRHH.',
-      tipo: updated.tipo,
-      sucursalNombre: updated.sucursal_nombre,
-      solicitanteNombre: updated.usuario_nombre,
-      colaboradorNombre: getSolicitudColaboradorNombre(updated),
-      actorNombre: user.email,
-      estado: updated.estado,
-    })
-    await notifyColaborador(updated, 'Editada')
-
     res.json({ success: true, data: await enrichSolicitud(updated) })
   } catch (error) {
     if (connection) await connection.rollback()
@@ -544,7 +515,9 @@ export const updateEstadoSolicitud = async (req: Request, res: Response) => {
     }
 
     const creador = await getUserEmail(updated.usuario_id)
-    if (creador && (nuevoEstado === 'Aprobada' || nuevoEstado === 'Rechazada')) {
+    const creadorEsActor = !!creador && creador.email.trim().toLowerCase() === user.email.trim().toLowerCase()
+
+    if (creador && !creadorEsActor && (nuevoEstado === 'Aprobada' || nuevoEstado === 'Rechazada')) {
       await sendSolicitudResueltaEmail({
         destinatario: creador.email,
         destinatarioNombre: creador.nombre,
@@ -558,21 +531,7 @@ export const updateEstadoSolicitud = async (req: Request, res: Response) => {
       })
     }
 
-    await sendSolicitudEventoEmail({
-      destinatarios: await getSeguimientoSolicitudEmails(updated),
-      titulo: `Solicitud RRHH ${nuevoEstado.toLowerCase()}`,
-      descripcion: `Se ${
-        nuevoEstado === 'Aprobada' ? 'aprobó' : nuevoEstado === 'Rechazada' ? 'rechazó' : 'actualizó'
-      } una solicitud de RRHH.`,
-      tipo: updated.tipo,
-      sucursalNombre: updated.sucursal_nombre,
-      solicitanteNombre: updated.usuario_nombre,
-      colaboradorNombre: getSolicitudColaboradorNombre(updated),
-      actorNombre: updated.resuelto_por_nombre ?? 'Administrador',
-      estado: nuevoEstado,
-      motivo: motivoResolucion,
-    })
-    await notifyColaborador(updated, nuevoEstado, motivoResolucion)
+    await notifyColaborador(updated, nuevoEstado, motivoResolucion, user.email)
 
     res.json({ success: true, data: await enrichSolicitud(updated) })
   } catch (error) {
@@ -638,20 +597,6 @@ export const cancelSolicitud = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Solicitud cancelada no encontrada' })
     }
 
-    await sendSolicitudEventoEmail({
-      destinatarios: await getSeguimientoSolicitudEmails(updated),
-      titulo: 'Solicitud RRHH cancelada',
-      descripcion: 'Se canceló una solicitud pendiente de RRHH.',
-      tipo: updated.tipo,
-      sucursalNombre: updated.sucursal_nombre,
-      solicitanteNombre: updated.usuario_nombre,
-      colaboradorNombre: getSolicitudColaboradorNombre(updated),
-      actorNombre: user.email,
-      estado: 'Cancelada',
-      motivo: motivoCancelacion,
-    })
-    await notifyColaborador(updated, 'Cancelada', motivoCancelacion)
-
     res.json({ success: true, data: await enrichSolicitud(updated) })
   } catch (error) {
     if (connection) await connection.rollback()
@@ -686,18 +631,6 @@ export const deleteSolicitud = async (req: Request, res: Response) => {
     }
 
     await query(`UPDATE rrhh_solicitudes SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL`, [solicitud.id])
-    await sendSolicitudEventoEmail({
-      destinatarios: await getSeguimientoSolicitudEmails(solicitud),
-      titulo: 'Solicitud RRHH eliminada',
-      descripcion: 'Se eliminó una solicitud pendiente de RRHH.',
-      tipo: solicitud.tipo,
-      sucursalNombre: solicitud.sucursal_nombre,
-      solicitanteNombre: solicitud.usuario_nombre,
-      colaboradorNombre: getSolicitudColaboradorNombre(solicitud),
-      actorNombre: user.email,
-      estado: 'Eliminada',
-    })
-    await notifyColaborador(solicitud, 'Eliminada')
     res.json({ success: true, message: 'Solicitud eliminada' })
   } catch (error) {
     if (error instanceof Error && error.message === 'NO_ACCESS') {
