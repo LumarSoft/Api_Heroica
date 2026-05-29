@@ -2,11 +2,6 @@ import type { Request, Response } from 'express'
 import type { RowDataPacket } from 'mysql2/promise'
 import { getConnection, query } from '../config/database'
 import {
-  sendNuevaSolicitudEmail,
-  sendSolicitudColaboradorEmail,
-  sendSolicitudResueltaEmail,
-} from '../services/rrhhSolicitudesEmailService'
-import {
   ESTADOS_VALIDOS,
   SOLICITUD_SELECT,
   TIPOS_VALIDOS,
@@ -32,77 +27,6 @@ import {
 async function getSolicitudRowById(id: number): Promise<SolicitudRow | null> {
   const rows = (await query(`${SOLICITUD_SELECT} WHERE s.id = ? AND s.deleted_at IS NULL`, [id])) as SolicitudRow[]
   return rows[0] ?? null
-}
-
-function uniqueEmails(emails: Array<string | null | undefined>): string[] {
-  return [...new Set(emails.filter((email): email is string => Boolean(email)))]
-}
-
-function excludeActor(emails: string[], actorEmail: string | null | undefined): string[] {
-  if (!actorEmail) return emails
-  const normalized = actorEmail.trim().toLowerCase()
-  return emails.filter(email => email.trim().toLowerCase() !== normalized)
-}
-
-async function getSucursalEmail(sucursalId: number): Promise<string | null> {
-  const rows = (await query(`SELECT email_correspondencia FROM sucursales WHERE id = ? AND deleted_at IS NULL`, [
-    sucursalId,
-  ])) as Array<{ email_correspondencia: string | null }>
-
-  return rows[0]?.email_correspondencia ?? null
-}
-
-async function getResponsableEmails(sucursalId: number): Promise<string[]> {
-  const sucursalEmail = await getSucursalEmail(sucursalId)
-  return uniqueEmails([process.env.RRHH_RESPONSABLE_EMAIL, sucursalEmail])
-}
-
-async function getUserEmail(userId: number): Promise<{ email: string; nombre: string } | null> {
-  const rows = (await query(`SELECT email, nombre FROM usuarios WHERE id = ? AND activo = 1 AND deleted_at IS NULL`, [
-    userId,
-  ])) as Array<{
-    email: string
-    nombre: string
-  }>
-
-  return rows[0] ?? null
-}
-
-function getSolicitudColaboradorNombre(solicitud: SolicitudRow): string | null {
-  if (solicitud.personal_nombre) return solicitud.personal_nombre
-  const detalles = parseDetalles(solicitud.detalles)
-  if (typeof detalles?.nombre === 'string' && detalles.nombre.trim()) return detalles.nombre.trim()
-  return null
-}
-
-function getSolicitudColaboradorEmail(solicitud: SolicitudRow): string | null {
-  if (solicitud.personal_email) return solicitud.personal_email
-  const detalles = parseDetalles(solicitud.detalles)
-  if (typeof detalles?.email === 'string' && detalles.email.trim()) return detalles.email.trim()
-  return null
-}
-
-async function notifyColaborador(
-  solicitud: SolicitudRow,
-  estado: 'Creada' | 'Editada' | 'Aprobada' | 'Rechazada' | 'Cancelada' | 'Eliminada',
-  motivoResolucion?: string | null,
-  actorEmail?: string | null,
-): Promise<void> {
-  const destinatario = getSolicitudColaboradorEmail(solicitud)
-  const colaboradorNombre = getSolicitudColaboradorNombre(solicitud)
-  if (!destinatario || !colaboradorNombre) return
-  if (actorEmail && destinatario.trim().toLowerCase() === actorEmail.trim().toLowerCase()) return
-
-  await sendSolicitudColaboradorEmail({
-    destinatario,
-    colaboradorNombre,
-    estado,
-    tipo: solicitud.tipo,
-    sucursalNombre: solicitud.sucursal_nombre,
-    solicitanteNombre: solicitud.usuario_nombre,
-    revisorNombre: solicitud.resuelto_por_nombre,
-    motivoResolucion,
-  })
 }
 
 async function canViewGlobalSolicitudes(user: NonNullable<Request['user']>): Promise<boolean> {
@@ -280,19 +204,6 @@ export const createSolicitud = async (req: Request, res: Response) => {
     if (!created) {
       return res.status(404).json({ success: false, message: 'Solicitud creada no encontrada' })
     }
-
-    const responsables = excludeActor(await getResponsableEmails(created.sucursal_id), user.email)
-    if (responsables.length > 0) {
-      await sendNuevaSolicitudEmail({
-        destinatarios: responsables,
-        sucursalNombre: created.sucursal_nombre,
-        tipo: created.tipo,
-        solicitanteNombre: created.usuario_nombre,
-        colaboradorNombre: getSolicitudColaboradorNombre(created),
-        fechaSolicitud: created.fecha_solicitud,
-      })
-    }
-    await notifyColaborador(created, 'Creada', undefined, user.email)
 
     res.status(201).json({ success: true, data: await enrichSolicitud(created) })
   } catch (error) {
@@ -513,25 +424,6 @@ export const updateEstadoSolicitud = async (req: Request, res: Response) => {
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Solicitud actualizada no encontrada' })
     }
-
-    const creador = await getUserEmail(updated.usuario_id)
-    const creadorEsActor = !!creador && creador.email.trim().toLowerCase() === user.email.trim().toLowerCase()
-
-    if (creador && !creadorEsActor && (nuevoEstado === 'Aprobada' || nuevoEstado === 'Rechazada')) {
-      await sendSolicitudResueltaEmail({
-        destinatario: creador.email,
-        destinatarioNombre: creador.nombre,
-        estado: nuevoEstado,
-        tipo: updated.tipo,
-        sucursalNombre: updated.sucursal_nombre,
-        solicitanteNombre: updated.usuario_nombre,
-        revisorNombre: updated.resuelto_por_nombre ?? 'Administrador',
-        colaboradorNombre: updated.personal_nombre,
-        motivoResolucion,
-      })
-    }
-
-    await notifyColaborador(updated, nuevoEstado, motivoResolucion, user.email)
 
     res.json({ success: true, data: await enrichSolicitud(updated) })
   } catch (error) {
