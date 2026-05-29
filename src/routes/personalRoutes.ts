@@ -1,6 +1,19 @@
 import { Router } from 'express'
-import { getPersonal, getPersonalById, createPersonal, updatePersonal, deletePersonal } from '../controllers/personalController'
-import { getProfesional, getAnalitico, getNotas, createNota, deleteNota } from '../controllers/personalProfesionalController'
+import {
+  getPersonal,
+  getPersonalById,
+  createPersonal,
+  updatePersonal,
+  deletePersonal,
+  getPersonalArchivos,
+} from '../controllers/personalController'
+import {
+  getProfesional,
+  getAnalitico,
+  getNotas,
+  createNota,
+  deleteNota,
+} from '../controllers/personalProfesionalController'
 import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
 
 const router = Router()
@@ -15,6 +28,7 @@ router.delete('/:id', requirePermission('eliminar_personal'), deletePersonal)
 
 router.get('/:id/profesional', requirePermission('ver_personal'), getProfesional)
 router.get('/:id/analitico', requirePermission('ver_personal'), getAnalitico)
+router.get('/:id/archivos', requirePermission('ver_personal'), getPersonalArchivos)
 router.get('/:id/notas', requirePermission('ver_personal'), getNotas)
 router.post('/:id/notas', requirePermission('gestionar_personal'), createNota)
 router.delete('/:id/notas/:notaId', requirePermission('gestionar_personal'), deleteNota)
