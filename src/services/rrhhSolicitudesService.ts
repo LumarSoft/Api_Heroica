@@ -329,15 +329,17 @@ async function validarPersonalAsignado(
   }
 }
 
-async function validarPuesto(connection: PoolConnection, puestoId: number): Promise<void> {
+async function validarPuesto(connection: PoolConnection, puestoId: number): Promise<string> {
   const [puestoRows] = await connection.execute<RowDataPacket[]>(
-    `SELECT id FROM puestos WHERE id = ? AND deleted_at IS NULL`,
+    `SELECT id, nombre FROM puestos WHERE id = ? AND deleted_at IS NULL`,
     [puestoId],
   )
 
   if (puestoRows.length === 0) {
     throw new Error('El puesto seleccionado no existe o fue eliminado')
   }
+
+  return puestoRows[0].nombre as string
 }
 
 async function validarSucursal(connection: PoolConnection, sucursalId: number): Promise<void> {
@@ -807,7 +809,7 @@ export async function validateSolicitudContext(
     }
     const periodoPruebaDias = periodoPrueba ? periodoPruebaDiasValue : null
 
-    await validarPuesto(connection, Number(a.puesto_id))
+    const puestoNombre = await validarPuesto(connection, Number(a.puesto_id))
 
     const otrasObs = normalizeOptionalText(a.otras_observaciones_alta)
 
@@ -824,6 +826,7 @@ export async function validateSolicitudContext(
         banco: bancoNombre,
         cbu,
         puesto_id: Number(a.puesto_id),
+        puesto_nombre: puestoNombre,
         fecha_incorporacion: a.fecha_incorporacion,
         fecha_inicio_cobro_oficina: fechaInicioCobro,
         jornada_semanal_dias: JORNADA_DIAS,
@@ -1324,9 +1327,22 @@ export async function enrichSolicitud(
   const archivos = archivosTabla.length > 0 ? archivosTabla : extractArchivosFromLegacyDetalles(row)
   const empleados = empleadosTabla.length > 0 ? empleadosTabla : extractEmpleadosFromLegacyDetalles(row)
 
+  let detalles = parseDetalles(row.detalles)
+
+  // Retrocompatibilidad: enriquecer con el nombre del puesto en solicitudes de tipo Altas
+  // que fueron creadas antes de que se guardara puesto_nombre en el JSON.
+  if (row.tipo === 'Altas' && detalles && detalles.puesto_id && !detalles.puesto_nombre) {
+    const puestoRows = (await query(`SELECT nombre FROM puestos WHERE id = ? LIMIT 1`, [
+      detalles.puesto_id,
+    ])) as RowDataPacket[]
+    if (puestoRows.length > 0) {
+      detalles = { ...detalles, puesto_nombre: puestoRows[0].nombre as string }
+    }
+  }
+
   return {
     ...row,
-    detalles: parseDetalles(row.detalles),
+    detalles,
     historial,
     archivos,
     empleados,
