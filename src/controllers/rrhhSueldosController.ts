@@ -277,6 +277,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
            (SELECT es.id
             FROM   escalas_salariales es
             WHERE  es.puesto_id   = p.puesto_id
+              AND  es.sucursal_id = p.sucursal_id
               AND  es.deleted_at IS NULL
               AND  (es.anio < ? OR (es.anio = ? AND es.mes <= ?))
             ORDER  BY es.anio DESC, es.mes DESC
@@ -287,6 +288,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
            (SELECT es.sueldo_base
             FROM   escalas_salariales es
             WHERE  es.puesto_id   = p.puesto_id
+              AND  es.sucursal_id = p.sucursal_id
               AND  es.deleted_at IS NULL
               AND  (es.anio < ? OR (es.anio = ? AND es.mes <= ?))
             ORDER  BY es.anio DESC, es.mes DESC
@@ -297,6 +299,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
            (SELECT es.valor_hora
             FROM   escalas_salariales es
             WHERE  es.puesto_id   = p.puesto_id
+              AND  es.sucursal_id = p.sucursal_id
               AND  es.deleted_at IS NULL
               AND  (es.anio < ? OR (es.anio = ? AND es.mes <= ?))
             ORDER  BY es.anio DESC, es.mes DESC
@@ -455,13 +458,13 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
          s.detalles,
          COALESCE(
            (SELECT es.sueldo_base FROM escalas_salariales es
-            WHERE es.puesto_id = p.puesto_id AND es.deleted_at IS NULL
+            WHERE es.puesto_id = p.puesto_id AND es.sucursal_id = p.sucursal_id AND es.deleted_at IS NULL
               AND (es.anio < ? OR (es.anio = ? AND es.mes <= ?))
             ORDER BY es.anio DESC, es.mes DESC LIMIT 1), 0
          ) AS sueldo_base,
          COALESCE(
            (SELECT es.valor_hora FROM escalas_salariales es
-            WHERE es.puesto_id = p.puesto_id AND es.deleted_at IS NULL
+            WHERE es.puesto_id = p.puesto_id AND es.sucursal_id = p.sucursal_id AND es.deleted_at IS NULL
               AND (es.anio < ? OR (es.anio = ? AND es.mes <= ?))
             ORDER BY es.anio DESC, es.mes DESC LIMIT 1), 0
          ) AS valor_hora_escala,
