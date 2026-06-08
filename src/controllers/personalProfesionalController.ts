@@ -8,7 +8,7 @@ export const getProfesional = async (req: Request, res: Response) => {
     const personalId = Number(id)
 
     const personalResult: any = await query(
-      `SELECT id, puesto_id, fecha_incorporacion FROM personal WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT id, puesto_id, sucursal_id, fecha_incorporacion FROM personal WHERE id = ? AND deleted_at IS NULL`,
       [personalId],
     )
     if (!Array.isArray(personalResult) || personalResult.length === 0) {
@@ -37,15 +37,15 @@ export const getProfesional = async (req: Request, res: Response) => {
       alerta: enPeriodo && diasRestantes <= 15,
     }
 
-    // Escala salarial más reciente para este puesto
+    // Escala salarial más reciente para este puesto en la misma sucursal
     const escalaResult: any = await query(
       `SELECT es.id, es.puesto_id, pu.nombre AS puesto_nombre, es.sueldo_base, es.mes, es.anio, es.valor_hora
        FROM escalas_salariales es
        LEFT JOIN puestos pu ON pu.id = es.puesto_id
-       WHERE es.puesto_id = ? AND es.deleted_at IS NULL
+       WHERE es.puesto_id = ? AND es.sucursal_id = ? AND es.deleted_at IS NULL
        ORDER BY es.anio DESC, es.mes DESC
        LIMIT 1`,
-      [personal.puesto_id],
+      [personal.puesto_id, personal.sucursal_id],
     )
     const escalaActual = Array.isArray(escalaResult) && escalaResult.length > 0 ? escalaResult[0] : null
 
@@ -98,26 +98,26 @@ export const getAnalitico = async (req: Request, res: Response) => {
 
     // Puesto del colaborador
     const personalResult: any = await query(
-      `SELECT puesto_id FROM personal WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT puesto_id, sucursal_id FROM personal WHERE id = ? AND deleted_at IS NULL`,
       [personalId],
     )
     if (!Array.isArray(personalResult) || personalResult.length === 0) {
       return res.status(404).json({ success: false, message: 'Colaborador no encontrado' })
     }
-    const { puesto_id } = personalResult[0]
+    const { puesto_id, sucursal_id } = personalResult[0]
 
-    // Escalas salariales históricas del puesto (últimos 24 meses)
+    // Escalas salariales históricas del puesto en la misma sucursal (últimos 24 meses)
     const escalaRows: any = await query(
       `SELECT sueldo_base, valor_hora, mes, anio
        FROM (
          SELECT es.sueldo_base, es.valor_hora, es.mes, es.anio
          FROM escalas_salariales es
-         WHERE es.puesto_id = ? AND es.deleted_at IS NULL
+         WHERE es.puesto_id = ? AND es.sucursal_id = ? AND es.deleted_at IS NULL
          ORDER BY es.anio DESC, es.mes DESC
          LIMIT 24
        ) AS sub
        ORDER BY anio ASC, mes ASC`,
-      [puesto_id],
+      [puesto_id, sucursal_id],
     )
 
     // Solicitudes aprobadas relevantes para analíticos
@@ -132,7 +132,7 @@ export const getAnalitico = async (req: Request, res: Response) => {
       [personalId],
     )
 
-    const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+    const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
     // ── Sueldos ────────────────────────────────────────────────────────────────
     const sueldos = (Array.isArray(escalaRows) ? escalaRows : []).map((row: any) => ({
@@ -144,7 +144,13 @@ export const getAnalitico = async (req: Request, res: Response) => {
     // ── Helpers de agrupación ──────────────────────────────────────────────────
     const parseDet = (raw: unknown): Record<string, unknown> => {
       if (!raw) return {}
-      if (typeof raw === 'string') { try { return JSON.parse(raw) } catch { return {} } }
+      if (typeof raw === 'string') {
+        try {
+          return JSON.parse(raw)
+        } catch {
+          return {}
+        }
+      }
       if (typeof raw === 'object') return raw as Record<string, unknown>
       return {}
     }
@@ -161,7 +167,7 @@ export const getAnalitico = async (req: Request, res: Response) => {
     // ── Horas extras por mes ──────────────────────────────────────────────────
     const horasExtrasMap: Record<string, { horas: number }> = {}
 
-    for (const row of (Array.isArray(solicitudesRows) ? solicitudesRows : [])) {
+    for (const row of Array.isArray(solicitudesRows) ? solicitudesRows : []) {
       const periodo = periodoKey(row.fecha_solicitud)
       const det = parseDet(row.detalles)
 
