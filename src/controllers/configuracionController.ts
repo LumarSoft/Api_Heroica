@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import { invalidateUsuarioActivoCache } from '../middlewares/authMiddleware'
 import { query } from '../config/database'
 import bcrypt from 'bcryptjs'
 
@@ -622,6 +623,7 @@ export const toggleUsuarioActivo = async (req: Request, res: Response) => {
     const nuevoEstado = usuario[0].activo ? 0 : 1
 
     await query('UPDATE usuarios SET activo = ? WHERE id = ?', [nuevoEstado, id])
+    invalidateUsuarioActivoCache(Number(id)) // corte inmediato de sesiones si fue desactivado
 
     const updated: any = await query(
       `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, r.nombre as rol
@@ -667,6 +669,7 @@ export const deleteUsuario = async (req: Request, res: Response) => {
     }
 
     await query('UPDATE usuarios SET deleted_at = NOW() WHERE id = ?', [id])
+    invalidateUsuarioActivoCache(Number(id)) // corte inmediato de sesiones del usuario eliminado
 
     res.json({
       success: true,

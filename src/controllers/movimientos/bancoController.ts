@@ -5,6 +5,7 @@ import {
   formatearFechaRespuesta,
   verificarAccesoSucursal,
   completarContraparte,
+  buildLimitClause,
 } from '../../utils/movimientosHelpers'
 
 // GET /api/caja-banco/:sucursalId
@@ -36,7 +37,7 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
          AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)
-       ORDER BY m.id DESC`,
+       ORDER BY m.id DESC${buildLimitClause(req.query as Record<string, unknown>)}`,
       [sucursalId, moneda],
     )
 

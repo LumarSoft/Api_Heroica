@@ -18,10 +18,32 @@ declare global {
   }
 }
 
+// Cache en memoria del estado "activo" de los usuarios (TTL 60s).
+// Permite revocar sesiones al desactivar un usuario sin pagar una query por request.
+const ACTIVO_CACHE_TTL_MS = 60 * 1000
+const activoCache = new Map<number, { activo: boolean; expiresAt: number }>()
+
+async function isUsuarioActivo(userId: number): Promise<boolean> {
+  const cached = activoCache.get(userId)
+  if (cached && cached.expiresAt > Date.now()) return cached.activo
+
+  const result: any = await query(`SELECT 1 FROM usuarios WHERE id = ? AND activo = TRUE AND deleted_at IS NULL`, [
+    userId,
+  ])
+  const activo = Array.isArray(result) && result.length > 0
+  activoCache.set(userId, { activo, expiresAt: Date.now() + ACTIVO_CACHE_TTL_MS })
+  return activo
+}
+
+/** Invalida el cache de un usuario (llamar al desactivarlo/eliminarlo para corte inmediato). */
+export const invalidateUsuarioActivoCache = (userId: number): void => {
+  activoCache.delete(userId)
+}
+
 /**
- * Middleware para verificar que el usuario está autenticado.
+ * Middleware para verificar que el usuario está autenticado y sigue activo.
  */
-export const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
+export const requireAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const authHeader = req.headers.authorization
 
   if (!authHeader?.startsWith('Bearer ')) {
@@ -31,13 +53,34 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
 
   const token = authHeader.split(' ')[1]
 
+  let decoded: AuthPayload
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as AuthPayload
-    req.user = decoded
-    next()
+    decoded = jwt.verify(token, process.env.JWT_SECRET as string) as AuthPayload
   } catch (error) {
     res.status(401).json({ success: false, message: 'Token expirado o inválido' })
+    return
   }
+
+  // Los tokens temporales (2FA/setup) nunca valen como sesión completa
+  if ((decoded as any).temp2fa || (decoded as any).setup2fa) {
+    res.status(401).json({ success: false, message: 'Token no válido para esta operación' })
+    return
+  }
+
+  try {
+    // Revocación: si el usuario fue desactivado/eliminado, su token deja de servir
+    if (!(await isUsuarioActivo(decoded.id))) {
+      res.status(401).json({ success: false, message: 'Usuario inactivo o eliminado' })
+      return
+    }
+  } catch (error) {
+    console.error('[requireAuth] Error al verificar usuario activo:', error)
+    res.status(500).json({ success: false, message: 'Error de autenticación' })
+    return
+  }
+
+  req.user = decoded
+  next()
 }
 
 /**

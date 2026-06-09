@@ -5,6 +5,7 @@ import {
   formatearFechaRespuesta,
   verificarAccesoSucursal,
   completarContraparte,
+  buildLimitClause,
 } from '../../utils/movimientosHelpers'
 
 // GET /api/movimientos/:sucursalId
@@ -32,7 +33,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
        LEFT JOIN proveedores p ON m.proveedor_id = p.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ? AND m.deleted_at IS NULL
          AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)
-       ORDER BY m.id DESC`,
+       ORDER BY m.id DESC${buildLimitClause(req.query as Record<string, unknown>)}`,
       [sucursalId, moneda],
     )
 

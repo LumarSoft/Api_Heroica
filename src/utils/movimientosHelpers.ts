@@ -31,6 +31,19 @@ export async function verificarAccesoSucursal(user: any, sucursalId: string | nu
 }
 
 /**
+ * Paginación opt-in: si la request trae ?limit= (y opcionalmente ?offset=),
+ * devuelve una cláusula LIMIT segura (enteros validados). Si no, devuelve ''
+ * y el endpoint se comporta exactamente como antes (sin romper el frontend actual).
+ */
+export function buildLimitClause(queryParams: Record<string, unknown>): string {
+  const limit = Number(queryParams.limit)
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 1000) return ''
+  const offset = Number(queryParams.offset)
+  const safeOffset = Number.isInteger(offset) && offset > 0 ? offset : 0
+  return ` LIMIT ${limit} OFFSET ${safeOffset}`
+}
+
+/**
  * Valida que un array recibido por body sea de IDs enteros positivos.
  * Devuelve el array normalizado o null si es inválido.
  */
