@@ -23,7 +23,7 @@ import {
   downloadDocumento,
   upload,
 } from '../controllers/documentosMovimientoController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireSucursalAccess } from '../middlewares/authMiddleware'
 
 const router = Router()
 
@@ -49,13 +49,13 @@ router.post('/compra-venta-divisas', requirePermission('crear_movimientos'), com
 router.put('/efectivo/:id/mover-a-real', requirePermission('aprobar_movimientos'), moverAReal)
 
 // Obtener totales de una sucursal
-router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), getTotalesEfectivo)
+router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), requireSucursalAccess(), getTotalesEfectivo)
 
 // Exportar movimientos efectivo a Excel
-router.get('/:sucursalId/export', requirePermission('ver_movimientos'), exportEfectivoToExcel)
+router.get('/:sucursalId/export', requirePermission('ver_movimientos'), requireSucursalAccess(), exportEfectivoToExcel)
 
 // Obtener todos los movimientos de una sucursal
-router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosBySucursal)
+router.get('/:sucursalId', requirePermission('ver_movimientos'), requireSucursalAccess(), getMovimientosBySucursal)
 
 // Actualizar estado de movimiento
 router.put('/:id/estado', requirePermission('aprobar_movimientos'), updateEstadoMovimiento)

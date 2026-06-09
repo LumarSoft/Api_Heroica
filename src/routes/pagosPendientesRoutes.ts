@@ -8,7 +8,7 @@ import {
   deletePagoPendiente,
   getHistorialByUser,
 } from '../controllers/movimientosController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireSucursalAccess } from '../middlewares/authMiddleware'
 
 const router = Router()
 
@@ -22,7 +22,7 @@ router.get('/historial/:userId', requirePermission('ver_pendientes'), getHistori
 router.get('/all', requirePermission('ver_pendientes'), getAllPagosPendientes)
 
 // Pagos pendientes de una sucursal
-router.get('/:sucursalId', requirePermission('ver_pendientes'), getPagosPendientesBySucursal)
+router.get('/:sucursalId', requirePermission('ver_pendientes'), requireSucursalAccess(), getPagosPendientesBySucursal)
 
 // Crear nuevo pago pendiente
 router.post('/', requirePermission('cargar_pendientes'), createPagoPendiente)

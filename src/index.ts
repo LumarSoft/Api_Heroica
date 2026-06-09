@@ -23,6 +23,7 @@ import personalRoutes from './routes/personalRoutes'
 import puestosRoutes from './routes/puestosRoutes'
 import areasRoutes from './routes/areasRoutes'
 import { syncPermisos } from './config/permisos'
+import { securityHeaders, globalErrorHandler, redactSensitiveFields } from './middlewares/securityMiddleware'
 import { startDbSyncCron } from './services/dbSyncService'
 import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
 import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
@@ -40,6 +41,13 @@ if (!process.env.JWT_SECRET) {
 // Crear aplicación Express
 const app: Application = express()
 const PORT = process.env.PORT || 3001
+
+// No revelar que es Express + headers de seguridad en todas las respuestas
+app.disable('x-powered-by')
+app.use(securityHeaders)
+
+// Detrás de Nginx/Cloudflare: necesario para que req.ip y el rate limit usen la IP real
+app.set('trust proxy', 1)
 
 // Rate limiting: máximo 10 intentos de login por IP cada 15 minutos
 const loginLimiter = rateLimit({
@@ -66,29 +74,38 @@ const verify2FALimiter = rateLimit({
 })
 
 // Middlewares
+// CORS: admite múltiples orígenes separados por coma en CORS_ORIGIN.
+// En producción es OBLIGATORIO configurar CORS_ORIGIN con el dominio real.
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',').map(o => o.trim())
+if (isProductionEnv() && !process.env.CORS_ORIGIN) {
+  console.warn('⚠️  CORS_ORIGIN no está definido en producción: solo se aceptará http://localhost:3000')
+}
 app.use(
   cors({
-    // Permite credenciales (cookies) solo desde el origen del frontend.
-    // En producción configurar CORS_ORIGIN con el dominio real.
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins,
     credentials: true,
   }),
 )
-app.use(cookieParser()) // Parsear cookies (necesario para device_token)
-app.use(express.json()) // Parsear JSON
-app.use(express.urlencoded({ extended: true })) // Parsear URL-encoded
 
-// Middleware de logging — campos sensibles redactados
+function isProductionEnv(): boolean {
+  return process.env.NODE_ENV === 'production'
+}
+app.use(cookieParser()) // Parsear cookies (necesario para device_token)
+app.use(express.json({ limit: '2mb' })) // Parsear JSON con límite de tamaño
+app.use(express.urlencoded({ extended: true, limit: '2mb' })) // Parsear URL-encoded
+
+// Middleware de logging — TODOS los campos sensibles redactados (passwords, tokens,
+// códigos 2FA, datos laborales). En producción no se loguean bodies.
+const isProduction = process.env.NODE_ENV === 'production'
 app.use((req, res, next) => {
   const timestamp = new Date().toLocaleString('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
     hour12: false,
   })
-  const sanitizedBody = { ...req.body }
-  if (sanitizedBody.password) sanitizedBody.password = '[REDACTED]'
-  if (sanitizedBody.token) sanitizedBody.token = '[REDACTED]'
   console.log(`\n[${timestamp}] ${req.method} ${req.url}`)
-  console.log(`Body:`, sanitizedBody)
+  if (!isProduction && req.body && Object.keys(req.body).length > 0) {
+    console.log(`Body:`, redactSensitiveFields(req.body))
+  }
   next()
 })
 
@@ -133,6 +150,9 @@ app.use((req: Request, res: Response) => {
     message: 'Ruta no encontrada',
   })
 })
+
+// Error handler global: SIEMPRE al final. Nunca expone stack traces al cliente.
+app.use(globalErrorHandler)
 
 // Iniciar servidor
 app.listen(PORT, async () => {

@@ -40,13 +40,23 @@ const syncDatabase = async () => {
 // Programar la tarea para que se ejecute a las 06:00 AM y 18:00 PM todos los días.
 // Formato cron: "0 6,18 * * *" => A las 06:00 y 18:00 todos los días.
 export const startDbSyncCron = () => {
+  // Desactivable por env: la sync requiere privilegios DROP/CREATE y duplica datos
+  // sensibles en la BD de prueba. Idealmente debería correr como script externo.
+  if (process.env.DB_SYNC_ENABLED === 'false') {
+    console.log('⏭️  Sincronización de BD deshabilitada (DB_SYNC_ENABLED=false).')
+    return
+  }
+
   cron.schedule('0 6,18 * * *', () => {
     syncDatabase()
   })
   console.log('📅 Tarea programada (CRON): Sincronización de BD diaria (06:00 y 18:00).')
 
-  // Ejecutar al levantar la API por primera vez
-  syncDatabase()
+  // Sync al arranque solo si se pide explícitamente: evita una copia completa
+  // de la BD en cada deploy/restart de PM2.
+  if (process.env.DB_SYNC_ON_BOOT === 'true') {
+    syncDatabase()
+  }
 }
 
 // También podemos exportar la función si en algún momento se quiere forzar la sync manual

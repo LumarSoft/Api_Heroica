@@ -101,6 +101,50 @@ export const requirePermission = (permisoClave: string) => {
 }
 
 /**
+ * Middleware de scoping por sucursal: verifica que el usuario esté asignado a la
+ * sucursal indicada en el parámetro de ruta (usuarios_sucursales). Superadmin pasa siempre.
+ * Evita IDOR horizontal: un usuario de la sucursal A no puede operar la sucursal B.
+ * @param paramName Nombre del parámetro de ruta que contiene el id de sucursal
+ */
+export const requireSucursalAccess = (paramName = 'sucursalId') => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+        return
+      }
+
+      const sucursalId = Number(req.params[paramName])
+      if (!Number.isInteger(sucursalId) || sucursalId <= 0) {
+        res.status(400).json({ success: false, message: 'ID de sucursal inválido' })
+        return
+      }
+
+      const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [req.user.rol_id])
+      if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') {
+        next()
+        return
+      }
+
+      const acceso: any = await query(
+        `SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`,
+        [req.user.id, sucursalId],
+      )
+
+      if (Array.isArray(acceso) && acceso.length > 0) {
+        next()
+        return
+      }
+
+      res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
+    } catch (error) {
+      console.error('[RequireSucursalAccess error]', error)
+      res.status(500).json({ success: false, message: 'Error al verificar acceso a sucursal' })
+    }
+  }
+}
+
+/**
  * Middleware auxiliar para requerir múltiples permisos (OR lógico o AND lógico).
  * Implementado por defecto como "Debe tener TODOS los permisos en la lista" (AND).
  */

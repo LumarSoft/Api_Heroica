@@ -21,7 +21,7 @@ import {
   downloadDocumento,
   upload,
 } from '../controllers/documentosMovimientoController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireSucursalAccess } from '../middlewares/authMiddleware'
 
 const router = Router()
 
@@ -33,13 +33,13 @@ router.put('/bulk/mover', moverBulkMovimientos)
 router.use(requireAuth)
 
 // Obtener movimientos banco de una sucursal
-router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosBancoBySucursal)
+router.get('/:sucursalId', requirePermission('ver_movimientos'), requireSucursalAccess(), getMovimientosBancoBySucursal)
 
 // Obtener totales de una sucursal
-router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), getTotalesBanco)
+router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), requireSucursalAccess(), getTotalesBanco)
 
 // Exportar movimientos banco a Excel
-router.get('/:sucursalId/export', requirePermission('ver_movimientos'), exportBancoToExcel)
+router.get('/:sucursalId/export', requirePermission('ver_movimientos'), requireSucursalAccess(), exportBancoToExcel)
 
 // Crear movimiento banco
 router.post('/', requirePermission('crear_movimientos'), createMovimientoBanco)
