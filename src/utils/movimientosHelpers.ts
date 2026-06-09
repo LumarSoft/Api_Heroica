@@ -30,6 +30,37 @@ export async function verificarAccesoSucursal(user: any, sucursalId: string | nu
   return Array.isArray(acceso) && acceso.length > 0
 }
 
+/**
+ * Valida que un array recibido por body sea de IDs enteros positivos.
+ * Devuelve el array normalizado o null si es inválido.
+ */
+export function normalizarIds(ids: unknown): number[] | null {
+  if (!Array.isArray(ids) || ids.length === 0) return null
+  const normalizados = ids.map(id => Number(id))
+  if (normalizados.some(id => !Number.isInteger(id) || id <= 0)) return null
+  return normalizados
+}
+
+/**
+ * Verifica que el usuario tenga acceso a TODAS las sucursales de los movimientos indicados.
+ * Superadmin siempre tiene acceso. Devuelve false si algún movimiento no existe o
+ * pertenece a una sucursal a la que el usuario no está asignado.
+ */
+export async function verificarAccesoMovimientos(user: any, ids: number[]): Promise<boolean> {
+  const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])
+  if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') return true
+
+  const placeholders = ids.map(() => '?').join(', ')
+  const rows: any = await query(
+    `SELECT COUNT(*) AS total
+     FROM movimientos m
+     INNER JOIN usuarios_sucursales us ON us.sucursal_id = m.sucursal_id AND us.usuario_id = ?
+     WHERE m.id IN (${placeholders})`,
+    [user.id, ...ids],
+  )
+  return Array.isArray(rows) && Number(rows[0]?.total) === ids.length
+}
+
 export async function completarContraparte(contraparteId: number): Promise<void> {
   await query(`UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`, [
     contraparteId,

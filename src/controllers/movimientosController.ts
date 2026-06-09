@@ -1,6 +1,12 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
-import { normalizarFecha, formatearFechaRespuesta } from '../utils/movimientosHelpers'
+import {
+  normalizarFecha,
+  formatearFechaRespuesta,
+  normalizarIds,
+  verificarAccesoMovimientos,
+  verificarAccesoSucursal,
+} from '../utils/movimientosHelpers'
 
 // Re-exports para que las rutas no necesiten cambiar
 export * from './movimientos/efectivoController'
@@ -63,15 +69,24 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
 // DELETE /api/movimientos/bulk  — Body: { ids: number[] }
 export const deleteBulkMovimientos = async (req: Request, res: Response) => {
   try {
-    const { ids } = req.body
+    const ids = normalizarIds(req.body.ids)
 
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ success: false, message: 'Se requiere un array de ids no vacío.' })
+    if (!ids) {
+      return res.status(400).json({ success: false, message: 'Se requiere un array de ids numéricos no vacío.' })
     }
 
+    // El usuario debe tener acceso a las sucursales de TODOS los movimientos a eliminar
+    if (!(await verificarAccesoMovimientos(req.user!, ids))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a alguno de los movimientos.' })
+    }
+
+    // Soft delete — consistente con el resto del sistema (deleted_at)
     const placeholders = ids.map(() => '?').join(', ')
-    await query(`DELETE FROM movimientos WHERE id IN (${placeholders})`, ids)
-    res.json({ success: true, message: `${ids.length} movimiento(s) eliminado(s).` })
+    const result: any = await query(
+      `UPDATE movimientos SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      ids,
+    )
+    res.json({ success: true, message: `${result.affectedRows ?? ids.length} movimiento(s) eliminado(s).` })
   } catch (error) {
     console.error('Error en deleteBulkMovimientos:', error)
     res.status(500).json({ success: false, message: 'Error al eliminar movimientos en bloque.' })
@@ -95,15 +110,24 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
       tipo_operacion,
     } = req.body
 
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ success: false, message: 'Se requiere un array de ids no vacío.' })
+    const idsNormalizados = normalizarIds(ids)
+    if (!idsNormalizados) {
+      return res.status(400).json({ success: false, message: 'Se requiere un array de ids numéricos no vacío.' })
     }
     if (!destino_sucursal_id || !destino_tipo_movimiento || !destino_saldo) {
       return res.status(400).json({ success: false, message: 'Faltan datos de destino obligatorios.' })
     }
 
+    // Acceso a los movimientos de origen y a la sucursal de destino
+    if (!(await verificarAccesoMovimientos(req.user!, idsNormalizados))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a alguno de los movimientos.' })
+    }
+    if (!(await verificarAccesoSucursal(req.user!, destino_sucursal_id))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a la sucursal de destino.' })
+    }
+
     const nuevoEstado = destino_saldo === 'saldo_real' ? 'completado' : 'aprobado'
-    const placeholders = ids.map(() => '?').join(', ')
+    const placeholders = idsNormalizados.map(() => '?').join(', ')
 
     if (destino_tipo_movimiento === 'efectivo') {
       await query(
@@ -112,7 +136,7 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
              banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL,
              banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
          WHERE id IN (${placeholders})`,
-        [destino_sucursal_id, destino_saldo, nuevoEstado, ...ids],
+        [destino_sucursal_id, destino_saldo, nuevoEstado, ...idsNormalizados],
       )
     } else {
       await query(
@@ -132,12 +156,12 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
           cuenta || null,
           cbu || null,
           tipo_operacion || null,
-          ...ids,
+          ...idsNormalizados,
         ],
       )
     }
 
-    res.json({ success: true, message: `${ids.length} movimiento(s) movido(s).` })
+    res.json({ success: true, message: `${idsNormalizados.length} movimiento(s) movido(s).` })
   } catch (error) {
     console.error('Error en moverBulkMovimientos:', error)
     res.status(500).json({ success: false, message: 'Error al mover movimientos en bloque.' })

@@ -149,8 +149,10 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
 export const aprobarPagoPendiente = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    // El revisor es SIEMPRE el usuario autenticado (no se acepta del body: evita
+    // falsificar quién aprobó en la trazabilidad contable)
+    const usuario_revisor_id = req.user!.id
     const {
-      usuario_revisor_id,
       tipo_caja,
       fecha,
       concepto,
@@ -165,10 +167,6 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
       medio_pago_id,
       numero_cheque,
     } = req.body
-
-    if (!usuario_revisor_id) {
-      return res.status(400).json({ success: false, message: 'ID de usuario revisor es requerido' })
-    }
 
     if (!categoria_id || !subcategoria_id || !descripcion_id) {
       return res.status(400).json({
@@ -217,14 +215,14 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
         ? String(numero_cheque).trim()
         : null
 
-    await query(
+    const updateResult: any = await query(
       `UPDATE movimientos
        SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario',
            fecha = COALESCE(?, fecha), concepto = COALESCE(?, concepto), comentarios = ?, monto = ?, 
            prioridad = COALESCE(?, prioridad), categoria_id = ?, subcategoria_id = ?, 
            descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?,
            numero_cheque = COALESCE(?, numero_cheque)
-       WHERE id = ?`,
+       WHERE id = ? AND estado = 'pendiente' AND deleted_at IS NULL`,
       [
         usuario_revisor_id,
         newTipoMovimiento,
@@ -244,6 +242,11 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
       ],
     )
 
+    // Si otra request lo aprobó/rechazó en el medio, affectedRows será 0 (update condicional)
+    if ((updateResult as any).affectedRows === 0) {
+      return res.status(409).json({ success: false, message: 'El pago ya fue procesado por otro usuario' })
+    }
+
     const updatedPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
 
     res.json({ success: true, message: 'Pago aprobado y programado exitosamente', data: updatedPago[0] })
@@ -257,24 +260,28 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
 export const rechazarPagoPendiente = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { usuario_revisor_id, motivo_rechazo } = req.body
+    // El revisor es SIEMPRE el usuario autenticado (no se acepta del body)
+    const usuario_revisor_id = req.user!.id
+    const { motivo_rechazo } = req.body
 
-    if (!usuario_revisor_id || !motivo_rechazo) {
-      return res.status(400).json({ success: false, message: 'Usuario revisor y motivo de rechazo son requeridos' })
+    if (!motivo_rechazo) {
+      return res.status(400).json({ success: false, message: 'El motivo de rechazo es requerido' })
     }
 
-    const pagoResult: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
-    if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
-      return res.status(404).json({ success: false, message: 'Pago pendiente no encontrado' })
-    }
-    if (pagoResult[0].estado !== 'pendiente') {
-      return res.status(400).json({ success: false, message: 'El pago ya fue procesado' })
-    }
-
-    await query(
-      `UPDATE movimientos SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ? WHERE id = ?`,
+    // Update condicional atómico: evita doble procesamiento concurrente
+    const updateResult: any = await query(
+      `UPDATE movimientos SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?
+       WHERE id = ? AND estado = 'pendiente' AND deleted_at IS NULL`,
       [usuario_revisor_id, motivo_rechazo, id],
     )
+
+    if (updateResult.affectedRows === 0) {
+      const existe: any = await query('SELECT estado FROM movimientos WHERE id = ? AND deleted_at IS NULL', [id])
+      if (!Array.isArray(existe) || existe.length === 0) {
+        return res.status(404).json({ success: false, message: 'Pago pendiente no encontrado' })
+      }
+      return res.status(400).json({ success: false, message: 'El pago ya fue procesado' })
+    }
 
     const updatedPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
 
@@ -288,17 +295,25 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
 // DELETE /api/pagos-pendientes/:id
 export const deletePagoPendiente = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params
-
-    const pagoResult: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
-    if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
-      return res.status(404).json({ success: false, message: 'Pago pendiente no encontrado' })
+    const id = Number(req.params.id)
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ success: false, message: 'ID inválido' })
     }
-    if (pagoResult[0].estado !== 'pendiente') {
+
+    // Soft delete atómico: solo si sigue pendiente y no fue borrado antes
+    const result: any = await query(
+      `UPDATE movimientos SET deleted_at = NOW() WHERE id = ? AND estado = 'pendiente' AND deleted_at IS NULL`,
+      [id],
+    )
+
+    if (result.affectedRows === 0) {
+      const existe: any = await query('SELECT estado FROM movimientos WHERE id = ? AND deleted_at IS NULL', [id])
+      if (!Array.isArray(existe) || existe.length === 0) {
+        return res.status(404).json({ success: false, message: 'Pago pendiente no encontrado' })
+      }
       return res.status(400).json({ success: false, message: 'Solo se pueden eliminar pagos pendientes' })
     }
 
-    await query('DELETE FROM movimientos WHERE id = ?', [id])
     res.json({ success: true, message: 'Pago pendiente eliminado exitosamente' })
   } catch (error) {
     console.error('Error al eliminar pago pendiente:', error)

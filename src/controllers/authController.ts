@@ -7,6 +7,23 @@ import QRCode from 'qrcode'
 import { query } from '../config/database'
 
 const DEVICE_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 días
+const SESSION_TOKEN_TTL = (process.env.JWT_EXPIRES_IN || '24h') as jwt.SignOptions['expiresIn']
+const MIN_PASSWORD_LENGTH = 10
+
+/**
+ * Verifica un token de configuración de 2FA (emitido en login cuando el usuario
+ * aún no tiene 2FA) y devuelve el id de usuario autorizado, o null si es inválido.
+ */
+function verifySetupToken(setupToken: unknown): number | null {
+  if (typeof setupToken !== 'string' || !setupToken) return null
+  try {
+    const decoded: any = jwt.verify(setupToken, process.env.JWT_SECRET as string)
+    if (decoded?.setup2fa !== true || typeof decoded.id !== 'number') return null
+    return decoded.id
+  } catch {
+    return null
+  }
+}
 
 interface User {
   id: number
@@ -30,7 +47,7 @@ async function buildSessionToken(user: User): Promise<{ token: string; permisos:
       rol: user.rol_nombre,
     },
     process.env.JWT_SECRET as string,
-    { expiresIn: '24h' },
+    { expiresIn: SESSION_TOKEN_TTL },
   )
 
   const permisosResult: any = await query(
@@ -94,9 +111,17 @@ export const login = async (req: Request, res: Response) => {
     }
 
     if (!user.two_factor_enabled) {
+      // Token de configuración: autoriza ÚNICAMENTE el flujo enable/confirm 2FA
+      // para este usuario. Evita que terceros configuren 2FA ajeno con solo un userId.
+      const setupToken = jwt.sign(
+        { id: user.id, email: user.email, setup2fa: true },
+        process.env.JWT_SECRET as string,
+        { expiresIn: '15m' },
+      )
       return res.json({
         success: true,
         needsSetup2FA: true,
+        setupToken,
         userId: user.id,
         userData: {
           id: user.id,
@@ -298,12 +323,28 @@ export const verify2FA = async (req: Request, res: Response) => {
 
 export const enable2FA = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body
+    // El userId sale del setupToken firmado (emitido en login), nunca del body.
+    const userId = verifySetupToken(req.body.setupToken)
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
-        message: 'userId es requerido',
+        message: 'Token de configuración inválido o expirado. Iniciá sesión nuevamente.',
+      })
+    }
+
+    // No permitir re-enrolar (sobrescribir el secret) si el usuario ya tiene 2FA activo
+    const existing: any = await query(
+      `SELECT two_factor_enabled FROM usuarios WHERE id = ? AND activo = TRUE AND deleted_at IS NULL`,
+      [userId],
+    )
+    if (!Array.isArray(existing) || existing.length === 0) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' })
+    }
+    if (existing[0].two_factor_enabled) {
+      return res.status(409).json({
+        success: false,
+        message: '2FA ya está habilitado. Para reconfigurarlo, un administrador debe resetearlo primero.',
       })
     }
 
@@ -334,12 +375,21 @@ export const enable2FA = async (req: Request, res: Response) => {
 
 export const confirm2FA = async (req: Request, res: Response) => {
   try {
-    const { userId, code } = req.body
+    const { code } = req.body
+    // El userId sale del setupToken firmado, nunca del body.
+    const userId = verifySetupToken(req.body.setupToken)
 
-    if (!userId || !code) {
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token de configuración inválido o expirado. Iniciá sesión nuevamente.',
+      })
+    }
+
+    if (!code) {
       return res.status(400).json({
         success: false,
-        message: 'userId y código son requeridos',
+        message: 'El código es requerido',
       })
     }
 
@@ -403,12 +453,14 @@ export const confirm2FA = async (req: Request, res: Response) => {
 
 export const disable2FA = async (req: Request, res: Response) => {
   try {
-    const { userId, password } = req.body
+    const { password } = req.body
+    // Solo el propio usuario autenticado puede deshabilitar su 2FA (ruta con requireAuth)
+    const userId = req.user!.id
 
-    if (!userId || !password) {
+    if (!password) {
       return res.status(400).json({
         success: false,
-        message: 'userId y contraseña son requeridos',
+        message: 'La contraseña es requerida',
       })
     }
 
@@ -446,16 +498,19 @@ export const disable2FA = async (req: Request, res: Response) => {
   }
 }
 
+// Acción administrativa: requiere sesión + permiso gestionar_usuarios (ver authRoutes)
 export const reset2FA = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body
+    const userId = Number(req.body.userId)
 
-    if (!userId) {
+    if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({
         success: false,
         message: 'userId es requerido',
       })
     }
+
+    console.info(`[reset2FA] Usuario ${req.user!.id} (${req.user!.email}) reseteó el 2FA del usuario ${userId}`)
 
     await query(`UPDATE usuarios SET two_factor_enabled = 0, two_factor_secret = NULL WHERE id = ?`, [userId])
 
@@ -504,10 +559,17 @@ export const changePassword = async (req: Request, res: Response) => {
       })
     }
 
-    if (newPassword.length < 6) {
+    if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
       return res.status(400).json({
         success: false,
-        message: 'La nueva contraseña debe tener al menos 6 caracteres',
+        message: `La nueva contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
+      })
+    }
+
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'La nueva contraseña debe incluir al menos una letra y un número',
       })
     }
 

@@ -36,8 +36,8 @@ router.use(requireAuth)
 router.get('/deudas', requirePermission('ver_movimientos'), getDeudasInterSucursal)
 
 // Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
-router.delete('/bulk', deleteBulkMovimientos)
-router.put('/bulk/mover', moverBulkMovimientos)
+router.delete('/bulk', requirePermission('eliminar_movimientos'), deleteBulkMovimientos)
+router.put('/bulk/mover', requirePermission('editar_movimientos'), moverBulkMovimientos)
 
 // Crear movimiento efectivo (debe ir antes de /:sucursalId)
 router.post('/efectivo', requirePermission('crear_movimientos'), createMovimientoEfectivo)
