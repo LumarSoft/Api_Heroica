@@ -28,6 +28,7 @@ import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertSe
 import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
 import { startEscalasAlertCron } from './services/escalasAlertService'
 import rrhhSueldosRoutes from './routes/rrhhSueldosRoutes'
+import rrhhAnaliticoRoutes from './routes/rrhhAnaliticoRoutes'
 // Cargar variables de entorno
 dotenv.config()
 
@@ -114,6 +115,7 @@ app.use('/api/personal', personalRoutes)
 app.use('/api/puestos', puestosRoutes)
 app.use('/api/areas', areasRoutes)
 app.use('/api/rrhh/sueldos', rrhhSueldosRoutes)
+app.use('/api/rrhh/analitico', rrhhAnaliticoRoutes)
 
 // Ruta raíz — no expone información sensible en producción
 app.get('/', (_req: Request, res: Response) => {
