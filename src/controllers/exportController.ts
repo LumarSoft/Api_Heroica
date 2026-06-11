@@ -34,6 +34,7 @@ interface Filtros {
   filtroDeuda?: string
   bancos?: string[]
   filtroChequesPendientes?: boolean
+  tipoMovimiento?: string
 }
 
 function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string | number)[] } {
@@ -67,6 +68,10 @@ function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string |
     clauses.push('m.numero_cheque IS NOT NULL AND m.estado != ?')
     params.push('aprobado')
   }
+  if (f.tipoMovimiento && f.tipoMovimiento !== 'todos') {
+    clauses.push('m.tipo = ?')
+    params.push(f.tipoMovimiento)
+  }
 
   return { clauses, params }
 }
@@ -75,7 +80,14 @@ function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string |
 export const exportEfectivoToExcel = async (req: Request, res: Response) => {
   try {
     const { sucursalId } = req.params
-    const { moneda = 'ARS', fechaInicio, fechaFin, searchText, filtroDeuda } = req.query as Record<string, string>
+    const {
+      moneda = 'ARS',
+      fechaInicio,
+      fechaFin,
+      searchText,
+      filtroDeuda,
+      tipoMovimiento,
+    } = req.query as Record<string, string>
 
     if (!(await verificarAccesoSucursal(req.user!, sucursalId))) {
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
@@ -86,17 +98,25 @@ export const exportEfectivoToExcel = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Sucursal no encontrada' })
     }
 
-    const { clauses, params: filtroParams } = buildFiltrosClauses({ fechaInicio, fechaFin, searchText, filtroDeuda })
+    const { clauses, params: filtroParams } = buildFiltrosClauses({
+      fechaInicio,
+      fechaFin,
+      searchText,
+      filtroDeuda,
+      tipoMovimiento,
+    })
     const extraWhere = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : ''
 
     const rows = (await query(
       `SELECT m.fecha, m.tipo, m.concepto, m.monto,
               m.saldo AS tipo_movimiento,
               c.nombre AS categoria,
-              s.nombre AS subcategoria
+              s.nombre AS subcategoria,
+              d.nombre AS descripcion_nombre
        FROM movimientos m
        LEFT JOIN categorias c ON m.categoria_id = c.id
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+       LEFT JOIN descripciones d ON m.descripcion_id = d.id
        WHERE m.sucursal_id = ?
          AND m.tipo_movimiento = 'efectivo'
          AND m.moneda = ?
@@ -115,6 +135,7 @@ export const exportEfectivoToExcel = async (req: Request, res: Response) => {
     sheet.columns = [
       { header: 'Fecha', key: 'fecha', width: 14 },
       { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Concepto', key: 'concepto', width: 36 },
       { header: 'Descripción', key: 'descripcion', width: 36 },
       { header: 'Categoría', key: 'categoria', width: 22 },
       { header: 'Subcategoría', key: 'subcategoria', width: 22 },
@@ -128,7 +149,8 @@ export const exportEfectivoToExcel = async (req: Request, res: Response) => {
       const row = sheet.addRow({
         fecha: formatearFechaExcel(m.fecha),
         tipo: m.tipo,
-        descripcion: m.concepto || '',
+        concepto: m.concepto || '',
+        descripcion: m.descripcion_nombre || '',
         categoria: m.categoria || '',
         subcategoria: m.subcategoria || '',
         monto: Number(m.monto),
@@ -166,6 +188,7 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
       filtroDeuda,
       bancos: bancosParam,
       filtroChequesPendientes,
+      tipoMovimiento,
     } = req.query as Record<string, string>
 
     if (!(await verificarAccesoSucursal(req.user!, sucursalId))) {
@@ -185,6 +208,7 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
       filtroDeuda,
       bancos,
       filtroChequesPendientes: filtroChequesPendientes === 'true',
+      tipoMovimiento,
     })
     const extraWhere = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : ''
 
@@ -193,11 +217,13 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
               m.saldo AS tipo_movimiento,
               c.nombre AS categoria,
               s.nombre AS subcategoria,
+              d.nombre AS descripcion_nombre,
               b.nombre AS banco,
               mp.nombre AS medio_pago
        FROM movimientos m
        LEFT JOIN categorias c ON m.categoria_id = c.id
        LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
+       LEFT JOIN descripciones d ON m.descripcion_id = d.id
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ?
@@ -218,6 +244,7 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
     sheet.columns = [
       { header: 'Fecha', key: 'fecha', width: 14 },
       { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Concepto', key: 'concepto', width: 36 },
       { header: 'Descripción', key: 'descripcion', width: 36 },
       { header: 'Categoría', key: 'categoria', width: 22 },
       { header: 'Subcategoría', key: 'subcategoria', width: 22 },
@@ -231,7 +258,8 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
       const row = sheet.addRow({
         fecha: formatearFechaExcel(m.fecha),
         tipo: m.tipo,
-        descripcion: m.concepto || '',
+        concepto: m.concepto || '',
+        descripcion: m.descripcion_nombre || '',
         categoria: m.categoria || '',
         subcategoria: m.subcategoria || '',
         monto: Number(m.monto),

@@ -261,6 +261,18 @@ export const moverMovimiento = async (req: Request, res: Response) => {
       nuevaDescripcion = nuevaDescripcion ? `${nuevaDescripcion}${separador}${nota_descripcion}` : `${nota_descripcion}`
     }
 
+    // Anotar la transferencia entre sucursales en los comentarios
+    const descripcionOrigen = isDifferentSucursal
+      ? nuevaDescripcion
+        ? `${nuevaDescripcion}\n🔀 Movido de ${nombreOrigen} a ${nombreDestino}`
+        : `🔀 Movido de ${nombreOrigen} a ${nombreDestino}`
+      : nuevaDescripcion
+    const descripcionDestino = isDifferentSucursal
+      ? nuevaDescripcion
+        ? `${nuevaDescripcion}\n🔀 Recibido desde ${nombreOrigen} (movido a ${nombreDestino})`
+        : `🔀 Recibido desde ${nombreOrigen} (movido a ${nombreDestino})`
+      : nuevaDescripcion
+
     const nuevoTipo = createDebts ? (mov.tipo === 'ingreso' ? 'egreso' : 'ingreso') : mov.tipo
     const nuevoEstado = destino_saldo === 'saldo_real' ? 'completado' : 'aprobado'
 
@@ -281,7 +293,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         // CASO 1: Muevo un ingreso → Egreso real en origen, Ingreso real en destino, deudas cruzadas
         await query(`UPDATE movimientos SET tipo = ?, estado = 'completado', comentarios = ?, monto = ? WHERE id = ?`, [
           'egreso',
-          nuevaDescripcion,
+          descripcionOrigen,
           getSignedMonto('egreso', mov.monto),
           id,
         ])
@@ -291,14 +303,16 @@ export const moverMovimiento = async (req: Request, res: Response) => {
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
             tipo, tipo_movimiento, saldo, estado, banco_id, medio_pago_id,
-            numero_cheque, banco, cuenta, cbu, tipo_operacion
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            numero_cheque, banco, cuenta, cbu, tipo_operacion,
+            categoria_id, subcategoria_id, descripcion_id, proveedor_id,
+            es_deuda, fecha_original_vencimiento, moneda, tipo_cambio
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             destino_sucursal_id,
             mov.user_id,
             mov.concepto,
             getSignedMonto('ingreso', mov.monto),
-            nuevaDescripcion,
+            descripcionDestino,
             'ingreso',
             destino_tipo_movimiento,
             destino_saldo,
@@ -310,6 +324,14 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             destino_tipo_movimiento === 'banco' ? cb.cuenta : null,
             destino_tipo_movimiento === 'banco' ? cb.cbu : null,
             destino_tipo_movimiento === 'banco' ? cb.tipo_operacion : null,
+            mov.categoria_id || null,
+            mov.subcategoria_id || null,
+            mov.descripcion_id || null,
+            mov.proveedor_id || null,
+            mov.es_deuda || 0,
+            mov.fecha_original_vencimiento || null,
+            mov.moneda || 'ARS',
+            mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
           ],
         )
 
@@ -365,7 +387,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
               destino_sucursal_id,
               destino_saldo,
               nuevoEstado,
-              nuevaDescripcion,
+              descripcionOrigen,
               'egreso',
               getSignedMonto('egreso', mov.monto),
               id,
@@ -382,7 +404,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
               destino_sucursal_id,
               destino_saldo,
               nuevoEstado,
-              nuevaDescripcion,
+              descripcionOrigen,
               'egreso',
               getSignedMonto('egreso', mov.monto),
               cb.banco_id,
@@ -446,7 +468,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
            SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?, comentarios = ?, tipo = ?,
                banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL, banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
            WHERE id = ?`,
-          [destino_sucursal_id, destino_saldo, nuevoEstado, nuevaDescripcion, nuevoTipo, id],
+          [destino_sucursal_id, destino_saldo, nuevoEstado, descripcionOrigen, nuevoTipo, id],
         )
       } else {
         const cb = camposBanco()
@@ -459,7 +481,7 @@ export const moverMovimiento = async (req: Request, res: Response) => {
             destino_sucursal_id,
             destino_saldo,
             nuevoEstado,
-            nuevaDescripcion,
+            descripcionOrigen,
             nuevoTipo,
             cb.banco_id,
             cb.medio_pago_id,

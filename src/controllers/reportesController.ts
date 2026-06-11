@@ -38,9 +38,10 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
         AND m.estado IN ('completado', 'aprobado')
         AND (
           (m.es_deuda = 0 OR m.es_deuda IS NULL)
-          OR 
+          OR
           (m.es_deuda = 1 AND m.estado = 'completado')
         )
+        AND NOT (m.tipo_movimiento = 'banco' AND m.categoria_id IS NULL)
     `
 
     const params: any[] = [sucursalId, moneda]
@@ -261,6 +262,7 @@ export const getReportesAnual = async (req: Request, res: Response) => {
            AND m.deleted_at IS NULL
            AND m.estado IN ('completado', 'aprobado')
            AND (m.es_deuda = 0 OR m.es_deuda IS NULL OR (m.es_deuda = 1 AND m.estado = 'completado'))
+           AND NOT (m.tipo_movimiento = 'banco' AND m.categoria_id IS NULL)
          GROUP BY mes
          ORDER BY mes ASC`,
         [sucursalId, moneda],
@@ -278,6 +280,7 @@ export const getReportesAnual = async (req: Request, res: Response) => {
            AND m.deleted_at IS NULL
            AND m.estado IN ('completado', 'aprobado')
            AND (m.es_deuda = 0 OR m.es_deuda IS NULL OR (m.es_deuda = 1 AND m.estado = 'completado'))
+           AND NOT (m.tipo_movimiento = 'banco' AND m.categoria_id IS NULL)
          GROUP BY mes, categoria, m.tipo
          ORDER BY mes ASC`,
         [sucursalId, moneda],
