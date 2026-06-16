@@ -6,16 +6,9 @@ import { query } from '../config/database'
 interface AuthPayload {
   id: number
   email: string
+  nombre?: string
   rol_id: number
   rol: string
-}
-
-declare global {
-  namespace Express {
-    interface Request {
-      user?: AuthPayload
-    }
-  }
 }
 
 /**

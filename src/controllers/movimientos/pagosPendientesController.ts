@@ -1,7 +1,6 @@
 import { Request, Response } from 'express'
 import { query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
-import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
 
 const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({
@@ -145,18 +144,6 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
     )
 
     const createdPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [result.insertId])
-
-    const creadorResult: any = await query('SELECT nombre FROM usuarios WHERE id = ?', [user_id])
-    const creador = (creadorResult as any[])[0]
-
-    await sendNuevoPagoPendienteEmail({
-      creadorNombre: creador?.nombre ?? 'Usuario',
-      concepto: concepto ?? '',
-      monto: String(Math.abs(adjustedMonto)),
-      moneda: monedaFinal,
-      fecha: normalizarFecha(fecha),
-      prioridad: prioridad || 'media',
-    })
 
     res.status(201).json({ success: true, message: 'Pago pendiente creado exitosamente', data: createdPago[0] })
   } catch (error) {
