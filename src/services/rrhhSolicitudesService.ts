@@ -803,7 +803,7 @@ export async function validateSolicitudContext(
     }
 
     const periodoPrueba = Boolean(a.periodo_prueba)
-    const periodoPruebaDiasValue = Number(a.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 90)
+    const periodoPruebaDiasValue = Number(a.periodo_prueba_dias ?? process.env.RRHH_PERIODO_PRUEBA_DIAS ?? 180)
     if (periodoPrueba && (!Number.isFinite(periodoPruebaDiasValue) || periodoPruebaDiasValue <= 0)) {
       throw new Error('La duración del período de prueba debe ser mayor a cero')
     }

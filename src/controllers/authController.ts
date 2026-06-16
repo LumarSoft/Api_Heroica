@@ -26,6 +26,7 @@ async function buildSessionToken(user: User): Promise<{ token: string; permisos:
     {
       id: user.id,
       email: user.email,
+      nombre: user.nombre,
       rol_id: user.rol_id,
       rol: user.rol_nombre,
     },
@@ -49,7 +50,7 @@ async function buildSessionToken(user: User): Promise<{ token: string; permisos:
 function setDeviceCookie(res: Response, rawToken: string): void {
   res.cookie('device_token', rawToken, {
     httpOnly: true,
-    secure: true,   // siempre Secure — la cookie solo viaja por HTTPS
+    secure: true, // siempre Secure — la cookie solo viaja por HTTPS
     sameSite: 'none', // requerido para cross-site (frontend y API en dominios distintos)
     maxAge: DEVICE_TOKEN_TTL_MS,
     path: '/',
@@ -582,10 +583,10 @@ export const revocarDispositivo = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'ID de dispositivo inválido' })
     }
 
-    const result: any = await query(
-      `UPDATE dispositivos_confianza SET revocado = 1 WHERE id = ? AND usuario_id = ?`,
-      [dispositivoId, userId],
-    )
+    const result: any = await query(`UPDATE dispositivos_confianza SET revocado = 1 WHERE id = ? AND usuario_id = ?`, [
+      dispositivoId,
+      userId,
+    ])
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Dispositivo no encontrado' })

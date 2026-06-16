@@ -14,6 +14,11 @@ import {
   createNota,
   deleteNota,
 } from '../controllers/personalProfesionalController'
+import {
+  uploadDocumento,
+  createPersonalDocumento,
+  deletePersonalDocumento,
+} from '../controllers/personalDocumentosController'
 import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
 
 const router = Router()
@@ -32,5 +37,12 @@ router.get('/:id/archivos', requirePermission('ver_personal'), getPersonalArchiv
 router.get('/:id/notas', requirePermission('ver_personal'), getNotas)
 router.post('/:id/notas', requirePermission('gestionar_personal'), createNota)
 router.delete('/:id/notas/:notaId', requirePermission('gestionar_personal'), deleteNota)
+router.post(
+  '/:id/documentos',
+  requirePermission('gestionar_personal'),
+  uploadDocumento.single('file'),
+  createPersonalDocumento,
+)
+router.delete('/:id/documentos/:docId', requirePermission('gestionar_personal'), deletePersonalDocumento)
 
 export default router
