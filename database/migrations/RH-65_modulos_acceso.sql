@@ -69,17 +69,7 @@ JOIN `modulos` m ON m.clave = 'recursos_humanos'
 WHERE p.categoria = 'Recursos Humanos'
 GROUP BY u.id, m.id;
 
--- ============================================================
--- Paso 4: El rol 'admin' pasa a tener TODOS los permisos funcionales
---   (Tesorería + RRHH), EXCLUYENDO los permisos sensibles de Configuración
---   (gestión de usuarios/roles). De este modo 'admin' es un operador completo,
---   y lo que limita a cada admin es el acceso por módulo (Paso 2/3), no el rol.
---
---   Es aditivo (INSERT IGNORE) y reversible desde Configuración → Roles.
--- ============================================================
-
-INSERT IGNORE INTO `roles_permisos` (`rol_id`, `permiso_id`)
-SELECT r.id, p.id
-FROM `roles` r
-JOIN `permisos` p ON p.categoria <> 'Configuración'
-WHERE r.nombre = 'admin';
+-- NOTA: El acceso por módulo NO otorga capacidades; solo controla qué áreas
+-- ve y a cuáles entra cada usuario. Lo que cada quien PUEDE HACER lo siguen
+-- definiendo los permisos de su rol (requirePermission). Por eso esta migración
+-- NO modifica roles_permisos: las capacidades se administran en Configuración → Roles.
