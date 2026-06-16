@@ -100,6 +100,8 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
       tipo_movimiento,
       prioridad,
       tipo,
+      categoria_id,
+      subcategoria_id,
       descripcion_id,
       proveedor_id,
       moneda: bodyMoneda,
@@ -116,10 +118,13 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
       bodyMoneda != null && String(bodyMoneda).trim() !== '' ? String(bodyMoneda).toUpperCase() : 'ARS'
     const tipoCambioFinal = monedaFinal === 'USD' ? tipo_cambio || null : null
 
+    // El aspecto del pago (n° comprobante, banco y medio de pago) NO se carga en la
+    // creación: lo completa el superadmin al aprobar. Todo lo demás (clasificación,
+    // categoría, subcategoría, descripción, proveedor, etc.) sí se persiste acá.
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, saldo, prioridad, estado, tipo, descripcion_id, proveedor_id, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?, ?, ?, ?, ?)`,
+       (sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, saldo, prioridad, estado, tipo, categoria_id, subcategoria_id, descripcion_id, proveedor_id, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
@@ -130,6 +135,8 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
         destinoCaja,
         prioridad || 'media',
         tipo || 'egreso',
+        categoria_id || null,
+        subcategoria_id || null,
         descripcion_id || null,
         proveedor_id || null,
         monedaFinal,
@@ -259,10 +266,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
 
     const updatedPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
 
-    const creadorResult: any = await query(
-      'SELECT nombre, email FROM usuarios WHERE id = ?',
-      [pago.user_id],
-    )
+    const creadorResult: any = await query('SELECT nombre, email FROM usuarios WHERE id = ?', [pago.user_id])
     const revisorResult: any = await query('SELECT nombre FROM usuarios WHERE id = ?', [usuario_revisor_id])
     const creador = (creadorResult as any[])[0]
     const revisor = (revisorResult as any[])[0]
@@ -311,10 +315,7 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
 
     const updatedPago: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
 
-    const creadorResult: any = await query(
-      'SELECT nombre, email FROM usuarios WHERE id = ?',
-      [pagoResult[0].user_id],
-    )
+    const creadorResult: any = await query('SELECT nombre, email FROM usuarios WHERE id = ?', [pagoResult[0].user_id])
     const revisorResult: any = await query('SELECT nombre FROM usuarios WHERE id = ?', [usuario_revisor_id])
     const creador = (creadorResult as any[])[0]
     const revisor = (revisorResult as any[])[0]
