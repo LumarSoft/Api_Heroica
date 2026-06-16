@@ -1,10 +1,11 @@
 import { Router } from 'express'
 import { getEscalas, createEscala, updateEscala, deleteEscala, copiarEscalas } from '../controllers/escalasController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
 
 router.get('/', requirePermission('ver_escalas'), getEscalas)
 router.post('/', requirePermission('gestionar_escalas'), createEscala)

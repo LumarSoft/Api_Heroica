@@ -9,11 +9,12 @@ import {
   updateSolicitud,
 } from '../controllers/rrhhSolicitudesController'
 import { upload, uploadSolicitudArchivo } from '../controllers/rrhhSolicitudesArchivosController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
 
 router.post('/archivos', requirePermission('crear_solicitudes'), upload.single('file'), uploadSolicitudArchivo)
 

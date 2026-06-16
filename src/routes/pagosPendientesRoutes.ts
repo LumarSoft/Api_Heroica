@@ -8,12 +8,13 @@ import {
   deletePagoPendiente,
   getHistorialByUser,
 } from '../controllers/movimientosController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
+router.use(requireModule('tesoreria'))
 
 // Historial de un usuario
 router.get('/historial/:userId', requirePermission('ver_pendientes'), getHistorialByUser)

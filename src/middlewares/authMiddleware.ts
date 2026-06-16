@@ -94,6 +94,53 @@ export const requirePermission = (permisoClave: string) => {
 }
 
 /**
+ * Middleware para verificar que el usuario tiene acceso a un MÓDULO.
+ * El acceso por módulo es una capa independiente del rol: se asigna por usuario
+ * en la tabla usuarios_modulos. El superadmin siempre pasa (bypass).
+ * @param moduloClave Clave única del módulo (ej. "recursos_humanos", "tesoreria")
+ */
+export const requireModule = (moduloClave: string) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+        return
+      }
+
+      // Bypass de superadmin (acceso a todos los módulos)
+      const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [req.user.rol_id])
+      if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') {
+        next()
+        return
+      }
+
+      // Verificar acceso al módulo en usuarios_modulos
+      const accesoResult: any = await query(
+        `SELECT 1
+         FROM usuarios_modulos um
+         INNER JOIN modulos m ON m.id = um.modulo_id
+         WHERE um.usuario_id = ? AND m.clave = ?`,
+        [req.user.id, moduloClave],
+      )
+
+      if (accesoResult.length > 0) {
+        next()
+        return
+      }
+
+      res.status(403).json({
+        success: false,
+        message: 'No tenés acceso a este módulo',
+        requiredModule: moduloClave,
+      })
+    } catch (error) {
+      console.error('[RequireModule error]', error)
+      res.status(500).json({ success: false, message: 'Error al verificar acceso al módulo' })
+    }
+  }
+}
+
+/**
  * Middleware auxiliar para requerir múltiples permisos (OR lógico o AND lógico).
  * Implementado por defecto como "Debe tener TODOS los permisos en la lista" (AND).
  */

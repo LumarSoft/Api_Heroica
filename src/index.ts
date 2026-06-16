@@ -23,6 +23,7 @@ import personalRoutes from './routes/personalRoutes'
 import puestosRoutes from './routes/puestosRoutes'
 import areasRoutes from './routes/areasRoutes'
 import { syncPermisos } from './config/permisos'
+import { syncModulos } from './config/modulos'
 import { startDbSyncCron } from './services/dbSyncService'
 import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
 import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
@@ -151,6 +152,9 @@ app.listen(PORT, async () => {
 
   // Sincronizar permisos del sistema con la base de datos
   await syncPermisos()
+
+  // Sincronizar módulos del sistema con la base de datos
+  await syncModulos()
 
   // Iniciar tareas programadas
   startDbSyncCron()

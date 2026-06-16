@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
+import { sendPagoAprobadoEmail, sendPagoRechazadoEmail } from '../../services/emailService'
 
 const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({

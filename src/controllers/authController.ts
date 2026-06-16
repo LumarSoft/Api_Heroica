@@ -21,7 +21,7 @@ interface User {
 }
 
 /** Genera el JWT de sesión completo y devuelve también los permisos del rol. */
-async function buildSessionToken(user: User): Promise<{ token: string; permisos: string[] }> {
+async function buildSessionToken(user: User): Promise<{ token: string; permisos: string[]; modulos: string[] }> {
   const token = jwt.sign(
     {
       id: user.id,
@@ -43,7 +43,23 @@ async function buildSessionToken(user: User): Promise<{ token: string; permisos:
   )
   const permisos: string[] = permisosResult.map((p: any) => p.clave)
 
-  return { token, permisos }
+  // Módulos a los que el usuario tiene acceso. El superadmin los tiene todos.
+  let modulos: string[]
+  if (user.rol_nombre === 'superadmin') {
+    const todos: any = await query(`SELECT clave FROM modulos`)
+    modulos = todos.map((m: any) => m.clave)
+  } else {
+    const modulosResult: any = await query(
+      `SELECT m.clave
+       FROM modulos m
+       INNER JOIN usuarios_modulos um ON m.id = um.modulo_id
+       WHERE um.usuario_id = ?`,
+      [user.id],
+    )
+    modulos = modulosResult.map((m: any) => m.clave)
+  }
+
+  return { token, permisos, modulos }
 }
 
 /** Fija la cookie HttpOnly del token de dispositivo. */
@@ -125,7 +141,7 @@ export const login = async (req: Request, res: Response) => {
         if (Array.isArray(deviceResult) && deviceResult.length > 0) {
           await query(`UPDATE dispositivos_confianza SET last_used_at = NOW() WHERE id = ?`, [deviceResult[0].id])
 
-          const { token, permisos } = await buildSessionToken(user)
+          const { token, permisos, modulos } = await buildSessionToken(user)
 
           return res.json({
             success: true,
@@ -140,6 +156,7 @@ export const login = async (req: Request, res: Response) => {
                 rol_id: user.rol_id,
                 must_change_password: Boolean(user.must_change_password),
                 permisos,
+                modulos,
               },
             },
           })
@@ -253,7 +270,7 @@ export const verify2FA = async (req: Request, res: Response) => {
       })
     }
 
-    const { token, permisos } = await buildSessionToken(user)
+    const { token, permisos, modulos } = await buildSessionToken(user)
 
     // Emitir token de dispositivo si el usuario lo solicitó
     if (rememberDevice === true) {
@@ -285,6 +302,7 @@ export const verify2FA = async (req: Request, res: Response) => {
           rol_id: user.rol_id,
           must_change_password: Boolean(user.must_change_password),
           permisos,
+          modulos,
         },
       },
     })

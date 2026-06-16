@@ -684,7 +684,7 @@ export const deleteUsuario = async (req: Request, res: Response) => {
 // POST /api/configuracion/usuarios
 export const createUsuario = async (req: Request, res: Response) => {
   try {
-    const { email, password, nombre, rol_id, sucursal_ids, must_change_password } = req.body
+    const { email, password, nombre, rol_id, sucursal_ids, modulo_ids, must_change_password } = req.body
 
     if (!email || !password || !nombre || !rol_id) {
       return res.status(400).json({
@@ -740,6 +740,7 @@ export const createUsuario = async (req: Request, res: Response) => {
         [hashedPassword, nombre, rol_id, forcePwdChange, newUserId],
       )
       await query('DELETE FROM usuarios_sucursales WHERE usuario_id = ?', [newUserId])
+      await query('DELETE FROM usuarios_modulos WHERE usuario_id = ?', [newUserId])
     } else {
       const result: any = await query(
         'INSERT INTO usuarios (email, password, nombre, rol_id, must_change_password) VALUES (?, ?, ?, ?, ?)',
@@ -753,6 +754,13 @@ export const createUsuario = async (req: Request, res: Response) => {
       const placeholders = sucursal_ids.map(() => '(?, ?)').join(', ')
       const flatParams = sucursal_ids.flatMap((sid: number) => [newUserId, sid])
       await query(`INSERT IGNORE INTO usuarios_sucursales (usuario_id, sucursal_id) VALUES ${placeholders}`, flatParams)
+    }
+
+    // Asignar módulos si se proporcionaron
+    if (Array.isArray(modulo_ids) && modulo_ids.length > 0) {
+      const placeholders = modulo_ids.map(() => '(?, ?)').join(', ')
+      const flatParams = modulo_ids.flatMap((mid: number) => [newUserId, Number(mid)])
+      await query(`INSERT IGNORE INTO usuarios_modulos (usuario_id, modulo_id) VALUES ${placeholders}`, flatParams)
     }
 
     const created: any = await query(
@@ -1257,5 +1265,67 @@ export const updateUsuarioSucursales = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al actualizar sucursales del usuario:', error)
     res.status(500).json({ success: false, message: 'Error al actualizar sucursales' })
+  }
+}
+
+// ── MÓDULOS (acceso por usuario, independiente del rol) ──────────────────────
+
+// GET /api/configuracion/modulos — catálogo de módulos
+export const getModulos = async (_req: Request, res: Response) => {
+  try {
+    const result: any = await query(`SELECT id, clave, nombre, descripcion FROM modulos ORDER BY nombre ASC`)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('Error al obtener módulos:', error)
+    res.status(500).json({ success: false, message: 'Error al obtener módulos' })
+  }
+}
+
+// GET /api/configuracion/usuarios/:id/modulos — módulos asignados a un usuario
+export const getUsuarioModulos = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const result: any = await query(
+      `SELECT m.id, m.clave, m.nombre
+       FROM modulos m
+       INNER JOIN usuarios_modulos um ON m.id = um.modulo_id
+       WHERE um.usuario_id = ?
+       ORDER BY m.nombre ASC`,
+      [id],
+    )
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('Error al obtener módulos del usuario:', error)
+    res.status(500).json({ success: false, message: 'Error al obtener módulos del usuario' })
+  }
+}
+
+// PUT /api/configuracion/usuarios/:id/modulos — reemplaza los módulos del usuario
+export const updateUsuarioModulos = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { modulo_ids } = req.body
+
+    await query('DELETE FROM usuarios_modulos WHERE usuario_id = ?', [id])
+
+    if (Array.isArray(modulo_ids) && modulo_ids.length > 0) {
+      const placeholders = modulo_ids.map(() => '(?, ?)').join(', ')
+      const flatParams = modulo_ids.flatMap((mid: number) => [Number(id), Number(mid)])
+      await query(`INSERT IGNORE INTO usuarios_modulos (usuario_id, modulo_id) VALUES ${placeholders}`, flatParams)
+    }
+
+    const result: any = await query(
+      `SELECT m.id, m.clave, m.nombre
+       FROM modulos m
+       INNER JOIN usuarios_modulos um ON m.id = um.modulo_id
+       WHERE um.usuario_id = ?
+       ORDER BY m.nombre ASC`,
+      [id],
+    )
+
+    res.json({ success: true, message: 'Módulos del usuario actualizados', data: result })
+  } catch (error) {
+    console.error('Error al actualizar módulos del usuario:', error)
+    res.status(500).json({ success: false, message: 'Error al actualizar módulos' })
   }
 }

@@ -5,11 +5,12 @@ import {
   postMotivoBaja,
   putMotivoBaja,
 } from '../controllers/rrhhMotivosBajaController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
 
 router.get('/', requirePermission('ver_solicitudes'), getMotivosBajaPorSucursal)
 router.post('/', requirePermission('crear_solicitudes'), postMotivoBaja)
