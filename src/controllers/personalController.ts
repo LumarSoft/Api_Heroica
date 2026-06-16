@@ -166,7 +166,7 @@ export const createPersonal = async (req: Request, res: Response) => {
         sucursal_id,
         fecha_incorporacion,
         periodo_prueba ? 1 : 0,
-        periodo_prueba ? Number(periodo_prueba_dias ?? 90) : null,
+        periodo_prueba ? Number(periodo_prueba_dias ?? 180) : null,
         carnet_manipulacion_alimentos ? 1 : 0,
       ],
     )
@@ -271,7 +271,7 @@ export const updatePersonal = async (req: Request, res: Response) => {
         fecha_incorporacion,
         emailNormalizado,
         periodo_prueba ? 1 : 0,
-        periodo_prueba ? Number(periodo_prueba_dias ?? 90) : null,
+        periodo_prueba ? Number(periodo_prueba_dias ?? 180) : null,
         carnet_manipulacion_alimentos ? 1 : 0,
         activo !== undefined ? (activo ? 1 : 0) : 1,
         condicionLaboralValue,

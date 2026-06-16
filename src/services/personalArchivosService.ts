@@ -100,6 +100,7 @@ export interface ArchivoItem {
   solicitud_tipo: string
   fecha_solicitud: string
   estado: string
+  documento_id?: number
 }
 
 function toIsoDate(value: unknown): string {
@@ -209,6 +210,35 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
         estado: String(r.estado),
       })
     }
+  }
+
+  // 3) Documentos subidos directamente al legajo
+  const docDirectos = (await query(
+    `SELECT id, label, url, nombre_original, created_at
+     FROM personal_documentos
+     WHERE personal_id = ? AND deleted_at IS NULL
+     ORDER BY created_at DESC`,
+    [personalId],
+  )) as Array<{
+    id: number
+    label: string
+    url: string
+    nombre_original: string | null
+    created_at: Date | string
+  }>
+
+  for (const r of docDirectos) {
+    items.push({
+      tipo_doc: 'documento_legajo',
+      label: String(r.label),
+      url: String(r.url),
+      nombre_original: r.nombre_original,
+      solicitud_id: 0,
+      solicitud_tipo: 'Legajo',
+      fecha_solicitud: toIsoDate(r.created_at),
+      estado: 'Aprobada',
+      documento_id: Number(r.id),
+    })
   }
 
   return items

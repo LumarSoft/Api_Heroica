@@ -8,7 +8,7 @@ export const getProfesional = async (req: Request, res: Response) => {
     const personalId = Number(id)
 
     const personalResult: any = await query(
-      `SELECT id, puesto_id, sucursal_id, fecha_incorporacion FROM personal WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT id, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias FROM personal WHERE id = ? AND deleted_at IS NULL`,
       [personalId],
     )
     if (!Array.isArray(personalResult) || personalResult.length === 0) {
@@ -16,10 +16,10 @@ export const getProfesional = async (req: Request, res: Response) => {
     }
     const personal = personalResult[0]
 
-    // Período de prueba (90 días — Art. 92 bis LCT)
+    // Período de prueba — 6 meses (180 días) por defecto
     const fechaInc = new Date(personal.fecha_incorporacion)
     const hoy = new Date()
-    const diasTotales = 90
+    const diasTotales = Number(personal.periodo_prueba_dias ?? 180)
     const diasTranscurridos = Math.floor((hoy.getTime() - fechaInc.getTime()) / (1000 * 60 * 60 * 24))
     const diasRestantes = Math.max(0, diasTotales - diasTranscurridos)
     const enPeriodo = diasTranscurridos < diasTotales
@@ -264,9 +264,15 @@ export const createNota = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'El contenido es requerido' })
     }
 
+    let nombreUsuario: string = user.nombre ?? ''
+    if (!nombreUsuario) {
+      const row: any = await query(`SELECT nombre FROM usuarios WHERE id = ? LIMIT 1`, [user.id])
+      nombreUsuario = Array.isArray(row) && row.length > 0 ? String(row[0].nombre) : 'Sistema'
+    }
+
     const result: any = await query(
       `INSERT INTO personal_notas (personal_id, contenido, usuario_id, usuario_nombre) VALUES (?, ?, ?, ?)`,
-      [id, contenido.trim(), user.id, user.nombre],
+      [id, contenido.trim(), user.id, nombreUsuario],
     )
 
     const notaResult: any = await query(
