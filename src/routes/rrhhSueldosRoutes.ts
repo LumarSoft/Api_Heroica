@@ -7,11 +7,12 @@ import {
   updateSueldoPeriodo,
   updateSueldoPeriodoMeta,
 } from '../controllers/rrhhSueldosController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
 
 router.get('/', requirePermission('ver_sueldos'), getSueldosPeriodo)
 router.post('/enviar-pagos', requirePermission('ver_sueldos'), enviarSueldosAPagos)

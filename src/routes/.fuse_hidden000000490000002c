@@ -1,0 +1,11 @@
+import { Router } from 'express'
+import { getAnaliticoGlobal } from '../controllers/rrhhAnaliticoController'
+import { requireAuth, requireModule } from '../middlewares/authMiddleware'
+
+const router = Router()
+
+router.use(requireAuth)
+
+router.get('/global', getAnaliticoGlobal)
+
+export default router

@@ -23,12 +23,13 @@ import {
   downloadDocumento,
   upload,
 } from '../controllers/documentosMovimientoController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
+router.use(requireModule('tesoreria'))
 
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros dinámicos
 

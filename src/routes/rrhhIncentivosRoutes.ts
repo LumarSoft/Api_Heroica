@@ -1,10 +1,16 @@
 import { Router } from 'express'
-import { createIncentivo, deactivateIncentivo, getIncentivos, updateIncentivo } from '../controllers/rrhhIncentivosController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import {
+  createIncentivo,
+  deactivateIncentivo,
+  getIncentivos,
+  updateIncentivo,
+} from '../controllers/rrhhIncentivosController'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
 
 router.get('/', requirePermission('ver_incentivos'), getIncentivos)
 router.post('/', requirePermission('gestionar_incentivos'), createIncentivo)

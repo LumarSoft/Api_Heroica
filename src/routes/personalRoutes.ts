@@ -19,11 +19,12 @@ import {
   createPersonalDocumento,
   deletePersonalDocumento,
 } from '../controllers/personalDocumentosController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
 
 router.get('/', requirePermission('ver_personal'), getPersonal)
 router.get('/:id', requirePermission('ver_personal'), getPersonalById)
