@@ -51,6 +51,14 @@ function detailRow(label: string, value: string): string {
   </tr>`
 }
 
+/** Formatea el monto como moneda legible (ej. "$150.000,00") para los emails. */
+function formatMonto(monto: string | number, moneda: string): string {
+  const n = typeof monto === 'string' ? parseFloat(monto) : monto
+  const cur = moneda || 'ARS'
+  if (!Number.isFinite(n)) return `${cur} ${monto}`
+  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: cur }).format(Math.abs(n))
+}
+
 // ── Tarea: nueva notificación ─────────────────────────────────────────────────
 
 interface TareaEmailData {
@@ -101,10 +109,20 @@ interface PagoEmailData {
   destinatarioNombre: string
   revisorNombre: string
   concepto: string
+  descripcion?: string
   monto: string
   moneda: string
   fecha: string
   sucursal?: string
+  medioPago?: string
+  banco?: string
+  numeroComprobante?: string
+}
+
+/** Fila de descripción: solo se muestra si aporta algo distinto al concepto. */
+function descripcionRow(concepto: string, descripcion?: string): string {
+  if (!descripcion || descripcion.trim() === '' || descripcion.trim() === concepto.trim()) return ''
+  return detailRow('Descripción', descripcion)
 }
 
 function pagoAprobadoHtml(data: PagoEmailData): string {
@@ -115,10 +133,14 @@ function pagoAprobadoHtml(data: PagoEmailData): string {
     <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;margin-bottom:24px;">
       <table width="100%" cellpadding="0" cellspacing="0">
         ${detailRow('Concepto', data.concepto)}
-        ${detailRow('Monto', `${data.moneda} ${data.monto}`)}
+        ${descripcionRow(data.concepto, data.descripcion)}
+        ${detailRow('Monto', formatMonto(data.monto, data.moneda))}
         ${detailRow('Fecha', data.fecha)}
-        ${detailRow('Revisado por', data.revisorNombre)}
         ${data.sucursal ? detailRow('Sucursal', data.sucursal) : ''}
+        ${data.medioPago ? detailRow('Medio de pago', data.medioPago) : ''}
+        ${data.banco ? detailRow('Banco', data.banco) : ''}
+        ${data.numeroComprobante ? detailRow('N° comprobante', data.numeroComprobante) : ''}
+        ${detailRow('Revisado por', data.revisorNombre)}
       </table>
     </div>
 
@@ -145,7 +167,8 @@ function pagoRechazadoHtml(data: PagoRechazadoEmailData): string {
     <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px 24px;margin-bottom:24px;">
       <table width="100%" cellpadding="0" cellspacing="0">
         ${detailRow('Concepto', data.concepto)}
-        ${detailRow('Monto', `${data.moneda} ${data.monto}`)}
+        ${descripcionRow(data.concepto, data.descripcion)}
+        ${detailRow('Monto', formatMonto(data.monto, data.moneda))}
         ${detailRow('Fecha', data.fecha)}
         ${detailRow('Revisado por', data.revisorNombre)}
         ${data.sucursal ? detailRow('Sucursal', data.sucursal) : ''}
@@ -167,6 +190,7 @@ function pagoRechazadoHtml(data: PagoRechazadoEmailData): string {
 interface NuevoPagoEmailData {
   creadorNombre: string
   concepto: string
+  descripcion?: string
   monto: string
   moneda: string
   fecha: string
@@ -190,7 +214,8 @@ function nuevoPagoPendienteHtml(data: NuevoPagoEmailData): string {
       <table width="100%" cellpadding="0" cellspacing="0">
         ${detailRow('Solicitado por', data.creadorNombre)}
         ${detailRow('Concepto', data.concepto)}
-        ${detailRow('Monto', `${data.moneda} ${data.monto}`)}
+        ${descripcionRow(data.concepto, data.descripcion)}
+        ${detailRow('Monto', formatMonto(data.monto, data.moneda))}
         ${detailRow('Fecha', data.fecha)}
         ${data.sucursal ? detailRow('Sucursal', data.sucursal) : ''}
         ${data.prioridad ? `<tr><td style="padding:6px 0;color:#6b7280;font-size:13px;width:140px;">Prioridad</td><td style="padding:6px 0;"><span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:${color};color:#fff;">${data.prioridad.charAt(0).toUpperCase() + data.prioridad.slice(1)}</span></td></tr>` : ''}
