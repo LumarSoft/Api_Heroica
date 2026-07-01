@@ -28,6 +28,59 @@ const PAGOS_SELECT = `
   LEFT JOIN proveedores p ON pp.proveedor_id = p.id
 `
 
+/**
+ * Resuelve los datos legibles que necesitan los emails de confirmación de pago:
+ * un concepto que nunca queda vacío (concepto libre → descripción → proveedor)
+ * y el nombre de la sucursal, para que el solicitante identifique el pago entre
+ * muchas sucursales y movimientos.
+ */
+async function getPagoEmailContext(pago: any): Promise<{
+  concepto: string
+  descripcion?: string
+  sucursal?: string
+  banco?: string
+  medioPago?: string
+  numeroComprobante?: string
+}> {
+  const [descripcionRes, proveedorRes, sucursalRes, bancoRes, medioPagoRes]: any[] = await Promise.all([
+    pago?.descripcion_id
+      ? query('SELECT nombre FROM descripciones WHERE id = ?', [pago.descripcion_id])
+      : Promise.resolve([]),
+    pago?.proveedor_id
+      ? query('SELECT nombre FROM proveedores WHERE id = ?', [pago.proveedor_id])
+      : Promise.resolve([]),
+    pago?.sucursal_id ? query('SELECT nombre FROM sucursales WHERE id = ?', [pago.sucursal_id]) : Promise.resolve([]),
+    pago?.banco_id ? query('SELECT nombre FROM bancos WHERE id = ?', [pago.banco_id]) : Promise.resolve([]),
+    pago?.medio_pago_id
+      ? query('SELECT nombre FROM medios_pago WHERE id = ?', [pago.medio_pago_id])
+      : Promise.resolve([]),
+  ])
+
+  const descripcionNombre = (descripcionRes as any[])[0]?.nombre
+  const proveedorNombre = (proveedorRes as any[])[0]?.nombre
+  const sucursalNombre = (sucursalRes as any[])[0]?.nombre
+  const bancoNombre = (bancoRes as any[])[0]?.nombre
+  const medioPagoNombre = (medioPagoRes as any[])[0]?.nombre
+  const numeroComprobante =
+    pago?.numero_cheque != null && String(pago.numero_cheque).trim() !== ''
+      ? String(pago.numero_cheque).trim()
+      : undefined
+
+  const concepto =
+    [pago?.concepto, descripcionNombre, proveedorNombre]
+      .map((v: unknown) => String(v ?? '').trim())
+      .find((v: string) => v.length > 0) ?? 'Pago sin concepto'
+
+  return {
+    concepto,
+    descripcion: descripcionNombre || undefined,
+    sucursal: sucursalNombre || undefined,
+    banco: bancoNombre || undefined,
+    medioPago: medioPagoNombre || undefined,
+    numeroComprobante,
+  }
+}
+
 /** Fila de moneda: ARS incluye registros legacy sin moneda (NULL / vacío). */
 const sqlMonedaClause = (alias: string, moneda: string) => {
   if (moneda === 'ARS') {
@@ -149,13 +202,16 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
     const creadorResult: any = await query('SELECT nombre FROM usuarios WHERE id = ?', [user_id])
     const creador = (creadorResult as any[])[0]
 
+    const ctx = await getPagoEmailContext(createdPago[0])
     await sendNuevoPagoPendienteEmail({
       creadorNombre: creador?.nombre ?? 'Usuario',
-      concepto: concepto ?? '',
+      concepto: ctx.concepto,
+      descripcion: ctx.descripcion,
       monto: String(Math.abs(adjustedMonto)),
       moneda: monedaFinal,
       fecha: normalizarFecha(fecha),
       prioridad: prioridad || 'media',
+      sucursal: ctx.sucursal,
     })
 
     res.status(201).json({ success: true, message: 'Pago pendiente creado exitosamente', data: createdPago[0] })
@@ -272,14 +328,20 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     const revisor = (revisorResult as any[])[0]
 
     if (creador?.email) {
+      const ctx = await getPagoEmailContext(updatedPago[0])
       sendPagoAprobadoEmail({
         destinatario: creador.email,
         destinatarioNombre: creador.nombre,
         revisorNombre: revisor?.nombre ?? 'Administrador',
-        concepto: updatedPago[0]?.concepto ?? '',
+        concepto: ctx.concepto,
+        descripcion: ctx.descripcion,
         monto: String(Math.abs(updatedPago[0]?.monto ?? 0)),
         moneda: updatedPago[0]?.moneda ?? 'ARS',
         fecha: formatearFechaRespuesta(updatedPago[0]?.fecha) ?? '',
+        sucursal: ctx.sucursal,
+        medioPago: ctx.medioPago,
+        banco: ctx.banco,
+        numeroComprobante: ctx.numeroComprobante,
       })
     }
 
@@ -321,14 +383,17 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
     const revisor = (revisorResult as any[])[0]
 
     if (creador?.email) {
+      const ctx = await getPagoEmailContext(pagoResult[0])
       sendPagoRechazadoEmail({
         destinatario: creador.email,
         destinatarioNombre: creador.nombre,
         revisorNombre: revisor?.nombre ?? 'Administrador',
-        concepto: pagoResult[0]?.concepto ?? '',
+        concepto: ctx.concepto,
+        descripcion: ctx.descripcion,
         monto: String(Math.abs(pagoResult[0]?.monto ?? 0)),
         moneda: pagoResult[0]?.moneda ?? 'ARS',
         fecha: formatearFechaRespuesta(pagoResult[0]?.fecha) ?? '',
+        sucursal: ctx.sucursal,
         motivoRechazo: motivo_rechazo,
       })
     }
@@ -391,10 +456,16 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       SELECT
         m.*,
         uc.nombre as usuario_creador_nombre,
-        ur.nombre as usuario_revisor_nombre
+        ur.nombre as usuario_revisor_nombre,
+        d.nombre as descripcion_nombre,
+        p.nombre as proveedor_nombre,
+        suc.nombre as sucursal_nombre
       FROM movimientos m
       LEFT JOIN usuarios uc ON m.user_id = uc.id
       LEFT JOIN usuarios ur ON m.usuario_revisor_id = ur.id
+      LEFT JOIN descripciones d ON m.descripcion_id = d.id
+      LEFT JOIN proveedores p ON m.proveedor_id = p.id
+      LEFT JOIN sucursales suc ON m.sucursal_id = suc.id
       WHERE m.estado IN ('aprobado', 'rechazado', 'completado')
         AND (m.tipo = 'egreso' OR m.tipo IS NULL)
         AND m.usuario_revisor_id IS NOT NULL
