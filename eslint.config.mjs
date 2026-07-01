@@ -14,6 +14,12 @@ const eslintConfig = defineConfig([
     },
     ignores: ['dist/**', 'node_modules/**'],
   },
+  {
+    files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 ])
 
 export default eslintConfig

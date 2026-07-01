@@ -38,6 +38,10 @@ import {
   deleteUsuario,
   getUsuarioSucursales,
   updateUsuarioSucursales,
+  // Módulos (acceso por usuario)
+  getModulos,
+  getUsuarioModulos,
+  updateUsuarioModulos,
   // Roles
   getRoles,
   createRol,
@@ -103,6 +107,9 @@ router.put('/usuarios/:id/toggle-activo', requirePermission('gestionar_usuarios'
 router.delete('/usuarios/:id', requirePermission('gestionar_usuarios'), deleteUsuario)
 router.get('/usuarios/:id/sucursales', requirePermission('gestionar_usuarios'), getUsuarioSucursales)
 router.put('/usuarios/:id/sucursales', requirePermission('gestionar_usuarios'), updateUsuarioSucursales)
+router.get('/modulos', requirePermission('gestionar_usuarios'), getModulos)
+router.get('/usuarios/:id/modulos', requirePermission('gestionar_usuarios'), getUsuarioModulos)
+router.put('/usuarios/:id/modulos', requirePermission('gestionar_usuarios'), updateUsuarioModulos)
 
 // ========== ROLES ==========
 router.get('/roles', requirePermission('gestionar_roles'), getRoles)

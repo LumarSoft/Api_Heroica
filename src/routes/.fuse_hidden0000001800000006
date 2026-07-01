@@ -1,0 +1,15 @@
+import { Router } from 'express'
+import { createIncentivo, deactivateIncentivo, getIncentivos, updateIncentivo } from '../controllers/rrhhIncentivosController'
+import { requireAuth, requirePermission , requireModule, requireModule } from '../middlewares/authMiddleware'
+
+const router = Router()
+
+router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
+
+router.get('/', requirePermission('ver_incentivos'), getIncentivos)
+router.post('/', requirePermission('gestionar_incentivos'), createIncentivo)
+router.put('/:id', requirePermission('gestionar_incentivos'), updateIncentivo)
+router.delete('/:id', requirePermission('gestionar_incentivos'), deactivateIncentivo)
+
+export default router

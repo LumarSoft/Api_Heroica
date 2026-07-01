@@ -1,0 +1,20 @@
+import { Router } from 'express'
+import {
+  deleteMotivoBajaCtrl,
+  getMotivosBajaPorSucursal,
+  postMotivoBaja,
+  putMotivoBaja,
+} from '../controllers/rrhhMotivosBajaController'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
+
+const router = Router()
+
+router.use(requireAuth)
+router.use(requireModule('recursos_humanos'))
+
+router.get('/', requirePermission('ver_solicitudes'), getMotivosBajaPorSucursal)
+router.post('/', requirePermission('crear_solicitudes'), postMotivoBaja)
+router.put('/:id', requirePermission('crear_solicitudes'), putMotivoBaja)
+router.delete('/:id', requirePermission('crear_solicitudes'), deleteMotivoBajaCtrl)
+
+export default router

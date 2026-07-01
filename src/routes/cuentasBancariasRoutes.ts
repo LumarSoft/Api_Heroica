@@ -5,12 +5,13 @@ import {
   updateCuentaBancaria,
   deleteCuentaBancaria,
 } from '../controllers/cuentasBancariasController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
+router.use(requireModule('tesoreria'))
 
 // Rutas base: /api/cuentas-bancarias
 // Las cuentas bancarias forman parte de la gestión de sucursales
