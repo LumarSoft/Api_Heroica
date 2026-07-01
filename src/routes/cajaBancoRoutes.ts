@@ -21,7 +21,7 @@ import {
   downloadDocumento,
   upload,
 } from '../controllers/documentosMovimientoController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
 const router = Router()
 
@@ -31,6 +31,7 @@ router.put('/bulk/mover', moverBulkMovimientos)
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
+router.use(requireModule('tesoreria'))
 
 // Obtener movimientos banco de una sucursal
 router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosBancoBySucursal)

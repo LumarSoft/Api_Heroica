@@ -14,9 +14,22 @@ import healthRoutes from './routes/healthRoutes'
 import cuentasBancariasRoutes from './routes/cuentasBancariasRoutes'
 import tareasRoutes from './routes/tareasRoutes'
 import notificacionesRoutes from './routes/notificacionesRoutes'
+import escalasRoutes from './routes/escalasRoutes'
+import rrhhCalendarioRoutes from './routes/rrhhCalendarioRoutes'
+import rrhhIncentivosRoutes from './routes/rrhhIncentivosRoutes'
+import rrhhSolicitudesRoutes from './routes/rrhhSolicitudesRoutes'
+import rrhhMotivosBajaRoutes from './routes/rrhhMotivosBajaRoutes'
+import personalRoutes from './routes/personalRoutes'
+import puestosRoutes from './routes/puestosRoutes'
+import areasRoutes from './routes/areasRoutes'
 import { syncPermisos } from './config/permisos'
+import { syncModulos } from './config/modulos'
 import { startDbSyncCron } from './services/dbSyncService'
-
+import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
+import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
+import { startEscalasAlertCron } from './services/escalasAlertService'
+import rrhhSueldosRoutes from './routes/rrhhSueldosRoutes'
+import rrhhAnaliticoRoutes from './routes/rrhhAnaliticoRoutes'
 // Cargar variables de entorno
 dotenv.config()
 
@@ -94,6 +107,16 @@ app.use('/api/reportes', reportesRoutes)
 app.use('/api/cuentas-bancarias', cuentasBancariasRoutes)
 app.use('/api/tareas', tareasRoutes)
 app.use('/api/notificaciones', notificacionesRoutes)
+app.use('/api/escalas-salariales', escalasRoutes)
+app.use('/api/rrhh/calendario', rrhhCalendarioRoutes)
+app.use('/api/rrhh/incentivos', rrhhIncentivosRoutes)
+app.use('/api/rrhh/solicitudes', rrhhSolicitudesRoutes)
+app.use('/api/rrhh/motivos-baja', rrhhMotivosBajaRoutes)
+app.use('/api/personal', personalRoutes)
+app.use('/api/puestos', puestosRoutes)
+app.use('/api/areas', areasRoutes)
+app.use('/api/rrhh/sueldos', rrhhSueldosRoutes)
+app.use('/api/rrhh/analitico', rrhhAnaliticoRoutes)
 
 // Ruta raíz — no expone información sensible en producción
 app.get('/', (_req: Request, res: Response) => {
@@ -130,8 +153,14 @@ app.listen(PORT, async () => {
   // Sincronizar permisos del sistema con la base de datos
   await syncPermisos()
 
+  // Sincronizar módulos del sistema con la base de datos
+  await syncModulos()
+
   // Iniciar tareas programadas
   startDbSyncCron()
+  startPeriodoPruebaAlertCron()
+  startSolicitudesRrhhAlertCron()
+  startEscalasAlertCron()
 })
 
 export default app
