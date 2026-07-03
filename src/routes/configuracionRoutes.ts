@@ -50,51 +50,61 @@ import {
   // Permisos
   getPermisos,
 } from '../controllers/configuracionController'
-import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireAnyPermission } from '../middlewares/authMiddleware'
 
 const router = Router()
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
 
+// Permisos que habilitan LECTURA de catálogos (categorías, bancos, medios de pago,
+// descripciones, proveedores). Estos catálogos no solo se usan en el panel de
+// Configuración: también alimentan los selects del formulario "Nuevo movimiento"
+// (caja efectivo/banco y pagos pendientes). Por eso, además de ver_configuracion,
+// cualquier permiso que habilite crear/aprobar movimientos o pendientes también
+// debe poder leerlos — si no, esos selects quedan vacíos sin aviso para roles
+// (ej. "admin") que pueden cargar pendientes pero no tienen acceso al panel de
+// configuración. La escritura (crear/editar/eliminar) sigue exclusiva de gestionar_roles.
+const CATALOGOS_READ_PERMISOS = [
+  'ver_configuracion',
+  'crear_movimientos',
+  'aprobar_movimientos',
+  'cargar_pendientes',
+  'aprobar_pendientes',
+]
+
 // ========== CATEGORÍAS ==========
-// Los catálogos (categorías, bancos, medios pago) son visibles a quien tiene ver_configuracion
-// y modificables solo por superadmin (ver_configuracion con permisos de superadmin).
-// Como no hay un permiso granular de "gestionar_categorias", usamos ver_configuracion para read
-// y gestionar_usuarios (admin) para write — o simplemente superadmin via el middleware.
-// Decisión de diseño: estas secciones internas son solo para superadmin → usamos ver_configuracion
-// como mínimo pues el panel ya bloquea en frontend a no-superadmin.
-router.get('/categorias', requirePermission('ver_configuracion'), getCategorias)
+router.get('/categorias', requireAnyPermission(CATALOGOS_READ_PERMISOS), getCategorias)
 router.post('/categorias', requirePermission('gestionar_roles'), createCategoria)
 router.put('/categorias/:id', requirePermission('gestionar_roles'), updateCategoria)
 router.delete('/categorias/:id', requirePermission('gestionar_roles'), deleteCategoria)
 
 // ========== SUBCATEGORÍAS ==========
-router.get('/subcategorias', requirePermission('ver_configuracion'), getSubcategorias)
+router.get('/subcategorias', requireAnyPermission(CATALOGOS_READ_PERMISOS), getSubcategorias)
 router.post('/subcategorias', requirePermission('gestionar_roles'), createSubcategoria)
 router.put('/subcategorias/:id', requirePermission('gestionar_roles'), updateSubcategoria)
 router.delete('/subcategorias/:id', requirePermission('gestionar_roles'), deleteSubcategoria)
 
 // ========== BANCOS ==========
-router.get('/bancos', requirePermission('ver_configuracion'), getBancos)
+router.get('/bancos', requireAnyPermission(CATALOGOS_READ_PERMISOS), getBancos)
 router.post('/bancos', requirePermission('gestionar_roles'), createBanco)
 router.put('/bancos/:id', requirePermission('gestionar_roles'), updateBanco)
 router.delete('/bancos/:id', requirePermission('gestionar_roles'), deleteBanco)
 
 // ========== MEDIOS DE PAGO ==========
-router.get('/medios-pago', requirePermission('ver_configuracion'), getMediosPago)
+router.get('/medios-pago', requireAnyPermission(CATALOGOS_READ_PERMISOS), getMediosPago)
 router.post('/medios-pago', requirePermission('gestionar_roles'), createMedioPago)
 router.put('/medios-pago/:id', requirePermission('gestionar_roles'), updateMedioPago)
 router.delete('/medios-pago/:id', requirePermission('gestionar_roles'), deleteMedioPago)
 
 // ========== DESCRIPCIONES ==========
-router.get('/descripciones', requirePermission('ver_configuracion'), getDescripciones)
+router.get('/descripciones', requireAnyPermission(CATALOGOS_READ_PERMISOS), getDescripciones)
 router.post('/descripciones', requirePermission('gestionar_roles'), createDescripcion)
 router.put('/descripciones/:id', requirePermission('gestionar_roles'), updateDescripcion)
 router.delete('/descripciones/:id', requirePermission('gestionar_roles'), deleteDescripcion)
 
 // ========== PROVEEDORES ==========
-router.get('/proveedores', requirePermission('ver_configuracion'), getProveedores)
+router.get('/proveedores', requireAnyPermission(CATALOGOS_READ_PERMISOS), getProveedores)
 router.post('/proveedores', requirePermission('gestionar_roles'), createProveedor)
 router.put('/proveedores/:id', requirePermission('gestionar_roles'), updateProveedor)
 router.delete('/proveedores/:id', requirePermission('gestionar_roles'), deleteProveedor)
