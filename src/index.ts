@@ -24,12 +24,14 @@ import puestosRoutes from './routes/puestosRoutes'
 import areasRoutes from './routes/areasRoutes'
 import { syncPermisos } from './config/permisos'
 import { syncModulos } from './config/modulos'
+import { ensureHeroicaiTables } from './config/heroicai/schema'
 import { startDbSyncCron } from './services/dbSyncService'
 import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
 import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
 import { startEscalasAlertCron } from './services/escalasAlertService'
 import rrhhSueldosRoutes from './routes/rrhhSueldosRoutes'
 import rrhhAnaliticoRoutes from './routes/rrhhAnaliticoRoutes'
+import heroicaiRoutes from './routes/heroicaiRoutes'
 // Cargar variables de entorno
 dotenv.config()
 
@@ -117,6 +119,7 @@ app.use('/api/puestos', puestosRoutes)
 app.use('/api/areas', areasRoutes)
 app.use('/api/rrhh/sueldos', rrhhSueldosRoutes)
 app.use('/api/rrhh/analitico', rrhhAnaliticoRoutes)
+app.use('/api/heroicai', heroicaiRoutes)
 
 // Ruta raíz — no expone información sensible en producción
 app.get('/', (_req: Request, res: Response) => {
@@ -155,6 +158,9 @@ app.listen(PORT, async () => {
 
   // Sincronizar módulos del sistema con la base de datos
   await syncModulos()
+
+  // Verificar tablas de HeroicAI (historial de conversaciones)
+  await ensureHeroicaiTables()
 
   // Iniciar tareas programadas
   startDbSyncCron()

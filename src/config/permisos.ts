@@ -229,6 +229,13 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
 
+  // ── MÓDULO: HEROICAI (asistente de IA) ──────────────────────────────────
+  {
+    clave: 'usar_heroicai',
+    descripcion: 'Usar el asistente HeroicAI para consultar datos del sistema',
+    categoria: 'HeroicAI',
+  },
+
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
   // Al agregar un nuevo módulo, copiá el bloque de abajo y completalo:
   //
