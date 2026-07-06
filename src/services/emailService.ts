@@ -1,6 +1,5 @@
-import { Resend } from 'resend'
+import { sendMail } from '../config/mailer'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.EMAIL_FROM ?? 'noreply@adminheroica.com'
 
 // ─── Templates ────────────────────────────────────────────────────────────────
@@ -296,7 +295,7 @@ function escalasDesactualizadasHtml(data: EscalasDesactualizadasEmailData): stri
 
 export async function sendTareaNotificacionEmail(data: TareaEmailData): Promise<void> {
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: data.destinatario,
       subject: `[Heroica] Nueva notificación: ${data.tareaId} — ${data.tareaTitulo}`,
@@ -314,7 +313,7 @@ export async function sendPeriodoPruebaPorVencerEmail(data: PeriodoPruebaEmailDa
   }
 
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: data.destinatario,
       subject: `[Heroica] Período de prueba por vencer — ${data.colaboradorNombre}`,
@@ -332,7 +331,7 @@ export async function sendSegundoApercibimientoEmail(data: SegundoApercibimiento
   }
 
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: data.destinatario,
       subject: `[Heroica] Segundo apercibimiento — ${data.colaboradorNombre}`,
@@ -350,7 +349,7 @@ export async function sendVencimientoRrhhEmail(data: VencimientoRrhhEmailData): 
   }
 
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: data.destinatario,
       subject: `[Heroica] Vencimiento de ${data.tipo.toLowerCase()} — ${data.colaboradorNombre}`,
@@ -368,7 +367,7 @@ export async function sendEscalasDesactualizadasEmail(data: EscalasDesactualizad
   }
 
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: data.destinatario,
       subject: `[Heroica] ${data.escalas.length} escala${data.escalas.length !== 1 ? 's' : ''} salarial${data.escalas.length !== 1 ? 'es' : ''} sin actualizar hace más de ${data.mesesUmbral} meses`,
@@ -504,7 +503,7 @@ function nuevoPagoPendienteHtml(data: NuevoPagoEmailData): string {
 
 export async function sendPagoAprobadoEmail(data: PagoEmailData): Promise<void> {
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: data.destinatario,
       subject: `[Heroica] Tu pago fue aprobado — ${data.concepto}`,
@@ -517,7 +516,7 @@ export async function sendPagoAprobadoEmail(data: PagoEmailData): Promise<void> 
 
 export async function sendPagoRechazadoEmail(data: PagoRechazadoEmailData): Promise<void> {
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: data.destinatario,
       subject: `[Heroica] Tu pago fue rechazado — ${data.concepto}`,
@@ -536,7 +535,7 @@ export async function sendNuevoPagoPendienteEmail(data: NuevoPagoEmailData): Pro
   }
 
   try {
-    await resend.emails.send({
+    await sendMail({
       from: FROM,
       to: aprobadorEmail,
       subject: `[Heroica] Nuevo pago pendiente — ${data.concepto}`,

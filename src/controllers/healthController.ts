@@ -1,6 +1,6 @@
 import { Request, Response } from 'express'
 import pool from '../config/database'
-import { Resend } from 'resend'
+import { sendMail } from '../config/mailer'
 
 /**
  * GET /health
@@ -41,8 +41,7 @@ export const emailCheck = async (req: Request, res: Response): Promise<void> => 
     return
   }
 
-  const resend = new Resend(apiKey)
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await sendMail({
     from,
     to: aprobacion,
     subject: '[Heroica] Email de prueba — diagnóstico',

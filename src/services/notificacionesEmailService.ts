@@ -1,7 +1,6 @@
-import { Resend } from 'resend'
 import { query } from '../config/database'
+import { sendMail } from '../config/mailer'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.EMAIL_FROM ?? 'noreply@adminheroica.com'
 
 export type NotificacionTipo =
@@ -296,7 +295,7 @@ export async function sendNotificacionEmail(
     return { enviados: 0, error: 'RESEND_API_KEY no configurada' }
   }
   try {
-    await resend.emails.send({ from: FROM, to: lista, subject, html })
+    await sendMail({ from: FROM, to: lista, subject, html })
     return { enviados: lista.length, error: null }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error desconocido'

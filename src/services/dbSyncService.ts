@@ -1,8 +1,21 @@
 import cron from 'node-cron'
 import pool from '../config/database'
 
+/**
+ * En entornos que NO son producción (ej. TFI) la sincronización debe estar
+ * deshabilitada: este servicio referencia por nombre las bases reales
+ * `heroica_oficial` y `heroica_prueba` y ejecuta DROP TABLE sobre ellas.
+ * Se apaga con APP_ENV=tfi o DB_SYNC_DISABLED=true.
+ */
+const DB_SYNC_DISABLED = process.env.APP_ENV === 'tfi' || process.env.DB_SYNC_DISABLED === 'true'
+
 // Esta función realiza la sincronización mediante consultas SQL directas.
 const syncDatabase = async () => {
+  if (DB_SYNC_DISABLED) {
+    console.log('⏭️  Sincronización de BD omitida (entorno no productivo).')
+    return
+  }
+
   const connection = await pool.getConnection()
 
   console.log('⏱️ Iniciando sincronización de base de datos oficial a base de pruebas...')
@@ -40,6 +53,11 @@ const syncDatabase = async () => {
 // Programar la tarea para que se ejecute a las 06:00 AM y 18:00 PM todos los días.
 // Formato cron: "0 6,18 * * *" => A las 06:00 y 18:00 todos los días.
 export const startDbSyncCron = () => {
+  if (DB_SYNC_DISABLED) {
+    console.log('🛡️  Cron de sincronización de BD DESACTIVADO (entorno no productivo).')
+    return
+  }
+
   cron.schedule('0 6,18 * * *', () => {
     syncDatabase()
   })
