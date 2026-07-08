@@ -35,6 +35,7 @@ interface Filtros {
   bancos?: string[]
   filtroChequesPendientes?: boolean
   tipoMovimiento?: string
+  tipoSaldo?: string
 }
 
 function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string | number)[] } {
@@ -72,6 +73,10 @@ function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string |
     clauses.push('m.tipo = ?')
     params.push(f.tipoMovimiento)
   }
+  if (f.tipoSaldo && f.tipoSaldo !== 'todos') {
+    clauses.push('m.saldo = ?')
+    params.push(f.tipoSaldo)
+  }
 
   return { clauses, params }
 }
@@ -87,6 +92,7 @@ export const exportEfectivoToExcel = async (req: Request, res: Response) => {
       searchText,
       filtroDeuda,
       tipoMovimiento,
+      tipoSaldo,
     } = req.query as Record<string, string>
 
     if (!(await verificarAccesoSucursal(req.user!, sucursalId))) {
@@ -104,6 +110,7 @@ export const exportEfectivoToExcel = async (req: Request, res: Response) => {
       searchText,
       filtroDeuda,
       tipoMovimiento,
+      tipoSaldo,
     })
     const extraWhere = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : ''
 
@@ -189,6 +196,7 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
       bancos: bancosParam,
       filtroChequesPendientes,
       tipoMovimiento,
+      tipoSaldo,
     } = req.query as Record<string, string>
 
     if (!(await verificarAccesoSucursal(req.user!, sucursalId))) {
@@ -209,6 +217,7 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
       bancos,
       filtroChequesPendientes: filtroChequesPendientes === 'true',
       tipoMovimiento,
+      tipoSaldo,
     })
     const extraWhere = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : ''
 
