@@ -14,6 +14,7 @@ import {
   deleteBulkMovimientos,
   moverBulkMovimientos,
   updateComentarioEfectivo,
+  updateOrdenMovimiento,
 } from '../controllers/movimientosController'
 import { exportEfectivoToExcel } from '../controllers/exportController'
 import {
@@ -63,6 +64,9 @@ router.put('/:id/estado', requirePermission('aprobar_movimientos'), updateEstado
 
 // Actualizar deuda de movimiento
 router.put('/:id/deuda', requirePermission('editar_movimientos'), toggleDeudaEfectivo)
+
+// Actualizar posición manual (drag & drop / inserción)
+router.patch('/:id/orden', requirePermission('editar_movimientos'), updateOrdenMovimiento)
 
 // Mover movimiento (internamente entre sucursales)
 router.put('/:id/mover', requirePermission('editar_movimientos'), moverMovimiento)

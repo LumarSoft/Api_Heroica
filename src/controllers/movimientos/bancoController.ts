@@ -18,7 +18,7 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
     }
 
     const result: any = await query(
-      `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
+      `SELECT m.id, m.sucursal_id, m.fecha, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
               m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu,
               m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id, m.banco_id, m.medio_pago_id,
               m.es_deuda, m.fecha_original_vencimiento,
@@ -68,6 +68,7 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       sucursal_id,
       user_id,
       fecha,
+      orden,
       concepto,
       comprobante,
       comentarios,
@@ -126,13 +127,14 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, comprobante, comentarios, monto, tipo_movimiento, saldo, prioridad,
+       (sucursal_id, user_id, fecha, orden, concepto, comprobante, comentarios, monto, tipo_movimiento, saldo, prioridad,
         numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, banco_id, medio_pago_id, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
         normalizarFecha(fecha),
+        orden ?? null,
         concepto ?? '',
         comprobante || null,
         comentarios || null,
