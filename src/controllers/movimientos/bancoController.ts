@@ -411,7 +411,15 @@ export const updateEstadoMovimientoBanco = async (req: Request, res: Response) =
       })
     }
 
-    await query("UPDATE movimientos SET estado = ? WHERE id = ? AND tipo_movimiento = 'banco'", [estado, id])
+    // Mantenemos la columna `saldo` sincronizada con el estado: completado → saldo_real,
+    // cualquier otro (aprobado/rechazado) → saldo_necesario. Esto permite que arrastrar un
+    // movimiento entre "Saldo Real" y "Saldo Necesario" en la UI deje los datos consistentes.
+    const nuevoSaldo = estado === 'completado' ? 'saldo_real' : 'saldo_necesario'
+    await query("UPDATE movimientos SET estado = ?, saldo = ? WHERE id = ? AND tipo_movimiento = 'banco'", [
+      estado,
+      nuevoSaldo,
+      id,
+    ])
 
     if (estado === 'completado' && mov.es_deuda && mov.movimiento_contraparte_id) {
       await completarContraparte(mov.movimiento_contraparte_id)
