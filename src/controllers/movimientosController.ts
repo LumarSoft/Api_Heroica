@@ -338,32 +338,46 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         const insertOrigenDeuda: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+            tipo, tipo_movimiento, saldo, estado, es_deuda,
+            categoria_id, subcategoria_id, descripcion_id, proveedor_id, moneda, tipo_cambio
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1, ?, ?, ?, ?, ?, ?)`,
           [
             mov.sucursal_id,
             mov.user_id,
             `${conceptoDeudaBase} [DEUDA]`,
             getSignedMonto('ingreso', mov.monto),
-            `Crédito auto-generado por movimiento hacia ${nombreDestino}`,
+            `Crédito auto-generado por movimiento hacia ${nombreDestino}. Deuda entre sucursales: ${nombreOrigen} → ${nombreDestino}.`,
             'ingreso',
             mov.tipo_movimiento,
+            mov.categoria_id || null,
+            mov.subcategoria_id || null,
+            mov.descripcion_id || null,
+            mov.proveedor_id || null,
+            mov.moneda || 'ARS',
+            mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
           ],
         )
 
         const insertDestinoDeuda: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+            tipo, tipo_movimiento, saldo, estado, es_deuda,
+            categoria_id, subcategoria_id, descripcion_id, proveedor_id, moneda, tipo_cambio
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1, ?, ?, ?, ?, ?, ?)`,
           [
             destino_sucursal_id,
             mov.user_id,
             `${conceptoDeudaBase} [DEUDA]`,
             getSignedMonto('egreso', mov.monto),
-            `Deuda auto-generada recibida de ${nombreOrigen}`,
+            `Deuda auto-generada recibida de ${nombreOrigen}. Deuda entre sucursales: ${nombreOrigen} → ${nombreDestino}.`,
             'egreso',
             destino_tipo_movimiento,
+            mov.categoria_id || null,
+            mov.subcategoria_id || null,
+            mov.descripcion_id || null,
+            mov.proveedor_id || null,
+            mov.moneda || 'ARS',
+            mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
           ],
         )
 
@@ -422,32 +436,46 @@ export const moverMovimiento = async (req: Request, res: Response) => {
         const insertOrigenDeuda2: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+            tipo, tipo_movimiento, saldo, estado, es_deuda,
+            categoria_id, subcategoria_id, descripcion_id, proveedor_id, moneda, tipo_cambio
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1, ?, ?, ?, ?, ?, ?)`,
           [
             mov.sucursal_id,
             mov.user_id,
             `${conceptoDeudaBase} [DEUDA]`,
             getSignedMonto('egreso', mov.monto),
-            `Deuda auto-generada por mover consumo (egreso) a ${nombreDestino}`,
+            `Deuda auto-generada por mover consumo (egreso) a ${nombreDestino}. Deuda entre sucursales: ${nombreOrigen} → ${nombreDestino}.`,
             'egreso',
             mov.tipo_movimiento,
+            mov.categoria_id || null,
+            mov.subcategoria_id || null,
+            mov.descripcion_id || null,
+            mov.proveedor_id || null,
+            mov.moneda || 'ARS',
+            mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
           ],
         )
 
         const insertDestinoDeuda2: any = await query(
           `INSERT INTO movimientos (
             sucursal_id, user_id, fecha, concepto, monto, comentarios,
-            tipo, tipo_movimiento, saldo, estado, es_deuda
-          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1)`,
+            tipo, tipo_movimiento, saldo, estado, es_deuda,
+            categoria_id, subcategoria_id, descripcion_id, proveedor_id, moneda, tipo_cambio
+          ) VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, 'saldo_necesario', 'aprobado', 1, ?, ?, ?, ?, ?, ?)`,
           [
             destino_sucursal_id,
             mov.user_id,
             `${conceptoDeudaBase} [DEUDA]`,
             getSignedMonto('ingreso', mov.monto),
-            `Crédito a cobrar generado al asumir consumo (egreso) desde ${nombreOrigen}`,
+            `Crédito a cobrar generado al asumir consumo (egreso) desde ${nombreOrigen}. Deuda entre sucursales: ${nombreOrigen} → ${nombreDestino}.`,
             'ingreso',
             destino_tipo_movimiento,
+            mov.categoria_id || null,
+            mov.subcategoria_id || null,
+            mov.descripcion_id || null,
+            mov.proveedor_id || null,
+            mov.moneda || 'ARS',
+            mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
           ],
         )
 
