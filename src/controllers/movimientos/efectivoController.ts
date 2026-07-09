@@ -18,7 +18,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
     }
 
     const result: any = await query(
-      `SELECT m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.comentarios, m.prioridad,
+      `SELECT m.id, m.sucursal_id, m.fecha, m.orden, m.concepto, m.monto, m.comentarios, m.prioridad,
               m.saldo as tipo_movimiento, m.estado, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id,
               m.tipo, m.es_deuda, m.fecha_original_vencimiento,
               m.moneda, m.tipo_cambio,
@@ -64,6 +64,7 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       sucursal_id,
       user_id,
       fecha,
+      orden,
       concepto,
       comentarios,
       monto,
@@ -107,12 +108,13 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (sucursal_id, user_id, fecha, orden, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
         normalizarFecha(fecha),
+        orden ?? null,
         concepto ?? '',
         comentarios || null,
         adjustedMonto,
@@ -134,6 +136,29 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al crear movimiento:', error)
     res.status(500).json({ success: false, message: 'Error al crear movimiento' })
+  }
+}
+
+// PATCH /api/movimientos/:id/orden — actualiza solo la posición manual (drag & drop)
+export const updateOrdenMovimiento = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { orden } = req.body
+
+    if (orden === undefined || orden === null || isNaN(Number(orden))) {
+      return res.status(400).json({ success: false, message: 'El valor de orden es inválido' })
+    }
+
+    const existing: any = await query('SELECT id FROM movimientos WHERE id = ? AND deleted_at IS NULL', [id])
+    if (!existing.length) {
+      return res.status(404).json({ success: false, message: 'Movimiento no encontrado' })
+    }
+
+    await query('UPDATE movimientos SET orden = ? WHERE id = ?', [Number(orden), id])
+    res.json({ success: true, message: 'Orden actualizado' })
+  } catch (error) {
+    console.error('Error al actualizar orden:', error)
+    res.status(500).json({ success: false, message: 'Error al actualizar orden' })
   }
 }
 
