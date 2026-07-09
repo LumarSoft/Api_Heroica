@@ -12,6 +12,7 @@ import {
   moverBulkMovimientos,
   transferenciaInternaBanco,
   updateComentarioBanco,
+  updateOrdenMovimiento,
 } from '../controllers/movimientosController'
 import { exportBancoToExcel } from '../controllers/exportController'
 import {
@@ -59,6 +60,9 @@ router.put('/:id/estado', requirePermission('aprobar_movimientos'), updateEstado
 
 // Actualizar deuda de movimiento banco
 router.put('/:id/deuda', requirePermission('editar_movimientos'), toggleDeudaBanco)
+
+// Actualizar posición manual (drag & drop / inserción)
+router.patch('/:id/orden', requirePermission('editar_movimientos'), updateOrdenMovimiento)
 
 // Eliminar movimiento banco
 router.delete('/:id', requirePermission('eliminar_movimientos'), deleteMovimientoBanco)

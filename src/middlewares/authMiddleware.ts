@@ -141,6 +141,54 @@ export const requireModule = (moduloClave: string) => {
 }
 
 /**
+ * Middleware para requerir AL MENOS UNO de varios permisos (OR lógico).
+ * Útil para endpoints de solo-lectura compartidos por varios flujos (ej. catálogos
+ * de configuración que también necesita quien crea/aprueba movimientos o pendientes,
+ * sin por eso darle acceso al panel de configuración completo).
+ * Siempre permite acceso si el usuario es superadmin.
+ */
+export const requireAnyPermission = (permisos: string[]) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+        return
+      }
+
+      const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [req.user.rol_id])
+      if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') {
+        next()
+        return
+      }
+
+      const placeholders = permisos.map(() => '?').join(',')
+      const hasPermissionResult: any = await query(
+        `SELECT 1
+         FROM permisos p
+         INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
+         WHERE rp.rol_id = ? AND p.clave IN (${placeholders})
+         LIMIT 1`,
+        [req.user.rol_id, ...permisos],
+      )
+
+      if (hasPermissionResult.length > 0) {
+        next()
+        return
+      }
+
+      res.status(403).json({
+        success: false,
+        message: 'No tienes permiso para realizar esta acción',
+        requiredPermission: permisos.join(' | '),
+      })
+    } catch (error) {
+      console.error('[RequireAnyPermission error]', error)
+      res.status(500).json({ success: false, message: 'Error al verificar permisos' })
+    }
+  }
+}
+
+/**
  * Middleware auxiliar para requerir múltiples permisos (OR lógico o AND lógico).
  * Implementado por defecto como "Debe tener TODOS los permisos en la lista" (AND).
  */
