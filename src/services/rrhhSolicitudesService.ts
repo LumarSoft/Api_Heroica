@@ -2,6 +2,7 @@ import type { PoolConnection, RowDataPacket } from 'mysql2/promise'
 import { query } from '../config/database'
 import { CBU_DIGITOS } from '../config/constants'
 import { getMotivoBajaActivoEnSucursal } from './rrhhMotivosBajaService'
+import { esSuperadmin, getPermisosDeRol, getSucursalesDeUsuario } from './authCacheService'
 
 export const TIPOS_VALIDOS = [
   'Altas',
@@ -281,31 +282,19 @@ function isValidEmail(value: string | null): boolean {
 }
 
 export async function isSuperAdmin(user: AuthUser): Promise<boolean> {
-  const rolResult = (await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])) as Array<{ nombre: string }>
-  return Array.isArray(rolResult) && rolResult.length > 0 && rolResult[0].nombre === 'superadmin'
+  return esSuperadmin(user.rol_id)
 }
 
 export async function hasPermission(user: AuthUser, permisoClave: string): Promise<boolean> {
   if (await isSuperAdmin(user)) return true
-
-  const result = (await query(
-    `SELECT 1
-     FROM permisos p
-     INNER JOIN roles_permisos rp ON rp.permiso_id = p.id
-     WHERE rp.rol_id = ? AND p.clave = ?`,
-    [user.rol_id, permisoClave],
-  )) as Array<{ 1: number }>
-
-  return Array.isArray(result) && result.length > 0
+  const permisos = await getPermisosDeRol(user.rol_id)
+  return permisos.has(permisoClave)
 }
 
 export async function verificarAccesoSucursal(user: AuthUser, sucursalId: number): Promise<boolean> {
   if (await isSuperAdmin(user)) return true
-  const acceso = (await query(`SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`, [
-    user.id,
-    sucursalId,
-  ])) as Array<{ 1: number }>
-  return Array.isArray(acceso) && acceso.length > 0
+  const sucursales = await getSucursalesDeUsuario(user.id)
+  return sucursales.has(Number(sucursalId))
 }
 
 async function validarPersonalAsignado(

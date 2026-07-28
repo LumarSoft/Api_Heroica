@@ -65,7 +65,7 @@ async function getColaboradoresConPeriodoPorVencer(): Promise<PersonalPeriodoPru
 }
 
 async function crearEventoCalendario(row: PersonalPeriodoPruebaRow): Promise<number | null> {
-  const existing = await query(
+  const existing = (await query(
     `SELECT id
      FROM rrhh_calendario_eventos
      WHERE deleted_at IS NULL
@@ -74,11 +74,11 @@ async function crearEventoCalendario(row: PersonalPeriodoPruebaRow): Promise<num
        AND comentarios LIKE ? 
      LIMIT 1`,
     [row.fecha_vencimiento, `%Legajo ${row.legajo}%`],
-  ) as Array<{ id: number }>
+  )) as Array<{ id: number }>
 
   if (existing.length > 0) return existing[0].id
 
-  const result = await query(
+  const result = (await query(
     `INSERT INTO rrhh_calendario_eventos
      (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, creado_por)
      VALUES ('Vencimiento', ?, NULL, NULL, ?, ?, 'Recordatorio', NULL)`,
@@ -87,7 +87,7 @@ async function crearEventoCalendario(row: PersonalPeriodoPruebaRow): Promise<num
       row.nombre,
       `Período de prueba por vencer. Colaborador: ${row.nombre}. Legajo ${row.legajo}. Sucursal: ${row.sucursal_nombre}.`,
     ],
-  ) as { insertId: number }
+  )) as { insertId: number }
 
   return result.insertId
 }
@@ -105,7 +105,14 @@ async function registrarAlerta(
        calendario_evento_id = VALUES(calendario_evento_id),
        destinatario_email = VALUES(destinatario_email),
        email_enviado_at = COALESCE(email_enviado_at, VALUES(email_enviado_at))`,
-    [row.id, row.fecha_vencimiento, getDiasAntesAlerta(), calendarioEventoId, destinatario, destinatario ? new Date() : null],
+    [
+      row.id,
+      row.fecha_vencimiento,
+      getDiasAntesAlerta(),
+      calendarioEventoId,
+      destinatario,
+      destinatario ? new Date() : null,
+    ],
   )
 }
 

@@ -1,5 +1,7 @@
-import express, { Application, Request, Response } from 'express'
+import express, { Application, NextFunction, Request, Response } from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
+import compression from 'compression'
 import cookieParser from 'cookie-parser'
 import dotenv from 'dotenv'
 import rateLimit from 'express-rate-limit'
@@ -68,6 +70,8 @@ const verify2FALimiter = rateLimit({
 })
 
 // Middlewares
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }))
+app.use(compression())
 app.use(
   cors({
     // Permite credenciales (cookies) solo desde el origen del frontend.
@@ -81,16 +85,26 @@ app.use(express.json()) // Parsear JSON
 app.use(express.urlencoded({ extended: true })) // Parsear URL-encoded
 
 // Middleware de logging — campos sensibles redactados
+const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
+
+const CAMPOS_REDACTADOS = ['password', 'newPassword', 'currentPassword', 'token', 'two_factor_secret']
+
 app.use((req, res, next) => {
   const timestamp = new Date().toLocaleString('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
     hour12: false,
   })
-  const sanitizedBody = { ...req.body }
-  if (sanitizedBody.password) sanitizedBody.password = '[REDACTED]'
-  if (sanitizedBody.token) sanitizedBody.token = '[REDACTED]'
+
   console.log(`\n[${timestamp}] ${req.method} ${req.url}`)
-  console.log(`Body:`, sanitizedBody)
+
+  if (!isProduction) {
+    const sanitizedBody = { ...req.body }
+    for (const campo of CAMPOS_REDACTADOS) {
+      if (sanitizedBody[campo]) sanitizedBody[campo] = '[REDACTED]'
+    }
+    console.log(`Body:`, sanitizedBody)
+  }
+
   next()
 })
 
@@ -135,6 +149,16 @@ app.use((req: Request, res: Response) => {
     success: false,
     message: 'Ruta no encontrada',
   })
+})
+
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[Unhandled error]', err)
+  if (res.headersSent) return
+  res.status(500).json({ success: false, message: 'Error interno del servidor' })
+})
+
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('[Unhandled rejection]', reason)
 })
 
 // Iniciar servidor

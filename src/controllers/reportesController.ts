@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
+import { verificarAccesoSucursal } from '../utils/movimientosHelpers'
 
 // GET /api/reportes/:sucursalId
 // Query params opcionales: startDate, endDate
@@ -10,16 +11,8 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
     const user = req.user!
 
     // Verificar acceso a la sucursal
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin'
-    if (!isSuperAdmin) {
-      const acceso: any = await query(`SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`, [
-        user.id,
-        sucursalId,
-      ])
-      if (!acceso || acceso.length === 0) {
-        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
-      }
+    if (!(await verificarAccesoSucursal(user, sucursalId))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
     }
 
     let sql = `
@@ -50,21 +43,21 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       sql += ` AND (
         ((m.es_deuda = 0 OR m.es_deuda IS NULL) AND m.fecha >= ? AND m.fecha <= ?)
         OR 
-        (m.es_deuda = 1 AND m.estado = 'completado' AND DATE(m.updated_at) >= ? AND DATE(m.updated_at) <= ?)
+        (m.es_deuda = 1 AND m.estado = 'completado' AND m.updated_at >= ? AND m.updated_at < DATE_ADD(?, INTERVAL 1 DAY))
       )`
       params.push(startDate, endDate, startDate, endDate)
     } else if (startDate) {
       sql += ` AND (
         ((m.es_deuda = 0 OR m.es_deuda IS NULL) AND m.fecha >= ?)
         OR 
-        (m.es_deuda = 1 AND m.estado = 'completado' AND DATE(m.updated_at) >= ?)
+        (m.es_deuda = 1 AND m.estado = 'completado' AND m.updated_at >= ?)
       )`
       params.push(startDate, startDate)
     } else if (endDate) {
       sql += ` AND (
         ((m.es_deuda = 0 OR m.es_deuda IS NULL) AND m.fecha <= ?)
         OR 
-        (m.es_deuda = 1 AND m.estado = 'completado' AND DATE(m.updated_at) <= ?)
+        (m.es_deuda = 1 AND m.estado = 'completado' AND m.updated_at < DATE_ADD(?, INTERVAL 1 DAY))
       )`
       params.push(endDate, endDate)
     }
@@ -143,8 +136,9 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
       LEFT JOIN descripciones d ON m.descripcion_id = d.id
       LEFT JOIN proveedores p ON m.proveedor_id = p.id
-      WHERE m.sucursal_id = ? 
+      WHERE m.sucursal_id = ?
         AND m.moneda = ?
+        AND m.deleted_at IS NULL
         AND m.es_deuda = 1
         AND m.tipo = 'egreso'
     `
@@ -155,7 +149,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       deudasParams.push(endDate)
 
       // Si el mes consultado es anterior al pago de la deuda, la deuda debe seguir mostrándose como activa en ese mes
-      sqlDeudas += " AND (m.estado != 'completado' OR DATE(m.updated_at) > ?)"
+      sqlDeudas += " AND (m.estado != 'completado' OR m.updated_at >= DATE_ADD(?, INTERVAL 1 DAY))"
       deudasParams.push(endDate)
     } else {
       sqlDeudas += " AND m.estado != 'completado'"
@@ -177,8 +171,9 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       LEFT JOIN subcategorias s ON m.subcategoria_id = s.id
       LEFT JOIN descripciones d ON m.descripcion_id = d.id
       LEFT JOIN proveedores p ON m.proveedor_id = p.id
-      WHERE m.sucursal_id = ? 
+      WHERE m.sucursal_id = ?
         AND m.moneda = ?
+        AND m.deleted_at IS NULL
         AND m.es_deuda = 1
         AND m.tipo = 'ingreso'
     `
@@ -189,7 +184,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
       creditosParams.push(endDate)
 
       // Si el mes consultado es anterior al cobro del crédito, el crédito debe seguir mostrándose como activo en ese mes
-      sqlCreditos += " AND (m.estado != 'completado' OR DATE(m.updated_at) > ?)"
+      sqlCreditos += " AND (m.estado != 'completado' OR m.updated_at >= DATE_ADD(?, INTERVAL 1 DAY))"
       creditosParams.push(endDate)
     } else {
       sqlCreditos += " AND m.estado != 'completado'"
@@ -238,16 +233,8 @@ export const getReportesAnual = async (req: Request, res: Response) => {
     const user = req.user!
 
     // Verificar acceso a la sucursal
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin'
-    if (!isSuperAdmin) {
-      const acceso: any = await query(`SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`, [
-        user.id,
-        sucursalId,
-      ])
-      if (!acceso || acceso.length === 0) {
-        return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
-      }
+    if (!(await verificarAccesoSucursal(user, sucursalId))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
     }
 
     const [rows, catRows]: [any, any] = await Promise.all([

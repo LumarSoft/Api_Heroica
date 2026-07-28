@@ -29,19 +29,16 @@ export const createArea = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'nombre es requerido' })
     }
 
-    const existing: any = await query(
-      'SELECT id FROM areas WHERE nombre = ? AND deleted_at IS NULL',
-      [nombre.trim()],
-    )
+    const existing: any = await query('SELECT id FROM areas WHERE nombre = ? AND deleted_at IS NULL', [nombre.trim()])
 
     if (existing.length) {
       return res.status(409).json({ success: false, message: 'Ya existe un área con ese nombre' })
     }
 
-    const result: any = await query(
-      'INSERT INTO areas (nombre, descripcion) VALUES (?, ?)',
-      [nombre.trim(), descripcion?.trim() ?? null],
-    )
+    const result: any = await query('INSERT INTO areas (nombre, descripcion) VALUES (?, ?)', [
+      nombre.trim(),
+      descripcion?.trim() ?? null,
+    ])
 
     const created: any = await query(`SELECT ${FIELDS} FROM areas WHERE id = ?`, [result.insertId])
 
@@ -62,28 +59,27 @@ export const updateArea = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'nombre es requerido' })
     }
 
-    const existing: any = await query(
-      'SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL',
-      [id],
-    )
+    const existing: any = await query('SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL', [id])
 
     if (!existing.length) {
       return res.status(404).json({ success: false, message: 'Área no encontrada' })
     }
 
-    const duplicate: any = await query(
-      'SELECT id FROM areas WHERE nombre = ? AND id != ? AND deleted_at IS NULL',
-      [nombre.trim(), id],
-    )
+    const duplicate: any = await query('SELECT id FROM areas WHERE nombre = ? AND id != ? AND deleted_at IS NULL', [
+      nombre.trim(),
+      id,
+    ])
 
     if (duplicate.length) {
       return res.status(409).json({ success: false, message: 'Ya existe un área con ese nombre' })
     }
 
-    await query(
-      'UPDATE areas SET nombre = ?, descripcion = ?, activo = ? WHERE id = ?',
-      [nombre.trim(), descripcion?.trim() ?? null, activo ?? 1, id],
-    )
+    await query('UPDATE areas SET nombre = ?, descripcion = ?, activo = ? WHERE id = ?', [
+      nombre.trim(),
+      descripcion?.trim() ?? null,
+      activo ?? 1,
+      id,
+    ])
 
     const updated: any = await query(`SELECT ${FIELDS} FROM areas WHERE id = ?`, [id])
 
@@ -99,10 +95,7 @@ export const deleteArea = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const existing: any = await query(
-      'SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL',
-      [id],
-    )
+    const existing: any = await query('SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL', [id])
 
     if (!existing.length) {
       return res.status(404).json({ success: false, message: 'Área no encontrada' })
