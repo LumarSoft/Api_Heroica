@@ -20,12 +20,7 @@ const storage = isProduction
       },
     })
 
-const MIME_SOLICITUD_PERMITIDOS = new Set([
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-])
+const MIME_SOLICITUD_PERMITIDOS = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
 
 export const upload = multer({
   storage,
@@ -68,7 +63,11 @@ export const uploadSolicitudArchivo = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al subir archivo de solicitud:', error)
     if (!isProduction && req.file && (req.file as any).path) {
-      try { fs.unlinkSync((req.file as any).path) } catch { /* ignore */ }
+      try {
+        fs.unlinkSync((req.file as any).path)
+      } catch {
+        /* ignore */
+      }
     }
     res.status(500).json({ success: false, message: 'Error al subir el archivo' })
   }

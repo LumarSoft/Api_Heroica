@@ -1,4 +1,5 @@
 import { query } from '../config/database'
+import { esSuperadmin, getSucursalesDeUsuario } from '../services/authCacheService'
 
 export function normalizarFecha(fecha: string): string {
   if (!fecha) return fecha
@@ -21,13 +22,9 @@ export function formatearFechaRespuesta(fecha: any): string | null {
 }
 
 export async function verificarAccesoSucursal(user: any, sucursalId: string | number): Promise<boolean> {
-  const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])
-  if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') return true
-  const acceso: any = await query(`SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`, [
-    user.id,
-    sucursalId,
-  ])
-  return Array.isArray(acceso) && acceso.length > 0
+  if (await esSuperadmin(user.rol_id)) return true
+  const sucursales = await getSucursalesDeUsuario(user.id)
+  return sucursales.has(Number(sucursalId))
 }
 
 export async function completarContraparte(contraparteId: number): Promise<void> {

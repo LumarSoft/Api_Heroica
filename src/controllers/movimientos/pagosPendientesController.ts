@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
 import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
+import { getRolDeUsuario } from '../../services/authCacheService'
 
 const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({
@@ -137,6 +138,29 @@ export const getPagosPendientesBySucursal = async (req: Request, res: Response) 
   } catch (error) {
     console.error('Error al obtener pagos pendientes:', error)
     res.status(500).json({ success: false, message: 'Error al obtener pagos pendientes' })
+  }
+}
+
+export const getPagosPendientesCount = async (req: Request, res: Response) => {
+  try {
+    const { sucursalId } = req.params
+    const { moneda } = req.query
+    const params: any[] = [sucursalId]
+
+    let sql = `SELECT COUNT(*) AS total FROM movimientos pp
+      WHERE pp.sucursal_id = ? AND pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL`
+
+    if (moneda) {
+      const m = String(moneda).toUpperCase()
+      sql += sqlMonedaClause('pp', m)
+      params.push(m)
+    }
+
+    const result: any = await query(sql, params)
+    res.json({ success: true, data: { total: Number(result[0]?.total ?? 0) } })
+  } catch (error) {
+    console.error('Error al contar pagos pendientes:', error)
+    res.status(500).json({ success: false, message: 'Error al contar pagos pendientes' })
   }
 }
 
@@ -410,7 +434,7 @@ export const deletePagoPendiente = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const pagoResult: any = await query('SELECT * FROM movimientos WHERE id = ?', [id])
+    const pagoResult: any = await query('SELECT * FROM movimientos WHERE id = ? AND deleted_at IS NULL', [id])
     if (!Array.isArray(pagoResult) || pagoResult.length === 0) {
       return res.status(404).json({ success: false, message: 'Pago pendiente no encontrado' })
     }
@@ -418,7 +442,7 @@ export const deletePagoPendiente = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Solo se pueden eliminar pagos pendientes' })
     }
 
-    await query('DELETE FROM movimientos WHERE id = ?', [id])
+    await query('UPDATE movimientos SET deleted_at = NOW() WHERE id = ?', [id])
     res.json({ success: true, message: 'Pago pendiente eliminado exitosamente' })
   } catch (error) {
     console.error('Error al eliminar pago pendiente:', error)
@@ -437,11 +461,7 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Solicitud inválida' })
     }
 
-    const viewerResult: any = await query(
-      'SELECT r.nombre as rol FROM usuarios u LEFT JOIN roles r ON u.rol_id = r.id WHERE u.id = ?',
-      [authUserId],
-    )
-    const viewerRol = String(viewerResult[0]?.rol || 'empleado')
+    const viewerRol = String((await getRolDeUsuario(authUserId)) || 'empleado')
       .toLowerCase()
       .trim()
     const isAdminOrSuper = viewerRol === 'admin' || viewerRol === 'superadmin'
@@ -486,6 +506,7 @@ export const getHistorialByUser = async (req: Request, res: Response) => {
       sql += sqlMonedaClause('m', m)
       queryParams.push(m)
     }
+
     sql += ' ORDER BY m.id DESC'
 
     const result: any = await query(sql, queryParams)

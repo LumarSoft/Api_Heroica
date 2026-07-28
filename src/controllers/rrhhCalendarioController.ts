@@ -1,14 +1,17 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 
-const EVENTOS_VALIDOS = [
-  'Capacitación', 'Reunión', 'Comunicado', 'Vencimiento',
-  'Evento interno', 'Ministerio', 'Otro',
-]
+const EVENTOS_VALIDOS = ['Capacitación', 'Reunión', 'Comunicado', 'Vencimiento', 'Evento interno', 'Ministerio', 'Otro']
 const TIPOS_NOTION_VALIDOS = ['General', 'Invitación', 'Comunicado', 'Recordatorio']
 const PERIODICIDADES_VALIDAS = [
-  'Ninguna', 'Cada día', 'Lun-Vie', 'Cada semana',
-  'Cada 2 semanas', 'Cada mes', 'Primero de cada mes', 'Cada año',
+  'Ninguna',
+  'Cada día',
+  'Lun-Vie',
+  'Cada semana',
+  'Cada 2 semanas',
+  'Cada mes',
+  'Primero de cada mes',
+  'Cada año',
 ]
 
 function isValidDate(value: unknown): value is string {
@@ -101,9 +104,15 @@ export const createEventoCalendario = async (req: Request, res: Response) => {
        (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, periodicidad, creado_por)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        payload.evento, payload.fecha, payload.hora, payload.direccion,
-        payload.participantes, payload.comentarios, payload.tipo_notion,
-        payload.periodicidad, req.user?.id ?? null,
+        payload.evento,
+        payload.fecha,
+        payload.hora,
+        payload.direccion,
+        payload.participantes,
+        payload.comentarios,
+        payload.tipo_notion,
+        payload.periodicidad,
+        req.user?.id ?? null,
       ],
     )
 
@@ -140,9 +149,15 @@ export const createEventosCalendarioBatch = async (req: Request, res: Response) 
          (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, periodicidad, creado_por)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          payload.evento, fecha, payload.hora, payload.direccion,
-          payload.participantes, payload.comentarios, payload.tipo_notion,
-          payload.periodicidad, req.user?.id ?? null,
+          payload.evento,
+          fecha,
+          payload.hora,
+          payload.direccion,
+          payload.participantes,
+          payload.comentarios,
+          payload.tipo_notion,
+          payload.periodicidad,
+          req.user?.id ?? null,
         ],
       )
     }
@@ -162,7 +177,9 @@ export const updateEventoCalendario = async (req: Request, res: Response) => {
     const validationError = validatePayload(payload)
     if (validationError) return res.status(400).json({ success: false, message: validationError })
 
-    const existing: any = await query('SELECT id FROM rrhh_calendario_eventos WHERE id = ? AND deleted_at IS NULL', [id])
+    const existing: any = await query('SELECT id FROM rrhh_calendario_eventos WHERE id = ? AND deleted_at IS NULL', [
+      id,
+    ])
     if (!Array.isArray(existing) || existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Evento no encontrado' })
     }
@@ -173,9 +190,15 @@ export const updateEventoCalendario = async (req: Request, res: Response) => {
            tipo_notion = ?, periodicidad = ?, updated_at = NOW()
        WHERE id = ? AND deleted_at IS NULL`,
       [
-        payload.evento, payload.fecha, payload.hora, payload.direccion,
-        payload.participantes, payload.comentarios, payload.tipo_notion,
-        payload.periodicidad, id,
+        payload.evento,
+        payload.fecha,
+        payload.hora,
+        payload.direccion,
+        payload.participantes,
+        payload.comentarios,
+        payload.tipo_notion,
+        payload.periodicidad,
+        id,
       ],
     )
 
@@ -191,7 +214,9 @@ export const updateEventoCalendario = async (req: Request, res: Response) => {
 export const deleteEventoCalendario = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const existing: any = await query('SELECT id FROM rrhh_calendario_eventos WHERE id = ? AND deleted_at IS NULL', [id])
+    const existing: any = await query('SELECT id FROM rrhh_calendario_eventos WHERE id = ? AND deleted_at IS NULL', [
+      id,
+    ])
     if (!Array.isArray(existing) || existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Evento no encontrado' })
     }

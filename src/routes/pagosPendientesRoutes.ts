@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import {
   getPagosPendientesBySucursal,
+  getPagosPendientesCount,
   getAllPagosPendientes,
   createPagoPendiente,
   aprobarPagoPendiente,
@@ -21,6 +22,8 @@ router.get('/historial/:userId', requirePermission('ver_pendientes'), getHistori
 
 // Todos los pagos pendientes (vista global)
 router.get('/all', requirePermission('ver_pendientes'), getAllPagosPendientes)
+
+router.get('/:sucursalId/count', requirePermission('ver_pendientes'), getPagosPendientesCount)
 
 // Pagos pendientes de una sucursal
 router.get('/:sucursalId', requirePermission('ver_pendientes'), getPagosPendientesBySucursal)
