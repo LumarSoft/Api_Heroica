@@ -6,6 +6,16 @@ import {
   verificarAccesoSucursal,
   completarContraparte,
 } from '../../utils/movimientosHelpers'
+import {
+  parseSaldo,
+  parseFiltros,
+  parsePaginacion,
+  sqlSaldo,
+  sqlFiltros,
+  sqlCursor,
+  sqlOrderBy,
+  construirCursor,
+} from '../../utils/movimientosFiltros'
 
 // GET /api/caja-banco/:sucursalId
 export const getMovimientosBancoBySucursal = async (req: Request, res: Response) => {
@@ -17,8 +27,11 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
     }
 
-    const result: any = await query(
-      `SELECT m.id, m.sucursal_id, m.fecha, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
+    const saldo = parseSaldo(req)
+    const filtros = parseFiltros(req)
+    const pag = parsePaginacion(req)
+
+    const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
               m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu,
               m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id, m.banco_id, m.medio_pago_id,
               m.es_deuda, m.fecha_original_vencimiento,
@@ -35,24 +48,44 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
-         AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)
-       ORDER BY m.id DESC`,
-      [sucursalId, moneda],
-    )
+         AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)`
 
-    const resultFormatted = result.map((m: any) => ({
-      ...m,
-      fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento
-        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
-        : null,
-    }))
+    const formatear = (rows: any[]) =>
+      rows.map((m: any) => ({
+        ...m,
+        fecha: formatearFechaRespuesta(m.fecha),
+        fecha_original_vencimiento: m.fecha_original_vencimiento
+          ? formatearFechaRespuesta(m.fecha_original_vencimiento)
+          : null,
+      }))
+
+    if (saldo === null) {
+      const result: any = await query(`${SELECT} ORDER BY m.id DESC`, [sucursalId, moneda])
+      const resultFormatted = formatear(result)
+      return res.json({
+        success: true,
+        data: {
+          saldo_real: resultFormatted.filter((m: any) => m.tipo_movimiento === 'saldo_real'),
+          saldo_necesario: resultFormatted.filter((m: any) => m.tipo_movimiento === 'saldo_necesario'),
+        },
+      })
+    }
+
+    const f = sqlFiltros('m', filtros)
+    const cur = sqlCursor('m', saldo, pag)
+    const sql =
+      SELECT + ` AND ${sqlSaldo('m', saldo)}` + f.sql + cur.sql + sqlOrderBy('m', saldo) + ` LIMIT ${pag.limit + 1}`
+
+    const rows: any = await query(sql, [sucursalId, moneda, ...f.params, ...cur.params])
+    const hasMore = rows.length > pag.limit
+    const items = hasMore ? rows.slice(0, pag.limit) : rows
 
     res.json({
       success: true,
       data: {
-        saldo_real: resultFormatted.filter((m: any) => m.tipo_movimiento === 'saldo_real'),
-        saldo_necesario: resultFormatted.filter((m: any) => m.tipo_movimiento === 'saldo_necesario'),
+        items: formatear(items),
+        hasMore,
+        nextCursor: hasMore ? construirCursor(items[items.length - 1]) : null,
       },
     })
   } catch (error) {
@@ -537,33 +570,32 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
     }
 
-    const result: any = await query(
-      `SELECT
-        SUM(CASE WHEN estado = 'completado' THEN monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN (
-            estado = 'aprobado'
-            OR (estado = 'pendiente' AND categoria_id IS NOT NULL)
-          ) AND (es_deuda = 0 OR es_deuda IS NULL) THEN monto ELSE 0 END) as total_necesario,
-        MAX(updated_at) as ultima_actualizacion
-       FROM movimientos
-       WHERE sucursal_id = ? AND tipo_movimiento = 'banco' AND moneda = ? AND deleted_at IS NULL`,
-      [sucursalId, moneda],
-    )
+    const filtros = parseFiltros(req)
+    const f = sqlFiltros('m', filtros)
 
-    const parcialesResult: any = await query(
-      `SELECT
-        b.id as banco_id,
-        b.nombre as banco_nombre,
-        SUM(CASE WHEN m.estado = 'completado' THEN m.monto ELSE 0 END) as total_real,
+    const BASE = `FROM movimientos m
+       LEFT JOIN descripciones d ON m.descripcion_id = d.id
+       LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
+       LEFT JOIN bancos b ON m.banco_id = b.id
+       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL`
+
+    const SUMAS = `SUM(CASE WHEN m.estado = 'completado' THEN m.monto ELSE 0 END) as total_real,
         SUM(CASE WHEN (
             m.estado = 'aprobado'
             OR (m.estado = 'pendiente' AND m.categoria_id IS NOT NULL)
-          ) AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario
-       FROM movimientos m
-       LEFT JOIN bancos b ON m.banco_id = b.id
-       WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
+          ) AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario`
+
+    const result: any = await query(`SELECT ${SUMAS}, MAX(m.updated_at) as ultima_actualizacion ${BASE}${f.sql}`, [
+      sucursalId,
+      moneda,
+      ...f.params,
+    ])
+
+    const parcialesResult: any = await query(
+      `SELECT b.id as banco_id, b.nombre as banco_nombre, ${SUMAS}
+       ${BASE}${f.sql}
        GROUP BY b.id, b.nombre`,
-      [sucursalId, moneda],
+      [sucursalId, moneda, ...f.params],
     )
 
     res.json({
