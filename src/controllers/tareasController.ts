@@ -63,7 +63,8 @@ export const createTarea = async (req: Request, res: Response) => {
     const prioridadesValidas = ['alta', 'media', 'baja']
 
     if (!tiposValidos.includes(tipo)) return res.status(400).json({ success: false, message: 'Tipo inválido' })
-    if (!prioridadesValidas.includes(prioridad)) return res.status(400).json({ success: false, message: 'Prioridad inválida' })
+    if (!prioridadesValidas.includes(prioridad))
+      return res.status(400).json({ success: false, message: 'Prioridad inválida' })
     if (req.body.modulo && !modulosValidos.includes(req.body.modulo)) {
       return res.status(400).json({ success: false, message: 'Módulo inválido' })
     }
@@ -83,9 +84,7 @@ export const createTarea = async (req: Request, res: Response) => {
     )
 
     const maxNum =
-      Array.isArray(lastRow) && lastRow.length > 0 && lastRow[0].max_num != null
-        ? Number(lastRow[0].max_num)
-        : 0
+      Array.isArray(lastRow) && lastRow.length > 0 && lastRow[0].max_num != null ? Number(lastRow[0].max_num) : 0
     const siguiente = maxNum + 1
     const nuevoCodigo = `${prefix}-${String(siguiente).padStart(2, '0')}`
 
@@ -227,10 +226,10 @@ export const asignarTarea = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Tarea no encontrada' })
     }
 
-    await query(
-      `UPDATE tareas SET asignado_a = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`,
-      [asignado_a || null, id],
-    )
+    await query(`UPDATE tareas SET asignado_a = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`, [
+      asignado_a || null,
+      id,
+    ])
 
     const updated: any = await query(
       `SELECT t.id, t.codigo, t.modulo, t.version, t.titulo, t.descripcion, t.tipo, t.prioridad, t.estado,
