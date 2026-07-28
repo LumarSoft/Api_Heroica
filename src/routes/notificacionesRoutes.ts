@@ -1,5 +1,10 @@
 import { Router } from 'express'
-import { createNotificaciones, getMisNotificaciones, marcarLeidas } from '../controllers/notificacionesController'
+import {
+  createNotificaciones,
+  getMisNotificaciones,
+  getMisNotificacionesCount,
+  marcarLeidas,
+} from '../controllers/notificacionesController'
 import { getDestinatariosSugeridos, enviarNotificacionEmail } from '../controllers/notificacionesEmailController'
 import { requireAuth } from '../middlewares/authMiddleware'
 
@@ -7,6 +12,7 @@ const router = Router()
 
 router.use(requireAuth)
 
+router.get('/mis/count', getMisNotificacionesCount)
 router.get('/mis', getMisNotificaciones)
 router.post('/', createNotificaciones)
 router.patch('/leer', marcarLeidas)

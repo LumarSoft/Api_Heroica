@@ -1,18 +1,16 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
+import { esSuperadmin } from '../services/authCacheService'
+import { verificarAccesoSucursal } from '../utils/movimientosHelpers'
 
 // GET /api/sucursales
 export const getSucursales = async (req: Request, res: Response) => {
   try {
     const user = req.user!
 
-    // Verificar si el usuario es superadmin consultando su rol
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin'
-
     let result: any
 
-    if (isSuperAdmin) {
+    if (await esSuperadmin(user.rol_id)) {
       // Superadmin ve todas las sucursales
       result = await query(
         'SELECT id, nombre, razon_social, cuit, direccion, activo FROM sucursales WHERE deleted_at IS NULL ORDER BY activo DESC, nombre ASC',
@@ -48,22 +46,11 @@ export const getSucursalById = async (req: Request, res: Response) => {
     const { id } = req.params
     const user = req.user!
 
-    // Verificar si el usuario es superadmin
-    const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [user.rol_id])
-    const isSuperAdmin = rolResult.length > 0 && rolResult[0].nombre === 'superadmin'
-
-    if (!isSuperAdmin) {
-      // Verificar que el usuario tiene acceso a esa sucursal
-      const acceso: any = await query(`SELECT 1 FROM usuarios_sucursales WHERE usuario_id = ? AND sucursal_id = ?`, [
-        user.id,
-        id,
-      ])
-      if (!acceso || acceso.length === 0) {
-        return res.status(403).json({
-          success: false,
-          message: 'No tenés acceso a esta sucursal',
-        })
-      }
+    if (!(await verificarAccesoSucursal(user, id))) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tenés acceso a esta sucursal',
+      })
     }
 
     const result: any = await query('SELECT * FROM sucursales WHERE id = ? AND deleted_at IS NULL', [id])
@@ -91,7 +78,8 @@ export const getSucursalById = async (req: Request, res: Response) => {
 // POST /api/sucursales
 export const createSucursal = async (req: Request, res: Response) => {
   try {
-    let { nombre, razon_social, cuit, direccion } = req.body
+    const { nombre, razon_social, direccion } = req.body
+    let { cuit } = req.body
 
     // Autocompletar guiones en CUIT si solo vienen 11 números
     if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {
@@ -146,7 +134,8 @@ export const createSucursal = async (req: Request, res: Response) => {
 export const updateSucursal = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    let { nombre, razon_social, cuit, direccion, email_correspondencia, activo } = req.body
+    const { nombre, razon_social, direccion, email_correspondencia, activo } = req.body
+    let { cuit } = req.body
 
     // Autocompletar guiones en CUIT si solo vienen 11 números
     if (cuit && /^\d{11}$/.test(cuit.replace(/\D/g, ''))) {

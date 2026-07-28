@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 import bcrypt from 'bcryptjs'
+import { invalidarRol, invalidarUsuario } from '../services/authCacheService'
 
 // ========== CATEGORÍAS ==========
 
@@ -575,6 +576,7 @@ export const updateUsuarioRol = async (req: Request, res: Response) => {
     }
 
     await query('UPDATE usuarios SET rol_id = ? WHERE id = ?', [rol_id, id])
+    invalidarUsuario(Number(id))
 
     const updated: any = await query(
       `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, u.must_change_password, r.nombre as rol
@@ -667,6 +669,7 @@ export const deleteUsuario = async (req: Request, res: Response) => {
     }
 
     await query('UPDATE usuarios SET deleted_at = NOW() WHERE id = ?', [id])
+    invalidarUsuario(Number(id))
 
     res.json({
       success: true,
@@ -762,6 +765,8 @@ export const createUsuario = async (req: Request, res: Response) => {
       const flatParams = modulo_ids.flatMap((mid: number) => [newUserId, Number(mid)])
       await query(`INSERT IGNORE INTO usuarios_modulos (usuario_id, modulo_id) VALUES ${placeholders}`, flatParams)
     }
+
+    invalidarUsuario(Number(newUserId))
 
     const created: any = await query(
       `SELECT u.id, u.email, u.nombre, u.activo, u.rol_id, u.must_change_password, r.nombre as rol
@@ -904,6 +909,8 @@ export const updateRol = async (req: Request, res: Response) => {
       await query(`INSERT IGNORE INTO roles_permisos (rol_id, permiso_id) VALUES ${placeholders}`, flatParams)
     }
 
+    invalidarRol(Number(id))
+
     const actualizado: any = await query(
       `SELECT r.id, r.nombre, r.descripcion, r.es_sistema,
                 GROUP_CONCAT(p.id SEPARATOR ',') as permisos_ids
@@ -958,6 +965,7 @@ export const deleteRol = async (req: Request, res: Response) => {
     }
 
     await query('DELETE FROM roles WHERE id = ?', [id])
+    invalidarRol(Number(id))
 
     res.json({ success: true, message: 'Rol eliminado exitosamente' })
   } catch (error) {
@@ -1248,6 +1256,8 @@ export const updateUsuarioSucursales = async (req: Request, res: Response) => {
       await query(`INSERT IGNORE INTO usuarios_sucursales (usuario_id, sucursal_id) VALUES ${placeholders}`, flatParams)
     }
 
+    invalidarUsuario(Number(id))
+
     const result: any = await query(
       `SELECT s.id, s.nombre
              FROM sucursales s
@@ -1313,6 +1323,8 @@ export const updateUsuarioModulos = async (req: Request, res: Response) => {
       const flatParams = modulo_ids.flatMap((mid: number) => [Number(id), Number(mid)])
       await query(`INSERT IGNORE INTO usuarios_modulos (usuario_id, modulo_id) VALUES ${placeholders}`, flatParams)
     }
+
+    invalidarUsuario(Number(id))
 
     const result: any = await query(
       `SELECT m.id, m.clave, m.nombre

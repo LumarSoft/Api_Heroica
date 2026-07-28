@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
-import { query } from '../config/database'
+import { getRolNombre, esSuperadmin, getPermisosDeRol, getModulosDeUsuario } from '../services/authCacheService'
 
 // Extender la interfaz Request para incluir el usuario
 interface AuthPayload {
@@ -46,36 +46,18 @@ export const requirePermission = (permisoClave: string) => {
         return
       }
 
-      // 1. Obtener el rol del usuario (haciendo un bypass para superadmin por seguridad extra en backend)
-      const rolResult: any = await query(
-        `SELECT r.nombre 
-         FROM roles r 
-         WHERE r.id = ?`,
-        [req.user.rol_id],
-      )
-
-      if (rolResult.length === 0) {
+      const rolNombre = await getRolNombre(req.user.rol_id)
+      if (rolNombre === null) {
         res.status(403).json({ success: false, message: 'Rol inválido' })
         return
       }
-
-      const isSuperAdmin = rolResult[0].nombre === 'superadmin'
-      if (isSuperAdmin) {
+      if (rolNombre === 'superadmin') {
         next()
         return
       }
 
-      // 2. Verificar el permiso en base de datos
-      const hasPermissionResult: any = await query(
-        `SELECT 1 
-         FROM permisos p
-         INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
-         WHERE rp.rol_id = ? AND p.clave = ?`,
-        [req.user.rol_id, permisoClave],
-      )
-
-      if (hasPermissionResult.length > 0) {
-        // Tiene el permiso
+      const permisos = await getPermisosDeRol(req.user.rol_id)
+      if (permisos.has(permisoClave)) {
         next()
         return
       }
@@ -108,22 +90,14 @@ export const requireModule = (moduloClave: string) => {
       }
 
       // Bypass de superadmin (acceso a todos los módulos)
-      const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [req.user.rol_id])
-      if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') {
+      if (await esSuperadmin(req.user.rol_id)) {
         next()
         return
       }
 
       // Verificar acceso al módulo en usuarios_modulos
-      const accesoResult: any = await query(
-        `SELECT 1
-         FROM usuarios_modulos um
-         INNER JOIN modulos m ON m.id = um.modulo_id
-         WHERE um.usuario_id = ? AND m.clave = ?`,
-        [req.user.id, moduloClave],
-      )
-
-      if (accesoResult.length > 0) {
+      const modulos = await getModulosDeUsuario(req.user.id)
+      if (modulos.has(moduloClave)) {
         next()
         return
       }
@@ -155,23 +129,13 @@ export const requireAnyPermission = (permisos: string[]) => {
         return
       }
 
-      const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [req.user.rol_id])
-      if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') {
+      if (await esSuperadmin(req.user.rol_id)) {
         next()
         return
       }
 
-      const placeholders = permisos.map(() => '?').join(',')
-      const hasPermissionResult: any = await query(
-        `SELECT 1
-         FROM permisos p
-         INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
-         WHERE rp.rol_id = ? AND p.clave IN (${placeholders})
-         LIMIT 1`,
-        [req.user.rol_id, ...permisos],
-      )
-
-      if (hasPermissionResult.length > 0) {
+      const permisosDelRol = await getPermisosDeRol(req.user.rol_id)
+      if (permisos.some(p => permisosDelRol.has(p))) {
         next()
         return
       }
@@ -200,25 +164,13 @@ export const requireAllPermissions = (permisos: string[]) => {
         return
       }
 
-      const rolResult: any = await query(`SELECT nombre FROM roles WHERE id = ?`, [req.user.rol_id])
-      if (rolResult.length > 0 && rolResult[0].nombre === 'superadmin') {
+      if (await esSuperadmin(req.user.rol_id)) {
         next()
         return
       }
 
-      const queryParams = [req.user.rol_id, ...permisos]
-      const placeholders = permisos.map(() => '?').join(',')
-
-      const permissionsResult: any = await query(
-        `SELECT p.clave
-         FROM permisos p
-         INNER JOIN roles_permisos rp ON p.id = rp.permiso_id
-         WHERE rp.rol_id = ? AND p.clave IN (${placeholders})`,
-        queryParams,
-      )
-
-      const rolesDbPermisos = permissionsResult.map((p: any) => p.clave)
-      const hasAll = permisos.every(p => rolesDbPermisos.includes(p))
+      const permisosDelRol = await getPermisosDeRol(req.user.rol_id)
+      const hasAll = permisos.every(p => permisosDelRol.has(p))
 
       if (hasAll) {
         next()
