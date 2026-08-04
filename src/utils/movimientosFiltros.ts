@@ -73,8 +73,9 @@ export const parseSaldo = (req: Request): SaldoTipo | null => {
 
 export const sqlSaldo = (alias: string, saldo: SaldoTipo): string => {
   if (saldo === 'real') return `${alias}.estado = 'completado'`
-  if (saldo === 'necesario') return `${alias}.estado IN ('aprobado', 'pendiente')`
-  return `${alias}.estado IN ('completado', 'aprobado', 'pendiente')`
+  // 'pendiente' = solicitud sin aprobar: pertenece a Pagos Pendientes, no a la caja.
+  if (saldo === 'necesario') return `${alias}.estado = 'aprobado'`
+  return `${alias}.estado IN ('completado', 'aprobado')`
 }
 
 const fechaDesc = (saldo: SaldoTipo): boolean => saldo === 'real'

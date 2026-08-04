@@ -45,7 +45,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
        LEFT JOIN proveedores p ON m.proveedor_id = p.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'efectivo' AND m.moneda = ? AND m.deleted_at IS NULL
-         AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)`
+         AND (m.estado IS NULL OR m.estado <> 'pendiente')`
 
     const formatear = (rows: any[]) =>
       rows.map((m: any) => ({

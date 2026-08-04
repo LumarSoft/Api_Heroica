@@ -48,7 +48,7 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
        LEFT JOIN bancos b ON m.banco_id = b.id
        LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL
-         AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)`
+         AND (m.estado IS NULL OR m.estado <> 'pendiente')`
 
     const formatear = (rows: any[]) =>
       rows.map((m: any) => ({
@@ -579,11 +579,10 @@ export const getTotalesBanco = async (req: Request, res: Response) => {
        LEFT JOIN bancos b ON m.banco_id = b.id
        WHERE m.sucursal_id = ? AND m.tipo_movimiento = 'banco' AND m.moneda = ? AND m.deleted_at IS NULL`
 
+    // Las solicitudes sin aprobar (estado = 'pendiente') NO integran el saldo necesario:
+    // viven en Pagos Pendientes hasta que el superadmin las aprueba.
     const SUMAS = `SUM(CASE WHEN m.estado = 'completado' THEN m.monto ELSE 0 END) as total_real,
-        SUM(CASE WHEN (
-            m.estado = 'aprobado'
-            OR (m.estado = 'pendiente' AND m.categoria_id IS NOT NULL)
-          ) AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario`
+        SUM(CASE WHEN m.estado = 'aprobado' AND (m.es_deuda = 0 OR m.es_deuda IS NULL) THEN m.monto ELSE 0 END) as total_necesario`
 
     const result: any = await query(`SELECT ${SUMAS}, MAX(m.updated_at) as ultima_actualizacion ${BASE}${f.sql}`, [
       sucursalId,
