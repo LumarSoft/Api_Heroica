@@ -141,6 +141,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
         AND m.deleted_at IS NULL
         AND m.es_deuda = 1
         AND m.tipo = 'egreso'
+        AND m.estado != 'pendiente'
     `
     const deudasParams: any[] = [sucursalId, moneda]
 
@@ -176,6 +177,7 @@ export const getReportesBySucursal = async (req: Request, res: Response) => {
         AND m.deleted_at IS NULL
         AND m.es_deuda = 1
         AND m.tipo = 'ingreso'
+        AND m.estado != 'pendiente'
     `
     const creditosParams: any[] = [sucursalId, moneda]
 

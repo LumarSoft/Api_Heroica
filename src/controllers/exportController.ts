@@ -175,7 +175,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
        AND ${cajaWhere}
        AND m.moneda = ?
        AND m.deleted_at IS NULL
-       AND NOT (m.estado = 'pendiente' AND m.categoria_id IS NULL)
+       AND (m.estado IS NULL OR m.estado <> 'pendiente')
        ${extraWhere}
      ORDER BY m.fecha DESC, m.id DESC`,
     [sucursalId, ...cajaParams, moneda, ...filtroParams],
