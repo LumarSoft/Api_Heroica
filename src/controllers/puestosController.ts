@@ -47,19 +47,13 @@ export const createPuesto = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'nombre y area_id son requeridos' })
     }
 
-    const areaExists: any = await query(
-      'SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL',
-      [area_id],
-    )
+    const areaExists: any = await query('SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL', [area_id])
 
     if (!areaExists.length) {
       return res.status(404).json({ success: false, message: 'El área especificada no existe' })
     }
 
-    const result: any = await query(
-      'INSERT INTO puestos (nombre, area_id) VALUES (?, ?)',
-      [nombre.trim(), area_id],
-    )
+    const result: any = await query('INSERT INTO puestos (nombre, area_id) VALUES (?, ?)', [nombre.trim(), area_id])
 
     const created: any = await query(
       `SELECT ${FIELDS} FROM puestos p LEFT JOIN areas a ON a.id = p.area_id WHERE p.id = ?`,
@@ -83,19 +77,13 @@ export const updatePuesto = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'nombre y area_id son requeridos' })
     }
 
-    const existing: any = await query(
-      'SELECT id FROM puestos WHERE id = ? AND deleted_at IS NULL',
-      [id],
-    )
+    const existing: any = await query('SELECT id FROM puestos WHERE id = ? AND deleted_at IS NULL', [id])
 
     if (!existing.length) {
       return res.status(404).json({ success: false, message: 'Puesto no encontrado' })
     }
 
-    const areaExists: any = await query(
-      'SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL',
-      [area_id],
-    )
+    const areaExists: any = await query('SELECT id FROM areas WHERE id = ? AND deleted_at IS NULL', [area_id])
 
     if (!areaExists.length) {
       return res.status(404).json({ success: false, message: 'El área especificada no existe' })
@@ -120,10 +108,7 @@ export const deletePuesto = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const existing: any = await query(
-      'SELECT id FROM puestos WHERE id = ? AND deleted_at IS NULL',
-      [id],
-    )
+    const existing: any = await query('SELECT id FROM puestos WHERE id = ? AND deleted_at IS NULL', [id])
 
     if (!existing.length) {
       return res.status(404).json({ success: false, message: 'Puesto no encontrado' })

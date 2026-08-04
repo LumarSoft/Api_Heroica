@@ -20,19 +20,25 @@ export const createNotificaciones = async (req: Request, res: Response) => {
     const tarea = (tareaResult as any[])[0]
     const remitente = (remitenteResult as any[])[0]
 
-    for (const uid of para_usuarios_ids) {
-      await query(
+    const ids: number[] = para_usuarios_ids.map((uid: unknown) => Number(uid)).filter(Number.isFinite)
+    if (ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Datos incompletos' })
+    }
+
+    const valuesPlaceholders = ids.map(() => '(?, ?, ?, ?, ?)').join(', ')
+    const valuesParams = ids.flatMap(uid => [tarea_id, uid, de_usuario_id, tipo, descripcion])
+    const idsPlaceholders = ids.map(() => '?').join(', ')
+
+    const [, destinatariosResult]: any[] = await Promise.all([
+      query(
         `INSERT INTO tareas_notificaciones (tarea_id, para_usuario_id, de_usuario_id, tipo, descripcion)
-         VALUES (?, ?, ?, ?, ?)`,
-        [tarea_id, uid, de_usuario_id, tipo, descripcion],
-      )
+         VALUES ${valuesPlaceholders}`,
+        valuesParams,
+      ),
+      query(`SELECT id, nombre, email FROM usuarios WHERE id IN (${idsPlaceholders})`, ids),
+    ])
 
-      const destinatarioResult: any = await query(
-        'SELECT nombre, email FROM usuarios WHERE id = ?',
-        [uid],
-      )
-      const destinatario = (destinatarioResult as any[])[0]
-
+    for (const destinatario of destinatariosResult as any[]) {
       if (destinatario?.email && tarea) {
         sendTareaNotificacionEmail({
           destinatario: destinatario.email,
@@ -81,6 +87,24 @@ export const getMisNotificaciones = async (req: Request, res: Response) => {
   }
 }
 
+export const getMisNotificacionesCount = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id
+
+    const result: any = await query(
+      `SELECT COUNT(*) AS total
+       FROM tareas_notificaciones
+       WHERE para_usuario_id = ? AND leida = 0`,
+      [userId],
+    )
+
+    res.json({ success: true, data: { unreadCount: Number(result[0]?.total ?? 0) } })
+  } catch (error) {
+    console.error('Error al contar notificaciones:', error)
+    res.status(500).json({ success: false, message: 'Error al contar notificaciones' })
+  }
+}
+
 // PATCH /api/notificaciones/leer
 export const marcarLeidas = async (req: Request, res: Response) => {
   try {
@@ -89,10 +113,10 @@ export const marcarLeidas = async (req: Request, res: Response) => {
 
     if (ids && Array.isArray(ids) && ids.length > 0) {
       const placeholders = ids.map(() => '?').join(',')
-      await query(
-        `UPDATE tareas_notificaciones SET leida = 1 WHERE id IN (${placeholders}) AND para_usuario_id = ?`,
-        [...ids, userId],
-      )
+      await query(`UPDATE tareas_notificaciones SET leida = 1 WHERE id IN (${placeholders}) AND para_usuario_id = ?`, [
+        ...ids,
+        userId,
+      ])
     } else {
       await query(`UPDATE tareas_notificaciones SET leida = 1 WHERE para_usuario_id = ?`, [userId])
     }

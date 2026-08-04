@@ -49,6 +49,16 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     descripcion: 'Aprobar o rechazar movimientos (cambiar estado)',
     categoria: 'Movimientos',
   },
+  {
+    clave: 'importar_movimientos',
+    descripcion: 'Importar movimientos masivamente desde extractos bancarios',
+    categoria: 'Movimientos',
+  },
+  {
+    clave: 'revertir_importaciones',
+    descripcion: 'Deshacer una importación masiva y eliminar los movimientos que creó',
+    categoria: 'Movimientos',
+  },
 
   // ── MÓDULO: PAGOS PENDIENTES ─────────────────────────────────────────────
   {

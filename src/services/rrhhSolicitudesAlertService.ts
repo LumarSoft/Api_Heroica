@@ -118,7 +118,7 @@ async function getVencimientosPendientes(): Promise<VencimientoRow[]> {
 
 async function crearEventoCalendarioApercibimiento(row: ApercibimientoRow): Promise<number | null> {
   const today = new Date().toISOString().split('T')[0]
-  const existing = await query(
+  const existing = (await query(
     `SELECT id
      FROM rrhh_calendario_eventos
      WHERE deleted_at IS NULL
@@ -126,11 +126,11 @@ async function crearEventoCalendarioApercibimiento(row: ApercibimientoRow): Prom
        AND comentarios LIKE ?
      LIMIT 1`,
     [`%segundo apercibimiento%Legajo ${row.legajo}%`],
-  ) as Array<{ id: number }>
+  )) as Array<{ id: number }>
 
   if (existing.length > 0) return existing[0].id
 
-  const result = await query(
+  const result = (await query(
     `INSERT INTO rrhh_calendario_eventos
      (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, creado_por)
      VALUES ('Alerta RRHH', ?, NULL, NULL, ?, ?, 'Recordatorio', NULL)`,
@@ -139,13 +139,13 @@ async function crearEventoCalendarioApercibimiento(row: ApercibimientoRow): Prom
       row.colaborador_nombre,
       `Alerta preventiva por segundo apercibimiento. Colaborador: ${row.colaborador_nombre}. Legajo ${row.legajo}. Sucursal: ${row.sucursal_nombre}.`,
     ],
-  ) as { insertId: number }
+  )) as { insertId: number }
 
   return result.insertId
 }
 
 async function crearEventoCalendarioVencimiento(row: VencimientoRow): Promise<number | null> {
-  const existing = await query(
+  const existing = (await query(
     `SELECT id
      FROM rrhh_calendario_eventos
      WHERE deleted_at IS NULL
@@ -154,11 +154,11 @@ async function crearEventoCalendarioVencimiento(row: VencimientoRow): Promise<nu
        AND comentarios LIKE ?
      LIMIT 1`,
     [row.fecha_vencimiento, `%Solicitud ${row.solicitud_id}%`],
-  ) as Array<{ id: number }>
+  )) as Array<{ id: number }>
 
   if (existing.length > 0) return existing[0].id
 
-  const result = await query(
+  const result = (await query(
     `INSERT INTO rrhh_calendario_eventos
      (evento, fecha, hora, direccion, participantes, comentarios, tipo_notion, creado_por)
      VALUES ('Vencimiento', ?, NULL, NULL, ?, ?, 'Recordatorio', NULL)`,
@@ -167,12 +167,16 @@ async function crearEventoCalendarioVencimiento(row: VencimientoRow): Promise<nu
       row.colaborador_nombre,
       `Vencimiento de ${row.tipo.toLowerCase()}. Solicitud ${row.solicitud_id}. Colaborador: ${row.colaborador_nombre}. Legajo ${row.legajo}. Sucursal: ${row.sucursal_nombre}.`,
     ],
-  ) as { insertId: number }
+  )) as { insertId: number }
 
   return result.insertId
 }
 
-async function registrarAlertaApercibimiento(row: ApercibimientoRow, calendarioEventoId: number | null, destinatario: string | null): Promise<void> {
+async function registrarAlertaApercibimiento(
+  row: ApercibimientoRow,
+  calendarioEventoId: number | null,
+  destinatario: string | null,
+): Promise<void> {
   await query(
     `INSERT INTO rrhh_alertas_apercibimientos
      (personal_id, solicitud_id, cantidad_apercibimientos, calendario_evento_id, destinatario_email, email_enviado_at)
@@ -183,11 +187,22 @@ async function registrarAlertaApercibimiento(row: ApercibimientoRow, calendarioE
        calendario_evento_id = VALUES(calendario_evento_id),
        destinatario_email = VALUES(destinatario_email),
        email_enviado_at = COALESCE(email_enviado_at, VALUES(email_enviado_at))`,
-    [row.personal_id, row.solicitud_id, row.cantidad_apercibimientos, calendarioEventoId, destinatario, destinatario ? new Date() : null],
+    [
+      row.personal_id,
+      row.solicitud_id,
+      row.cantidad_apercibimientos,
+      calendarioEventoId,
+      destinatario,
+      destinatario ? new Date() : null,
+    ],
   )
 }
 
-async function registrarAlertaVencimiento(row: VencimientoRow, calendarioEventoId: number | null, destinatario: string | null): Promise<void> {
+async function registrarAlertaVencimiento(
+  row: VencimientoRow,
+  calendarioEventoId: number | null,
+  destinatario: string | null,
+): Promise<void> {
   await query(
     `INSERT INTO rrhh_alertas_vencimientos
      (solicitud_id, personal_id, tipo, fecha_vencimiento, dias_antes, calendario_evento_id, destinatario_email, email_enviado_at)
@@ -196,7 +211,16 @@ async function registrarAlertaVencimiento(row: VencimientoRow, calendarioEventoI
        calendario_evento_id = VALUES(calendario_evento_id),
        destinatario_email = VALUES(destinatario_email),
        email_enviado_at = COALESCE(email_enviado_at, VALUES(email_enviado_at))`,
-    [row.solicitud_id, row.personal_id, row.tipo, row.fecha_vencimiento, getDiasAntesVencimiento(), calendarioEventoId, destinatario, destinatario ? new Date() : null],
+    [
+      row.solicitud_id,
+      row.personal_id,
+      row.tipo,
+      row.fecha_vencimiento,
+      getDiasAntesVencimiento(),
+      calendarioEventoId,
+      destinatario,
+      destinatario ? new Date() : null,
+    ],
   )
 }
 

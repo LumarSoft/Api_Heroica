@@ -26,16 +26,25 @@ pool
     console.error('❌ Error al conectar a la base de datos:', err.message)
   })
 
+const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
+
+const SLOW_QUERY_MS = 300
+
 // Función helper para ejecutar queries
 export const query = async (sql: string, params?: any[]) => {
   const start = Date.now()
   try {
     const [results] = await pool.execute(sql, params)
     const duration = Date.now() - start
-    console.log('📊 Query ejecutada:', {
-      sql: sql.substring(0, 50) + '...',
-      duration,
-    })
+
+    if (!isProduction || duration >= SLOW_QUERY_MS) {
+      const nivel = duration >= SLOW_QUERY_MS ? '🐌 Query lenta' : '📊 Query ejecutada'
+      console.log(nivel, {
+        sql: sql.substring(0, 80).replace(/\s+/g, ' ') + '...',
+        duration,
+      })
+    }
+
     return results
   } catch (error) {
     console.error('❌ Error en query:', error)
