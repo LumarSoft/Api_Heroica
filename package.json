@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "hash": "tsx src/utils/generateHash.ts",
+    "verificar:import-galicia": "tsx scripts/verificarImportacionGalicia.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "simple-git-hooks"
@@ -52,6 +53,7 @@
     "express-rate-limit": "^8.3.1",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.1",
     "multer": "^2.0.2",
     "mysql2": "^3.16.1",
     "node-cron": "^4.2.1",

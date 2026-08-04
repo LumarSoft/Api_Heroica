@@ -58,10 +58,13 @@ function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string |
     const like = `%${f.searchText}%`
     params.push(like, like, like)
   }
+  // El filtro de deudas solo aplica a saldo necesario. En saldo real una deuda es
+  // plata que ya salió de la cuenta, así que siempre tiene que estar contemplada
+  // (mismo criterio que la vista: el control ni siquiera se muestra en esa pestaña).
   if (f.filtroDeuda === 'solo_deudas') {
-    clauses.push('m.es_deuda = 1')
+    clauses.push("(m.saldo = 'saldo_real' OR m.es_deuda = 1)")
   } else if (f.filtroDeuda === 'sin_deudas') {
-    clauses.push('m.es_deuda = 0')
+    clauses.push("(m.saldo = 'saldo_real' OR m.es_deuda = 0 OR m.es_deuda IS NULL)")
   }
   // Los filtros propios de banco no deben descartar los movimientos de efectivo
   // cuando se exportan ambas cajas juntas.
