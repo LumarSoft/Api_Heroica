@@ -672,15 +672,6 @@ export async function validateSolicitudContext(
     const JORNADA_DIAS = Number(a.jornada_semanal_dias)
     const PROPUESTA = Number(a.propuesta_economica)
 
-    const ADJUNTOS_LABELS = {
-      dni_frente_dorso: 'DNI (ambos lados)',
-      ddjj_domicilio: 'Declaración jurada de domicilio',
-      descripcion_puesto_firmada: 'Descripción de puesto firmada',
-      foto_colaborador: 'Foto del colaborador',
-      normas_convivencia: 'Normas de convivencia firmadas',
-      constancia_uniforme: 'Constancia de entrega de uniforme',
-    } as const
-
     if (!nombre) throw new Error('Ingrese nombres y apellidos del colaborador')
     if (!dni) throw new Error('Ingrese el DNI del colaborador')
     if (cuilParsed.length < 10 || cuilParsed.length > 13) throw new Error('Ingrese un CUIL o CUIT válido')
@@ -785,10 +776,10 @@ export async function validateSolicitudContext(
     ] as const) {
       const incomingSlot = parseAltaAdjunto((adjuntosFuente as Record<string, unknown> | undefined)?.[key])
       const slot = incomingSlot ?? getPrevArchivo(key)
-      if (!slot) {
-        throw new Error(`Falta subir escaneado: ${ADJUNTOS_LABELS[key]}`)
+      // Documentación opcional: la ficha puede guardarse sin adjuntos y completarse luego editando.
+      if (slot) {
+        archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
       }
-      archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
     }
 
     const periodoPrueba = Boolean(a.periodo_prueba)
