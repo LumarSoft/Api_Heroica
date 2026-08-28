@@ -33,6 +33,10 @@ export function labelForTipoDoc(tipoDoc: string): string {
   return LABELS[tipoDoc] ?? tipoDoc
 }
 
+export function isTipoDocumentoLegajo(value: string): value is AltaTipoRequerido {
+  return [...ALTA_TIPOS_REQUERIDOS, 'carnet_manipulacion_alimentos'].includes(value as AltaTipoRequerido)
+}
+
 interface ArchivosFaltantesRow {
   personal_id: number
   tipo_doc: string
@@ -42,6 +46,62 @@ interface PersonalFlagRow {
   id: number
   solicitud_alta_id: number | null
   carnet_manipulacion_alimentos: number
+}
+
+export interface VencimientoLegajo {
+  tipo: 'carnet_manipulacion' | 'documento_legajo'
+  label: string
+  fecha_vencimiento: string
+  dias_restantes: number
+}
+
+const DEFAULT_DIAS_ALERTA_VENCIMIENTOS = 30
+
+function getDiasAlertaVencimientos(): number {
+  const value = Number(process.env.RRHH_ALERTA_LEGAJOS_DIAS_ANTES)
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_DIAS_ALERTA_VENCIMIENTOS
+}
+
+/** Vencimientos ya ocurridos o próximos, para señalizarlos en la vista de legajos. */
+export async function computeVencimientosProximosByPersonal(
+  personal: PersonalFlagRow[],
+): Promise<Map<number, VencimientoLegajo[]>> {
+  const out = new Map<number, VencimientoLegajo[]>()
+  if (personal.length === 0) return out
+
+  const ids = personal.map(p => p.id)
+  const placeholders = ids.map(() => '?').join(',')
+  const diasAntes = getDiasAlertaVencimientos()
+  const rows = (await query(
+    `SELECT p.id AS personal_id, 'carnet_manipulacion' AS tipo, 'Carnet de manipulación' AS label,
+            DATE_FORMAT(p.carnet_vencimiento, '%Y-%m-%d') AS fecha_vencimiento,
+            DATEDIFF(p.carnet_vencimiento, CURDATE()) AS dias_restantes
+     FROM personal p
+     WHERE p.id IN (${placeholders}) AND p.carnet_vencimiento IS NOT NULL
+       AND p.carnet_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+     UNION ALL
+     SELECT d.personal_id, 'documento_legajo' AS tipo, d.label,
+            DATE_FORMAT(d.fecha_vencimiento, '%Y-%m-%d') AS fecha_vencimiento,
+            DATEDIFF(d.fecha_vencimiento, CURDATE()) AS dias_restantes
+     FROM personal_documentos d
+     WHERE d.personal_id IN (${placeholders}) AND d.deleted_at IS NULL AND d.fecha_vencimiento IS NOT NULL
+       AND d.fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+     ORDER BY fecha_vencimiento ASC`,
+    [...ids, diasAntes, ...ids, diasAntes],
+  )) as Array<VencimientoLegajo & { personal_id: number }>
+
+  for (const row of rows) {
+    const item: VencimientoLegajo = {
+      tipo: row.tipo,
+      label: row.label,
+      fecha_vencimiento: row.fecha_vencimiento,
+      dias_restantes: Number(row.dias_restantes),
+    }
+    const items = out.get(Number(row.personal_id)) ?? []
+    items.push(item)
+    out.set(Number(row.personal_id), items)
+  }
+  return out
 }
 
 /**
@@ -73,17 +133,29 @@ export async function computeAdjuntosFaltantesByPersonal(personal: PersonalFlagR
     }, new Map<number, Set<string>>())
   }
 
+  const ids = personal.map(p => p.id)
+  const directosByPersonal = new Map<number, Set<string>>()
+  const directos = (await query(
+    `SELECT personal_id, tipo_doc FROM personal_documentos
+     WHERE personal_id IN (${ids.map(() => '?').join(',')})
+       AND deleted_at IS NULL AND tipo_doc IS NOT NULL`,
+    ids,
+  )) as Array<{ personal_id: number; tipo_doc: string }>
+  for (const documento of directos) {
+    const set = directosByPersonal.get(Number(documento.personal_id)) ?? new Set<string>()
+    set.add(documento.tipo_doc)
+    directosByPersonal.set(Number(documento.personal_id), set)
+  }
+
   for (const p of personal) {
     const requeridos: AltaTipoRequerido[] = [...ALTA_TIPOS_REQUERIDOS]
     if (Number(p.carnet_manipulacion_alimentos) === 1) {
       requeridos.push('carnet_manipulacion_alimentos')
     }
-    // Colaborador sin solicitud de alta: no tiene archivos en el flujo nuevo, todos los requeridos faltan.
-    if (!p.solicitud_alta_id) {
-      out.set(Number(p.id), requeridos)
-      continue
-    }
-    const presentes = archivosBySolicitud.get(Number(p.solicitud_alta_id)) ?? new Set<string>()
+    const presentes = new Set([
+      ...(p.solicitud_alta_id ? (archivosBySolicitud.get(Number(p.solicitud_alta_id)) ?? []) : []),
+      ...(directosByPersonal.get(Number(p.id)) ?? []),
+    ])
     const faltantes = requeridos.filter(t => !presentes.has(t))
     out.set(Number(p.id), faltantes)
   }
@@ -101,6 +173,8 @@ export interface ArchivoItem {
   fecha_solicitud: string
   estado: string
   documento_id?: number
+  fecha_vencimiento?: string | null
+  subido_por_nombre?: string | null
 }
 
 function toIsoDate(value: unknown): string {
@@ -130,10 +204,11 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
 
   // 1) Archivos de solicitudes propias (personal_id = ?) + solicitud de alta (que crea el personal)
   const archivosSolicitudes = (await query(
-    `SELECT a.tipo_doc, a.url, a.nombre_original,
+    `SELECT a.tipo_doc, a.url, a.nombre_original, u.nombre AS subido_por_nombre,
             s.id AS solicitud_id, s.tipo AS solicitud_tipo, s.fecha_solicitud, s.estado
      FROM rrhh_solicitudes_archivos a
      INNER JOIN rrhh_solicitudes s ON s.id = a.solicitud_id
+     LEFT JOIN usuarios u ON u.id = s.usuario_id
      WHERE (s.personal_id = ? OR s.id = ?)
        AND s.deleted_at IS NULL
      ORDER BY s.fecha_solicitud DESC, a.id ASC`,
@@ -142,6 +217,7 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
     tipo_doc: string
     url: string
     nombre_original: string | null
+    subido_por_nombre: string | null
     solicitud_id: number
     solicitud_tipo: string
     fecha_solicitud: string
@@ -158,6 +234,7 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
       solicitud_tipo: String(r.solicitud_tipo),
       fecha_solicitud: toIsoDate(r.fecha_solicitud),
       estado: String(r.estado),
+      subido_por_nombre: r.subido_por_nombre,
     })
   }
 
@@ -165,9 +242,11 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
   const archivosEmpleados = (await query(
     `SELECT e.apercibimiento, e.apercibimiento_archivo_url, e.apercibimiento_archivo_nombre,
             e.suspension, e.suspension_archivo_url, e.suspension_archivo_nombre,
-            s.id AS solicitud_id, s.tipo AS solicitud_tipo, s.fecha_solicitud, s.estado
+            s.id AS solicitud_id, s.tipo AS solicitud_tipo, s.fecha_solicitud, s.estado,
+            u.nombre AS subido_por_nombre
      FROM rrhh_solicitudes_novedades_empleados e
      INNER JOIN rrhh_solicitudes s ON s.id = e.solicitud_id
+     LEFT JOIN usuarios u ON u.id = s.usuario_id
      WHERE e.personal_id = ?
        AND s.deleted_at IS NULL
      ORDER BY s.fecha_solicitud DESC, e.id ASC`,
@@ -183,6 +262,7 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
     solicitud_tipo: string
     fecha_solicitud: string
     estado: string
+    subido_por_nombre: string | null
   }>
 
   for (const r of archivosEmpleados) {
@@ -196,6 +276,7 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
         solicitud_tipo: String(r.solicitud_tipo),
         fecha_solicitud: toIsoDate(r.fecha_solicitud),
         estado: String(r.estado),
+        subido_por_nombre: r.subido_por_nombre,
       })
     }
     if (Number(r.suspension) === 1 && r.suspension_archivo_url) {
@@ -208,13 +289,14 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
         solicitud_tipo: String(r.solicitud_tipo),
         fecha_solicitud: toIsoDate(r.fecha_solicitud),
         estado: String(r.estado),
+        subido_por_nombre: r.subido_por_nombre,
       })
     }
   }
 
   // 3) Documentos subidos directamente al legajo
   const docDirectos = (await query(
-    `SELECT id, label, url, nombre_original, created_at
+    `SELECT id, label, tipo_doc, url, nombre_original, fecha_vencimiento, subido_por_nombre, created_at
      FROM personal_documentos
      WHERE personal_id = ? AND deleted_at IS NULL
      ORDER BY created_at DESC`,
@@ -222,14 +304,17 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
   )) as Array<{
     id: number
     label: string
+    tipo_doc: string | null
     url: string
     nombre_original: string | null
+    fecha_vencimiento: Date | string | null
+    subido_por_nombre: string | null
     created_at: Date | string
   }>
 
   for (const r of docDirectos) {
     items.push({
-      tipo_doc: 'documento_legajo',
+      tipo_doc: r.tipo_doc ?? 'documento_legajo',
       label: String(r.label),
       url: String(r.url),
       nombre_original: r.nombre_original,
@@ -238,6 +323,8 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
       fecha_solicitud: toIsoDate(r.created_at),
       estado: 'Aprobada',
       documento_id: Number(r.id),
+      fecha_vencimiento: r.fecha_vencimiento ? toIsoDate(r.fecha_vencimiento) : null,
+      subido_por_nombre: r.subido_por_nombre,
     })
   }
 

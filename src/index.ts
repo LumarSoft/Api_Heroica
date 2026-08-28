@@ -1,4 +1,5 @@
 import express, { Application, NextFunction, Request, Response } from 'express'
+import path from 'path'
 import cors from 'cors'
 import helmet from 'helmet'
 import compression from 'compression'
@@ -45,6 +46,7 @@ if (!process.env.JWT_SECRET) {
 // Crear aplicación Express
 const app: Application = express()
 const PORT = process.env.PORT || 3001
+const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
 
 // Rate limiting: máximo 10 intentos de login por IP cada 15 minutos
 const loginLimiter = rateLimit({
@@ -84,10 +86,11 @@ app.use(
 app.use(cookieParser()) // Parsear cookies (necesario para device_token)
 app.use(express.json()) // Parsear JSON
 app.use(express.urlencoded({ extended: true })) // Parsear URL-encoded
+if (!isProduction) {
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
+}
 
 // Middleware de logging — campos sensibles redactados
-const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
-
 const CAMPOS_REDACTADOS = ['password', 'newPassword', 'currentPassword', 'token', 'two_factor_secret']
 
 app.use((req, res, next) => {

@@ -1,6 +1,10 @@
 import { Request, Response } from 'express'
 import { getConnection, query } from '../config/database'
-import { computeAdjuntosFaltantesByPersonal, listArchivosByPersonal } from '../services/personalArchivosService'
+import {
+  computeAdjuntosFaltantesByPersonal,
+  computeVencimientosProximosByPersonal,
+  listArchivosByPersonal,
+} from '../services/personalArchivosService'
 
 function normalizeEmail(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -44,17 +48,19 @@ export const getPersonal = async (req: Request, res: Response) => {
         )
 
     const rows = Array.isArray(result) ? (result as Array<Record<string, unknown>>) : []
-    const faltantesMap = await computeAdjuntosFaltantesByPersonal(
-      rows.map(r => ({
-        id: Number(r.id),
-        solicitud_alta_id: r.solicitud_alta_id != null ? Number(r.solicitud_alta_id) : null,
-        carnet_manipulacion_alimentos: Number(r.carnet_manipulacion_alimentos ?? 0),
-      })),
-    )
+    const personalFlags = rows.map(r => ({
+      id: Number(r.id),
+      solicitud_alta_id: r.solicitud_alta_id != null ? Number(r.solicitud_alta_id) : null,
+      carnet_manipulacion_alimentos: Number(r.carnet_manipulacion_alimentos ?? 0),
+    }))
+    const [faltantesMap, vencimientosMap] = await Promise.all([
+      computeAdjuntosFaltantesByPersonal(personalFlags),
+      computeVencimientosProximosByPersonal(personalFlags),
+    ])
 
     const enriched = rows.map(r => {
       const faltantes = faltantesMap.get(Number(r.id)) ?? []
-      return { ...r, adjuntos_faltantes: faltantes }
+      return { ...r, adjuntos_faltantes: faltantes, vencimientos_proximos: vencimientosMap.get(Number(r.id)) ?? [] }
     })
 
     res.json({ success: true, data: enriched })
@@ -79,16 +85,24 @@ export const getPersonalById = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Colaborador no encontrado' })
     }
     const persona = result[0] as Record<string, unknown>
-    const faltantesMap = await computeAdjuntosFaltantesByPersonal([
+    const personalFlags = [
       {
         id: Number(persona.id),
         solicitud_alta_id: persona.solicitud_alta_id != null ? Number(persona.solicitud_alta_id) : null,
         carnet_manipulacion_alimentos: Number(persona.carnet_manipulacion_alimentos ?? 0),
       },
+    ]
+    const [faltantesMap, vencimientosMap] = await Promise.all([
+      computeAdjuntosFaltantesByPersonal(personalFlags),
+      computeVencimientosProximosByPersonal(personalFlags),
     ])
     res.json({
       success: true,
-      data: { ...persona, adjuntos_faltantes: faltantesMap.get(Number(persona.id)) ?? [] },
+      data: {
+        ...persona,
+        adjuntos_faltantes: faltantesMap.get(Number(persona.id)) ?? [],
+        vencimientos_proximos: vencimientosMap.get(Number(persona.id)) ?? [],
+      },
     })
   } catch (error) {
     console.error('Error al obtener colaborador:', error)
@@ -108,6 +122,46 @@ export const getPersonalArchivos = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al listar archivos del colaborador:', error)
     res.status(500).json({ success: false, message: 'Error al listar archivos del colaborador' })
+  }
+}
+
+// GET /api/personal/alertas-documentacion
+export const getAlertasDocumentacion = async (_req: Request, res: Response) => {
+  try {
+    const rows = (await query(
+      `SELECT p.id, p.sucursal_id, s.nombre AS sucursal_nombre, p.solicitud_alta_id, p.carnet_manipulacion_alimentos
+       FROM personal p INNER JOIN sucursales s ON s.id = p.sucursal_id
+       WHERE p.deleted_at IS NULL AND p.activo = 1 ORDER BY s.nombre ASC`,
+    )) as Array<Record<string, unknown>>
+    const flags = rows.map(row => ({
+      id: Number(row.id),
+      solicitud_alta_id: row.solicitud_alta_id != null ? Number(row.solicitud_alta_id) : null,
+      carnet_manipulacion_alimentos: Number(row.carnet_manipulacion_alimentos ?? 0),
+    }))
+    const [faltantesMap, vencimientosMap] = await Promise.all([
+      computeAdjuntosFaltantesByPersonal(flags),
+      computeVencimientosProximosByPersonal(flags),
+    ])
+    const agrupadas = new Map<
+      number,
+      { sucursal_id: number; sucursal_nombre: string; faltantes: number; vencimientos: number }
+    >()
+    for (const row of rows) {
+      const sucursalId = Number(row.sucursal_id)
+      const actual = agrupadas.get(sucursalId) ?? {
+        sucursal_id: sucursalId,
+        sucursal_nombre: String(row.sucursal_nombre),
+        faltantes: 0,
+        vencimientos: 0,
+      }
+      actual.faltantes += (faltantesMap.get(Number(row.id)) ?? []).length
+      actual.vencimientos += (vencimientosMap.get(Number(row.id)) ?? []).length
+      agrupadas.set(sucursalId, actual)
+    }
+    res.json({ success: true, data: [...agrupadas.values()].filter(alerta => alerta.faltantes || alerta.vencimientos) })
+  } catch (error) {
+    console.error('Error al obtener alertas de documentación:', error)
+    res.status(500).json({ success: false, message: 'Error al obtener alertas de documentación' })
   }
 }
 
