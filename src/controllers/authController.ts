@@ -168,7 +168,7 @@ export const login = async (req: Request, res: Response) => {
     }
 
     const tempToken = jwt.sign({ id: user.id, email: user.email, temp2fa: true }, process.env.JWT_SECRET as string, {
-      expiresIn: '5m',
+      expiresIn: '10m',
     })
 
     return res.json({
@@ -306,8 +306,25 @@ export const verify2FA = async (req: Request, res: Response) => {
         },
       },
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error en verify2FA:', error)
+
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'El token temporal ha expirado. Por favor, inicie sesión nuevamente.',
+        code: 'TEMP_TOKEN_EXPIRED',
+      })
+    }
+
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token temporal inválido.',
+        code: 'TEMP_TOKEN_INVALID',
+      })
+    }
+
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',
@@ -403,7 +420,7 @@ export const confirm2FA = async (req: Request, res: Response) => {
     await query(`UPDATE usuarios SET two_factor_enabled = 1 WHERE id = ?`, [userId])
 
     const tempToken = jwt.sign({ id: user.id, email: user.email, temp2fa: true }, process.env.JWT_SECRET as string, {
-      expiresIn: '5m',
+      expiresIn: '10m',
     })
 
     res.json({
