@@ -144,20 +144,18 @@ export const createReciboSueldo = async (req: Request, res: Response) => {
       `INSERT INTO personal_recibos_sueldo (personal_id, mes, anio, url, nombre_original, subido_por_id, subido_por_nombre) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [personalId, mes, anio, url, req.file.originalname, user?.id ?? null, user?.nombre ?? null],
     )) as { insertId: number }
-    res
-      .status(201)
-      .json({
-        success: true,
-        data: {
-          id: result.insertId,
-          mes,
-          anio,
-          url,
-          nombre_original: req.file.originalname,
-          subido_por_nombre: user?.nombre ?? null,
-          created_at: new Date().toISOString(),
-        },
-      })
+    res.status(201).json({
+      success: true,
+      data: {
+        id: result.insertId,
+        mes,
+        anio,
+        url,
+        nombre_original: req.file.originalname,
+        subido_por_nombre: user?.nombre ?? null,
+        created_at: new Date().toISOString(),
+      },
+    })
   } catch (error) {
     console.error('Error al subir recibo:', error)
     res.status(500).json({ success: false, message: 'Error al subir recibo' })
@@ -212,6 +210,9 @@ export const createPersonalDocumento = async (req: Request, res: Response) => {
 
     const fechaVencimientoRaw = String(req.body.fecha_vencimiento ?? '').trim()
     const fechaVencimiento = fechaVencimientoRaw || null
+    if (tipoDoc === 'carnet_manipulacion_alimentos' && !fechaVencimiento) {
+      return res.status(400).json({ success: false, message: 'La fecha de vencimiento del carnet es requerida' })
+    }
     if (fechaVencimiento && !/^\d{4}-\d{2}-\d{2}$/.test(fechaVencimiento)) {
       return res.status(400).json({ success: false, message: 'La fecha de vencimiento no es válida' })
     }

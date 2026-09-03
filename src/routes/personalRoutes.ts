@@ -36,7 +36,7 @@ router.get('/', requirePermission('ver_personal'), getPersonal)
 router.get('/alertas-documentacion', requirePermission('ver_personal'), getAlertasDocumentacion)
 router.get('/:id', requirePermission('ver_personal'), getPersonalById)
 router.post('/', requirePermission('crear_personal'), createPersonal)
-router.put('/:id', requirePermission('gestionar_personal'), updatePersonal)
+router.put('/:id', requirePermission('gestionar_personal'), uploadDocumento.single('carnet_archivo'), updatePersonal)
 router.delete('/:id', requirePermission('eliminar_personal'), deletePersonal)
 
 router.get('/:id/profesional', requirePermission('ver_personal'), getProfesional)

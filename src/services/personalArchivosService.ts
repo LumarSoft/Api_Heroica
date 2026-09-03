@@ -79,6 +79,12 @@ export async function computeVencimientosProximosByPersonal(
      FROM personal p
      WHERE p.id IN (${placeholders}) AND p.carnet_vencimiento IS NOT NULL
        AND p.carnet_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+       AND NOT EXISTS (
+         SELECT 1 FROM personal_documentos current_carnet
+         WHERE current_carnet.personal_id = p.id
+           AND current_carnet.tipo_doc = 'carnet_manipulacion_alimentos'
+           AND current_carnet.deleted_at IS NULL
+       )
      UNION ALL
      SELECT d.personal_id, 'documento_legajo' AS tipo, d.label,
             DATE_FORMAT(d.fecha_vencimiento, '%Y-%m-%d') AS fecha_vencimiento,
@@ -86,6 +92,16 @@ export async function computeVencimientosProximosByPersonal(
      FROM personal_documentos d
      WHERE d.personal_id IN (${placeholders}) AND d.deleted_at IS NULL AND d.fecha_vencimiento IS NOT NULL
        AND d.fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+       AND (
+         d.tipo_doc <> 'carnet_manipulacion_alimentos'
+         OR d.id = (
+           SELECT current_carnet.id FROM personal_documentos current_carnet
+           WHERE current_carnet.personal_id = d.personal_id
+             AND current_carnet.tipo_doc = 'carnet_manipulacion_alimentos'
+             AND current_carnet.deleted_at IS NULL
+           ORDER BY current_carnet.created_at DESC, current_carnet.id DESC LIMIT 1
+         )
+       )
      ORDER BY fecha_vencimiento ASC`,
     [...ids, diasAntes, ...ids, diasAntes],
   )) as Array<VencimientoLegajo & { personal_id: number }>
