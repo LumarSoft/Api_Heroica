@@ -3,6 +3,7 @@ import { query } from '../config/database'
 import { CBU_DIGITOS } from '../config/constants'
 import { getMotivoBajaActivoEnSucursal } from './rrhhMotivosBajaService'
 import { esSuperadmin, getPermisosDeRol, getSucursalesDeUsuario } from './authCacheService'
+import { normalizeUbicacionPostal } from './codigosPostalesService'
 
 export const TIPOS_VALIDOS = [
   'Altas',
@@ -85,6 +86,12 @@ interface AltaDetalles {
   cuil: string
   domicilio: string
   domicilio_dni: string
+  domicilio_real_provincia_codigo?: string | null
+  domicilio_real_localidad?: string | null
+  domicilio_real_codigo_postal?: string | null
+  domicilio_dni_provincia_codigo?: string | null
+  domicilio_dni_localidad?: string | null
+  domicilio_dni_codigo_postal?: string | null
   fecha_nacimiento: string
   telefono: string
   email: string | null
@@ -664,6 +671,22 @@ export async function validateSolicitudContext(
     const dni = cleanTrim(a.dni)
     const cuilParsed = onlyDigits(cleanTrim(a.cuil != null ? String(a.cuil) : ''))
     const domicilio = cleanTrim(a.domicilio)
+    const domicilioRealPostal = normalizeUbicacionPostal({
+      provincia_codigo: a.domicilio_real_provincia_codigo,
+      localidad: a.domicilio_real_localidad,
+      codigo_postal: a.domicilio_real_codigo_postal,
+    })
+    if (!domicilioRealPostal.provinciaCodigo || !domicilioRealPostal.localidad || !domicilioRealPostal.codigoPostal) {
+      throw new Error('Seleccione provincia, localidad y código postal de la dirección real')
+    }
+    const domicilioDniPostal = normalizeUbicacionPostal({
+      provincia_codigo: a.domicilio_dni_provincia_codigo,
+      localidad: a.domicilio_dni_localidad,
+      codigo_postal: a.domicilio_dni_codigo_postal,
+    })
+    if (!domicilioDniPostal.provinciaCodigo || !domicilioDniPostal.localidad || !domicilioDniPostal.codigoPostal) {
+      throw new Error('Seleccione provincia, localidad y código postal del domicilio según DNI')
+    }
     const fechaNacimiento = cleanTrim(a.fecha_nacimiento)
     const telefono = cleanTrim(a.telefono)
     const fechaInicioCobro = cleanTrim(a.fecha_inicio_cobro_oficina)
@@ -800,6 +823,12 @@ export async function validateSolicitudContext(
         cuil: cuilParsed,
         domicilio,
         domicilio_dni: domicilioDni,
+        domicilio_real_provincia_codigo: domicilioRealPostal.provinciaCodigo,
+        domicilio_real_localidad: domicilioRealPostal.localidad,
+        domicilio_real_codigo_postal: domicilioRealPostal.codigoPostal,
+        domicilio_dni_provincia_codigo: domicilioDniPostal.provinciaCodigo,
+        domicilio_dni_localidad: domicilioDniPostal.localidad,
+        domicilio_dni_codigo_postal: domicilioDniPostal.codigoPostal,
         fecha_nacimiento: fechaNacimiento,
         telefono,
         email,
@@ -1375,12 +1404,14 @@ export async function resolveSolicitudSideEffects(
     const [insertResult] = await connection.execute(
       `INSERT INTO personal
        (legajo, nombre, dni, cuil, email, telefono, fecha_nacimiento, domicilio_real, domicilio_dni,
+        domicilio_real_provincia_codigo, domicilio_real_localidad, domicilio_real_codigo_postal,
+        domicilio_dni_provincia_codigo, domicilio_dni_localidad, domicilio_dni_codigo_postal,
         puesto_id, sucursal_id, fecha_incorporacion, fecha_inicio_cobro,
         periodo_prueba, periodo_prueba_dias, jornada_semanal_dias, jornada_diaria_horas,
         propuesta_economica, beneficios, condicion_laboral, fecha_alta_temprana, banco, cbu,
         carnet_manipulacion_alimentos, carnet_archivo_url, carnet_archivo_nombre, carnet_vencimiento,
         solicitud_alta_id, datos_alta_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
         detalles.nombre.trim(),
@@ -1391,6 +1422,12 @@ export async function resolveSolicitudSideEffects(
         detalles.fecha_nacimiento,
         detalles.domicilio.trim(),
         detalles.domicilio_dni.trim(),
+        detalles.domicilio_real_provincia_codigo ?? null,
+        detalles.domicilio_real_localidad ?? null,
+        detalles.domicilio_real_codigo_postal ?? null,
+        detalles.domicilio_dni_provincia_codigo ?? null,
+        detalles.domicilio_dni_localidad ?? null,
+        detalles.domicilio_dni_codigo_postal ?? null,
         detalles.puesto_id,
         solicitud.sucursal_id,
         detalles.fecha_incorporacion,

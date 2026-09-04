@@ -7,11 +7,18 @@ import {
   computeVencimientosProximosByPersonal,
   listArchivosByPersonal,
 } from '../services/personalArchivosService'
+import { normalizeUbicacionPostal } from '../services/codigosPostalesService'
 
 function normalizeEmail(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim().toLowerCase()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeOptionalText(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
 }
 
 function isValidEmail(value: string | null): boolean {
@@ -57,6 +64,8 @@ async function persistCarnetFile(personalId: number, file: Express.Multer.File):
 
 const PERSONAL_PUBLIC_FIELDS = `p.id, p.legajo, p.nombre, p.dni, p.cuil, p.puesto_id, pu.nombre AS puesto_nombre,
               p.email, p.telefono, p.fecha_nacimiento, p.domicilio_real, p.domicilio_dni,
+              p.domicilio_real_provincia_codigo, p.domicilio_real_localidad, p.domicilio_real_codigo_postal,
+              p.domicilio_dni_provincia_codigo, p.domicilio_dni_localidad, p.domicilio_dni_codigo_postal,
               p.sucursal_id, p.fecha_incorporacion, p.fecha_inicio_cobro,
               p.periodo_prueba, p.periodo_prueba_dias, p.jornada_semanal_dias, p.jornada_diaria_horas,
               p.propuesta_economica, p.beneficios, p.condicion_laboral, p.fecha_alta_temprana,
@@ -271,7 +280,9 @@ export const createPersonal = async (req: Request, res: Response) => {
     const nuevoLegajo = String(maxNum + 1).padStart(6, '0')
 
     const [result]: any = await connection.execute(
-      `INSERT INTO personal (legajo, nombre, dni, email, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba, periodo_prueba_dias, carnet_manipulacion_alimentos)
+      `INSERT INTO personal
+       (legajo, nombre, dni, email, puesto_id, sucursal_id, fecha_incorporacion, periodo_prueba,
+        periodo_prueba_dias, carnet_manipulacion_alimentos)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
@@ -325,12 +336,67 @@ export const updatePersonal = async (req: Request, res: Response) => {
       condicion_laboral,
       fecha_alta_temprana,
       carnet_vencimiento,
+      domicilio_real,
+      domicilio_real_provincia_codigo,
+      domicilio_real_localidad,
+      domicilio_real_codigo_postal,
+      domicilio_dni,
+      domicilio_dni_provincia_codigo,
+      domicilio_dni_localidad,
+      domicilio_dni_codigo_postal,
     } = req.body
     const emailNormalizado = normalizeEmail(email)
     const periodoPruebaValue = parseBoolean(periodo_prueba)
     const periodoPruebaDiasValue = periodoPruebaValue ? Number(periodo_prueba_dias || 180) : null
     const carnetValue = parseBoolean(carnet_manipulacion_alimentos)
     const activoValue = parseBoolean(activo, true)
+    const domicilioRealPostalKeys = [
+      'domicilio_real_provincia_codigo',
+      'domicilio_real_localidad',
+      'domicilio_real_codigo_postal',
+    ]
+    const domicilioDniPostalKeys = [
+      'domicilio_dni_provincia_codigo',
+      'domicilio_dni_localidad',
+      'domicilio_dni_codigo_postal',
+    ]
+    const hasDomicilioRealPostalPayload = domicilioRealPostalKeys.some(key =>
+      Object.prototype.hasOwnProperty.call(req.body, key),
+    )
+    const hasDomicilioDniPostalPayload = domicilioDniPostalKeys.some(key =>
+      Object.prototype.hasOwnProperty.call(req.body, key),
+    )
+    let domicilioRealPostal: ReturnType<typeof normalizeUbicacionPostal> | null = null
+    let domicilioDniPostal: ReturnType<typeof normalizeUbicacionPostal> | null = null
+    if (hasDomicilioRealPostalPayload) {
+      try {
+        domicilioRealPostal = normalizeUbicacionPostal({
+          provincia_codigo: domicilio_real_provincia_codigo,
+          localidad: domicilio_real_localidad,
+          codigo_postal: domicilio_real_codigo_postal,
+        })
+      } catch (error: unknown) {
+        return res.status(400).json({
+          success: false,
+          message: error instanceof Error ? `Dirección real: ${error.message}` : 'La ubicación postal no es válida',
+        })
+      }
+    }
+    if (hasDomicilioDniPostalPayload) {
+      try {
+        domicilioDniPostal = normalizeUbicacionPostal({
+          provincia_codigo: domicilio_dni_provincia_codigo,
+          localidad: domicilio_dni_localidad,
+          codigo_postal: domicilio_dni_codigo_postal,
+        })
+      } catch (error: unknown) {
+        return res.status(400).json({
+          success: false,
+          message:
+            error instanceof Error ? `Domicilio según DNI: ${error.message}` : 'La ubicación postal no es válida',
+        })
+      }
+    }
 
     if (!nombre || !dni || !puesto_id || !sucursal_id || !fecha_incorporacion) {
       return res.status(400).json({
@@ -371,7 +437,10 @@ export const updatePersonal = async (req: Request, res: Response) => {
     await connection.beginTransaction()
 
     const [existing]: any = await connection.execute(
-      `SELECT p.id, p.carnet_archivo_url, p.carnet_archivo_nombre, p.carnet_vencimiento,
+      `SELECT p.id, p.domicilio_real, p.domicilio_dni,
+              p.domicilio_real_provincia_codigo, p.domicilio_real_localidad, p.domicilio_real_codigo_postal,
+              p.domicilio_dni_provincia_codigo, p.domicilio_dni_localidad, p.domicilio_dni_codigo_postal,
+              p.carnet_archivo_url, p.carnet_archivo_nombre, p.carnet_vencimiento,
               (SELECT d.url FROM personal_documentos d
                WHERE d.personal_id = p.id AND d.tipo_doc = 'carnet_manipulacion_alimentos'
                  AND d.deleted_at IS NULL ORDER BY d.created_at DESC, d.id DESC LIMIT 1) AS documento_carnet_url,
@@ -390,6 +459,22 @@ export const updatePersonal = async (req: Request, res: Response) => {
     }
 
     const existingPersonal = existing[0] as Record<string, unknown>
+    const effectiveDomicilioReal = Object.prototype.hasOwnProperty.call(req.body, 'domicilio_real')
+      ? normalizeOptionalText(domicilio_real)
+      : (existingPersonal.domicilio_real ?? null)
+    const effectiveDomicilioDni = Object.prototype.hasOwnProperty.call(req.body, 'domicilio_dni')
+      ? normalizeOptionalText(domicilio_dni)
+      : (existingPersonal.domicilio_dni ?? null)
+    const effectiveDomicilioRealPostal = domicilioRealPostal ?? {
+      provinciaCodigo: existingPersonal.domicilio_real_provincia_codigo ?? null,
+      localidad: existingPersonal.domicilio_real_localidad ?? null,
+      codigoPostal: existingPersonal.domicilio_real_codigo_postal ?? null,
+    }
+    const effectiveDomicilioDniPostal = domicilioDniPostal ?? {
+      provinciaCodigo: existingPersonal.domicilio_dni_provincia_codigo ?? null,
+      localidad: existingPersonal.domicilio_dni_localidad ?? null,
+      codigoPostal: existingPersonal.domicilio_dni_codigo_postal ?? null,
+    }
     const requestedCarnetDate = typeof carnet_vencimiento === 'string' ? carnet_vencimiento.trim() : ''
     if (requestedCarnetDate && !isValidDate(requestedCarnetDate)) {
       await connection.rollback()
@@ -439,7 +524,10 @@ export const updatePersonal = async (req: Request, res: Response) => {
     await connection.execute(
       `UPDATE personal
        SET nombre = ?, dni = ?, puesto_id = ?, sucursal_id = ?, fecha_incorporacion = ?,
-           email = ?, periodo_prueba = ?, periodo_prueba_dias = ?, carnet_manipulacion_alimentos = ?, activo = ?,
+           email = ?, domicilio_real = ?, domicilio_dni = ?,
+           domicilio_real_provincia_codigo = ?, domicilio_real_localidad = ?, domicilio_real_codigo_postal = ?,
+           domicilio_dni_provincia_codigo = ?, domicilio_dni_localidad = ?, domicilio_dni_codigo_postal = ?,
+           periodo_prueba = ?, periodo_prueba_dias = ?, carnet_manipulacion_alimentos = ?, activo = ?,
            condicion_laboral = ?, fecha_alta_temprana = ?,
            carnet_archivo_url = CASE WHEN ? IS NOT NULL THEN ? ELSE carnet_archivo_url END,
            carnet_archivo_nombre = CASE WHEN ? IS NOT NULL THEN ? ELSE carnet_archivo_nombre END,
@@ -452,6 +540,14 @@ export const updatePersonal = async (req: Request, res: Response) => {
         sucursal_id,
         fecha_incorporacion,
         emailNormalizado,
+        effectiveDomicilioReal,
+        effectiveDomicilioDni,
+        effectiveDomicilioRealPostal.provinciaCodigo,
+        effectiveDomicilioRealPostal.localidad,
+        effectiveDomicilioRealPostal.codigoPostal,
+        effectiveDomicilioDniPostal.provinciaCodigo,
+        effectiveDomicilioDniPostal.localidad,
+        effectiveDomicilioDniPostal.codigoPostal,
         periodoPruebaValue ? 1 : 0,
         periodoPruebaDiasValue,
         carnetValue ? 1 : 0,

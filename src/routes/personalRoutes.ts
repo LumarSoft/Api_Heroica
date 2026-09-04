@@ -25,7 +25,8 @@ import {
   openReciboSueldo,
   deleteReciboSueldo,
 } from '../controllers/personalDocumentosController'
-import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule, requireAnyPermission } from '../middlewares/authMiddleware'
+import { getCatalogoCodigosPostales, getProvinciasPostales } from '../controllers/codigosPostalesController'
 
 const router = Router()
 
@@ -34,6 +35,16 @@ router.use(requireModule('recursos_humanos'))
 
 router.get('/', requirePermission('ver_personal'), getPersonal)
 router.get('/alertas-documentacion', requirePermission('ver_personal'), getAlertasDocumentacion)
+router.get(
+  '/catalogos/provincias',
+  requireAnyPermission(['ver_personal', 'crear_solicitudes', 'editar_solicitudes']),
+  getProvinciasPostales,
+)
+router.get(
+  '/catalogos/codigos-postales',
+  requireAnyPermission(['ver_personal', 'crear_solicitudes', 'editar_solicitudes']),
+  getCatalogoCodigosPostales,
+)
 router.get('/:id', requirePermission('ver_personal'), getPersonalById)
 router.post('/', requirePermission('crear_personal'), createPersonal)
 router.put('/:id', requirePermission('gestionar_personal'), uploadDocumento.single('carnet_archivo'), updatePersonal)
