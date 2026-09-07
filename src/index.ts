@@ -28,10 +28,6 @@ import puestosRoutes from './routes/puestosRoutes'
 import areasRoutes from './routes/areasRoutes'
 import { syncPermisos } from './config/permisos'
 import { syncModulos } from './config/modulos'
-import { startDbSyncCron } from './services/dbSyncService'
-import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
-import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
-import { startEscalasAlertCron } from './services/escalasAlertService'
 import rrhhSueldosRoutes from './routes/rrhhSueldosRoutes'
 import rrhhAnaliticoRoutes from './routes/rrhhAnaliticoRoutes'
 // Cargar variables de entorno
@@ -185,11 +181,10 @@ app.listen(PORT, async () => {
   // Sincronizar módulos del sistema con la base de datos
   await syncModulos()
 
-  // Iniciar tareas programadas
-  startDbSyncCron()
-  startPeriodoPruebaAlertCron()
-  startSolicitudesRrhhAlertCron()
-  startEscalasAlertCron()
+  // No se programan tareas con node-cron: el API corre en Vercel serverless, donde no hay un
+  // proceso persistente que las ejecute. Las funciones procesarAlertas* siguen exportadas en
+  // src/services/*AlertService.ts para dispararlas manualmente o desde un cron externo.
+  // Ver docs/RUNBOOK.md §4.
 })
 
 export default app

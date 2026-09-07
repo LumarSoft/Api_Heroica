@@ -1,4 +1,3 @@
-import cron from 'node-cron'
 import { query } from '../config/database'
 import { sendEscalasDesactualizadasEmail } from './emailService'
 
@@ -103,18 +102,4 @@ export async function procesarAlertasEscalasSalariales(): Promise<void> {
   }
 
   await registrarAlertas(rows, destinatario)
-}
-
-export function startEscalasAlertCron(): void {
-  cron.schedule('20 8 * * *', () => {
-    procesarAlertasEscalasSalariales().catch(error => {
-      console.error('[escalasAlertService] Error procesando alertas:', error)
-    })
-  })
-
-  console.log('📅 Tarea programada (CRON): Alertas de escalas salariales desactualizadas (08:20).')
-
-  procesarAlertasEscalasSalariales().catch(error => {
-    console.error('[escalasAlertService] Error inicial procesando alertas:', error)
-  })
 }

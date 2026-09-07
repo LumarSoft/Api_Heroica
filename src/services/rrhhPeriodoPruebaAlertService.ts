@@ -1,4 +1,3 @@
-import cron from 'node-cron'
 import { query } from '../config/database'
 import { sendPeriodoPruebaPorVencerEmail } from './emailService'
 
@@ -147,18 +146,4 @@ export async function procesarAlertasPeriodoPrueba(): Promise<void> {
 
     await registrarAlerta(row, calendarioEventoId, destinatario)
   }
-}
-
-export function startPeriodoPruebaAlertCron(): void {
-  cron.schedule('0 8 * * *', () => {
-    procesarAlertasPeriodoPrueba().catch(error => {
-      console.error('[rrhhPeriodoPruebaAlertService] Error procesando alertas:', error)
-    })
-  })
-
-  console.log('📅 Tarea programada (CRON): Alertas de período de prueba por vencer (08:00).')
-
-  procesarAlertasPeriodoPrueba().catch(error => {
-    console.error('[rrhhPeriodoPruebaAlertService] Error inicial procesando alertas:', error)
-  })
 }
