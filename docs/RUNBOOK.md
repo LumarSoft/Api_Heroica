@@ -128,8 +128,18 @@ Ninguna se versiona. Las plantillas sin valores son `.env.example` en cada repo.
 
 Ambos repos usan `simple-git-hooks` + `lint-staged` en `pre-commit`.
 
-En el API el hook está **roto**: `lint-staged` invoca `eslint --fix` y `eslint` no está instalado en
-`Api_Heroica`. Se arregla en la Fase 3.5.
+El hook del API **funciona**. Verificado ejecutándolo: `prettier --write` y `eslint --fix` corren y
+terminan bien. Existe `Api_Heroica/eslint.config.mjs` (typescript-eslint + eslint-config-prettier) y
+el binario `eslint` v10.2.1 resuelve desde `node_modules/.bin` como dependencia transitiva de
+`typescript-eslint`.
+
+`npx eslint src` sobre el API devuelve **389 warnings, 0 errores, exit 0**.
+
+Lo único que falta es el script `"lint"` en `Api_Heroica/package.json` y declarar `eslint` como
+devDependency directa en vez de depender de que quede hoisteado.
+
+> Corrige al plan de saneamiento, que afirma en §3.5 que "`lint-staged` invoca `eslint --fix` sin
+> que `eslint` esté instalado: el hook de pre-commit está roto". No es así.
 
 ---
 

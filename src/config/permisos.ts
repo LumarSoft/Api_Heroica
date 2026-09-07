@@ -59,6 +59,11 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     descripcion: 'Deshacer una importación masiva y eliminar los movimientos que creó',
     categoria: 'Movimientos',
   },
+  {
+    clave: 'agregar_comentarios',
+    descripcion: 'Agregar comentarios a movimientos',
+    categoria: 'Movimientos',
+  },
 
   // ── MÓDULO: PAGOS PENDIENTES ─────────────────────────────────────────────
   {
@@ -236,6 +241,16 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
   {
     clave: 'ver_sueldos',
     descripcion: 'Ver el panel de sueldos y liquidaciones del período',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'gestionar_sueldos',
+    descripcion: 'Modificar novedades, liquidaciones y enviar sueldos a pagos',
+    categoria: 'Recursos Humanos',
+  },
+  {
+    clave: 'ver_analitico_rrhh',
+    descripcion: 'Ver el analítico global de Recursos Humanos',
     categoria: 'Recursos Humanos',
   },
 
