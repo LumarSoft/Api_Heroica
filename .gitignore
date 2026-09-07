@@ -1,5 +1,20 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
 *.log
 .DS_Store
+
+# Documentacion de empleados subida en desarrollo local (datos personales)
+uploads/
+
+# Residuos de montajes FUSE
+.fuse_hidden*
+
+# Artefactos de build y herramientas
+*.tsbuildinfo
+typescript_errors*.txt
+
+# El gestor de paquetes es pnpm
+package-lock.json
