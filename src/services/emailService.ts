@@ -546,3 +546,59 @@ export async function sendNuevoPagoPendienteEmail(data: NuevoPagoEmailData): Pro
     console.error('[emailService] Error al enviar email de nuevo pago:', err)
   }
 }
+
+interface ResumenTesoreriaEmailData {
+  sucursal: string
+  moneda: string
+  dias: Array<{
+    fecha: string
+    ingresos: number
+    egresos: number
+    saldoFinal: number
+    movimientos: Array<{ concepto: string; monto: number; tipo: 'ingreso' | 'egreso' }>
+  }>
+}
+
+const escaparHtml = (valor: string) =>
+  valor.replace(
+    /[&<>'"]/g,
+    caracter => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[caracter]!,
+  )
+
+export async function sendResumenTesoreriaEmail(destinatario: string, data: ResumenTesoreriaEmailData): Promise<void> {
+  const nombres = ['Ayer', 'Hoy', 'Mañana']
+  const columnas = data.dias
+    .map((dia, indice) => {
+      const movimientos = dia.movimientos.length
+        ? dia.movimientos
+            .map(
+              movimiento =>
+                `<tr><td style="padding:5px 0;color:#374151;font-size:12px;">${escaparHtml(movimiento.concepto || 'Sin concepto')}</td><td align="right" style="padding:5px 0;color:${movimiento.tipo === 'egreso' ? '#be123c' : '#047857'};font-size:12px;font-weight:600;">${movimiento.tipo === 'egreso' ? '−' : '+'}${formatMonto(movimiento.monto, data.moneda)}</td></tr>`,
+            )
+            .join('')
+        : '<tr><td colspan="2" style="padding:12px 0;color:#9ca3af;font-size:12px;">Sin movimientos</td></tr>'
+      return `<td width="33%" valign="top" style="padding:12px;border:1px solid #e5e7eb;">
+        <p style="margin:0;color:#002868;font-size:15px;font-weight:700;">${nombres[indice]}</p>
+        <p style="margin:3px 0 10px;color:#6b7280;font-size:11px;">${dia.fecha}</p>
+        <table width="100%" cellpadding="0" cellspacing="0">${movimientos}</table>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:11px;color:#6b7280;">
+          Ingresos: ${formatMonto(dia.ingresos, data.moneda)} · Egresos: ${formatMonto(dia.egresos, data.moneda)}
+          <p style="margin:6px 0 0;color:#111827;font-size:13px;font-weight:700;">Saldo final: ${formatMonto(dia.saldoFinal, data.moneda)}</p>
+        </div>
+      </td>`
+    })
+    .join('')
+  const html = baseLayout(
+    `Resumen de tesorería — ${data.sucursal}`,
+    `<h2 style="margin:0 0 6px;color:#111827;font-size:20px;">Resumen de tesorería</h2>
+     <p style="margin:0 0 20px;color:#6b7280;font-size:14px;">${escaparHtml(data.sucursal)} · ${data.moneda}</p>
+     <table width="100%" cellpadding="0" cellspacing="8"><tr>${columnas}</tr></table>`,
+  )
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: destinatario,
+    subject: `Resumen de tesorería — ${data.sucursal}`,
+    html,
+  })
+  if (error) throw new Error(error.message)
+}

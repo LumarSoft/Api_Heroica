@@ -8,6 +8,8 @@ import {
   rechazarPagoPendiente,
   deletePagoPendiente,
   getHistorialByUser,
+  aprobarPagosPendientesBulk,
+  rechazarPagosPendientesBulk,
 } from '../controllers/movimientosController'
 import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
@@ -30,6 +32,9 @@ router.get('/:sucursalId', requirePermission('ver_pendientes'), getPagosPendient
 
 // Crear nuevo pago pendiente
 router.post('/', requirePermission('cargar_pendientes'), createPagoPendiente)
+
+router.put('/bulk/aprobar', requirePermission('aprobar_pendientes'), aprobarPagosPendientesBulk)
+router.put('/bulk/rechazar', requirePermission('aprobar_pendientes'), rechazarPagosPendientesBulk)
 
 // Aprobar pago pendiente
 router.put('/:id/aprobar', requirePermission('aprobar_pendientes'), aprobarPagoPendiente)

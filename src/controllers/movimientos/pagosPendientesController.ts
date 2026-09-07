@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import { query } from '../../config/database'
+import { getConnection, query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
 import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
 import { getRolDeUsuario } from '../../services/authCacheService'
@@ -185,8 +185,18 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
       tipo_cambio,
     } = req.body
 
-    if (!sucursal_id || !user_id || !fecha || monto === undefined || !tipo_movimiento) {
-      return res.status(400).json({ success: false, message: 'Faltan campos requeridos' })
+    if (
+      !sucursal_id ||
+      !user_id ||
+      !fecha ||
+      monto === undefined ||
+      !tipo_movimiento ||
+      !String(comentarios ?? '').trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Faltan campos requeridos. Las observaciones son obligatorias',
+      })
     }
 
     const destinoCaja = tipo_movimiento === 'banco' ? 'banco' : 'efectivo'
@@ -426,6 +436,114 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al rechazar pago:', error)
     res.status(500).json({ success: false, message: 'Error al rechazar pago' })
+  }
+}
+
+// PUT /api/pagos-pendientes/bulk/aprobar
+export const aprobarPagosPendientesBulk = async (req: Request, res: Response) => {
+  const { ids, usuario_revisor_id, tipo_caja, banco_id, medio_pago_id, numero_cheque } = req.body
+  if (!Array.isArray(ids) || ids.length === 0 || !usuario_revisor_id) {
+    return res.status(400).json({ success: false, message: 'Seleccioná pagos e indicá el usuario revisor' })
+  }
+  if (tipo_caja !== 'efectivo' && tipo_caja !== 'banco') {
+    return res.status(400).json({ success: false, message: 'Seleccioná la caja de destino' })
+  }
+  if (tipo_caja === 'banco' && (!banco_id || !medio_pago_id)) {
+    return res.status(400).json({ success: false, message: 'Banco y medio de pago son obligatorios' })
+  }
+
+  const idsValidos = [...new Set(ids.map(Number).filter(Number.isInteger))]
+  if (idsValidos.length !== ids.length) {
+    return res.status(400).json({ success: false, message: 'La selección contiene identificadores inválidos' })
+  }
+
+  const connection = await getConnection()
+  try {
+    await connection.beginTransaction()
+    const placeholders = idsValidos.map(() => '?').join(',')
+    const [rows] = await connection.execute(
+      `SELECT id, estado, comentarios, categoria_id, subcategoria_id, descripcion_id
+       FROM movimientos WHERE id IN (${placeholders}) AND deleted_at IS NULL FOR UPDATE`,
+      idsValidos,
+    )
+    const pagos = rows as any[]
+    if (pagos.length !== idsValidos.length || pagos.some(pago => pago.estado !== 'pendiente')) {
+      await connection.rollback()
+      return res.status(409).json({ success: false, message: 'Uno o más pagos ya no están pendientes' })
+    }
+    if (
+      pagos.some(
+        pago =>
+          !String(pago.comentarios ?? '').trim() || !pago.categoria_id || !pago.subcategoria_id || !pago.descripcion_id,
+      )
+    ) {
+      await connection.rollback()
+      return res.status(400).json({
+        success: false,
+        message: 'Todos los pagos deben tener observaciones, categoría, subcategoría y descripción',
+      })
+    }
+
+    await connection.execute(
+      `UPDATE movimientos SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?,
+       saldo = 'saldo_necesario', banco_id = ?, medio_pago_id = ?, numero_cheque = ?
+       WHERE id IN (${placeholders})`,
+      [
+        usuario_revisor_id,
+        tipo_caja,
+        tipo_caja === 'banco' ? banco_id : null,
+        tipo_caja === 'banco' ? medio_pago_id : null,
+        tipo_caja === 'banco' && String(numero_cheque ?? '').trim() ? String(numero_cheque).trim() : null,
+        ...idsValidos,
+      ],
+    )
+    await connection.commit()
+    return res.json({ success: true, message: `${idsValidos.length} pagos aprobados`, data: { ids: idsValidos } })
+  } catch (error) {
+    await connection.rollback()
+    console.error('Error al aprobar pagos en bloque:', error)
+    return res.status(500).json({ success: false, message: 'Error al aprobar pagos en bloque' })
+  } finally {
+    connection.release()
+  }
+}
+
+// PUT /api/pagos-pendientes/bulk/rechazar
+export const rechazarPagosPendientesBulk = async (req: Request, res: Response) => {
+  const { ids, usuario_revisor_id, motivo_rechazo } = req.body
+  if (!Array.isArray(ids) || ids.length === 0 || !usuario_revisor_id || !String(motivo_rechazo ?? '').trim()) {
+    return res.status(400).json({ success: false, message: 'Seleccioná pagos e ingresá una justificación' })
+  }
+  const idsValidos = [...new Set(ids.map(Number).filter(Number.isInteger))]
+  if (idsValidos.length !== ids.length) {
+    return res.status(400).json({ success: false, message: 'La selección contiene identificadores inválidos' })
+  }
+  const connection = await getConnection()
+  try {
+    await connection.beginTransaction()
+    const placeholders = idsValidos.map(() => '?').join(',')
+    const [rows] = await connection.execute(
+      `SELECT id FROM movimientos WHERE id IN (${placeholders})
+       AND estado = 'pendiente' AND deleted_at IS NULL FOR UPDATE`,
+      idsValidos,
+    )
+    if ((rows as any[]).length !== idsValidos.length) {
+      await connection.rollback()
+      return res.status(409).json({ success: false, message: 'Uno o más pagos ya no estaban pendientes' })
+    }
+    await connection.execute(
+      `UPDATE movimientos SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?
+       WHERE id IN (${placeholders}) AND estado = 'pendiente' AND deleted_at IS NULL`,
+      [usuario_revisor_id, String(motivo_rechazo).trim(), ...idsValidos],
+    )
+    await connection.commit()
+    return res.json({ success: true, message: `${idsValidos.length} pagos rechazados`, data: { ids: idsValidos } })
+  } catch (error) {
+    await connection.rollback()
+    console.error('Error al rechazar pagos en bloque:', error)
+    return res.status(500).json({ success: false, message: 'Error al rechazar pagos en bloque' })
+  } finally {
+    connection.release()
   }
 }
 
