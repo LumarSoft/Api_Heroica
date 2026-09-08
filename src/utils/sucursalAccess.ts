@@ -14,11 +14,18 @@ export class SucursalAccessError extends Error {
 }
 
 /**
- * 'enforce' (default): sin acceso ⇒ 403.
- * 'log': solo loguea y deja pasar. Sirve para desplegar unos días observando el log antes de
- * hacer cumplir el control. NO es un modo permanente.
+ * 'log' (default): solo loguea el acceso cruzado y deja pasar. Nadie pierde acceso.
+ * 'enforce': sin acceso ⇒ 403.
+ *
+ * El default es 'log' por decisión del responsable: hay usuarios (los dos `directivo`, ids 34 y
+ * 28) que hoy operan sobre sucursales que no tienen asignadas, y pasar a 'enforce' sin
+ * asignárselas antes los dejaría afuera.
+ *
+ * ⚠️ En modo 'log' el control NO protege nada: solo deja rastro. Es un paso intermedio para
+ * medir el impacto real antes de activarlo, no un estado final. Revisar los `[sucursal-access]`
+ * del log, asignar las sucursales que falten y poner SUCURSAL_ACCESS_MODE=enforce.
  */
-const MODE: 'enforce' | 'log' = process.env.SUCURSAL_ACCESS_MODE === 'log' ? 'log' : 'enforce'
+const MODE: 'enforce' | 'log' = process.env.SUCURSAL_ACCESS_MODE === 'enforce' ? 'enforce' : 'log'
 
 /**
  * Verifica que el usuario de la request tenga acceso a la sucursal indicada.

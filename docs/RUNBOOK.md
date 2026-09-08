@@ -123,10 +123,10 @@ Ninguna se versiona. Las plantillas sin valores son `.env.example` en cada repo.
 
 **Agregadas en la Fase 1:**
 
-| Variable               | Default     | Para qué                                                                                                                                                                    |
-| ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SUCURSAL_ACCESS_MODE` | `enforce`   | `enforce`: sin acceso a la sucursal ⇒ 403. `log`: solo escribe `[sucursal-access] …` y deja pasar. Sirve para desplegar unos días observando. **No es un modo permanente.** |
-| `CRON_SECRET`          | — (sin uso) | Reservada para cuando se expongan las alertas como endpoints de Vercel Cron. Hoy no la lee nadie.                                                                           |
+| Variable               | Default     | Para qué                                                                                                                                                                                                |
+| ---------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUCURSAL_ACCESS_MODE` | **`log`**   | `log`: escribe `[sucursal-access] …` y **deja pasar** (no protege). `enforce`: sin acceso a la sucursal ⇒ 403. Arranca en `log` para no sacarle el acceso a nadie; ver §7.3.b para pasarlo a `enforce`. |
+| `CRON_SECRET`          | — (sin uso) | Reservada para cuando se expongan las alertas como endpoints de Vercel Cron. Hoy no la lee nadie.                                                                                                       |
 
 ### Front (`Front_Heroica/.env`)
 
@@ -202,23 +202,59 @@ a las 6 y 5 sucursales que hoy ven sin tenerlas asignadas.
 
 ## 7.2 Plan de deploy de la Fase 1
 
-El orden importa. Salteárselo deja usuarios sin acceso a pantallas que hoy usan.
+**No hace falta correr ninguna migración y ningún usuario pierde acceso.** El deploy es directo:
+API y después front. No hay orden crítico.
 
-1. **Backup de `heroica_oficial`.**
-2. **Correr la migración `RH-71_add_gestionar_sueldos_y_ver_analitico.sql`** contra
-   `heroica_oficial`. Es idempotente (`INSERT IGNORE`). Verificar con el `SELECT` comentado al pie
-   del archivo que `gestionar_sueldos` y `ver_analitico_rrhh` quedaron asignados a los mismos roles
-   que ya tenían el acceso equivalente.
-3. **Revisar los usuarios 34 y 28** (`directivo`, ver §7.1): si tienen que seguir operando sobre las
-   sucursales que hoy ven sin tenerlas asignadas, asignárselas ahora. Alternativa: desplegar con
-   `SUCURSAL_ACCESS_MODE=log` unos días, mirar el log y recién después pasar a `enforce`.
-4. **Desplegar el API.** Recién acá el código empieza a exigir los permisos nuevos y el control por
-   sucursal.
-5. **Desplegar el front.**
+Eso es así porque se revirtieron a propósito los dos cambios que sí habrían alterado el acceso.
+Ver §7.3.
 
-> El arreglo de `DELETE /api/caja-banco/bulk` y `PUT /api/caja-banco/bulk/mover` (que estaban
-> accesibles **sin autenticación**) no depende de la migración ni de los pasos 3 a 5. Si hace falta
-> puede desplegarse solo y primero.
+> Lo más urgente del deploy es el arreglo de `DELETE /api/caja-banco/bulk` y
+> `PUT /api/caja-banco/bulk/mover`, que estaban accesibles **sin autenticación**. No depende de
+> nada más y puede ir solo y primero.
+
+## 7.3 Decisiones de rollback (2026-09-07)
+
+Dos cosas se implementaron, se probaron y después se dieron de baja por decisión del responsable
+del proyecto, con el criterio de no tocar el esquema de accesos que hoy funciona.
+
+### a) Separación de permisos de escritura — **revertida**
+
+Se había agregado `gestionar_sueldos` (para las cinco escrituras de `/api/rrhh/sueldos`) y
+`ver_analitico_rrhh` (para `/api/rrhh/analitico/global`), con la migración `RH-71` que se los
+asignaba a los roles que ya tenían el acceso equivalente. Todo eso se revirtió: la migración se
+borró, las rutas volvieron a `ver_sueldos`, el analítico volvió a estar gateado solo por módulo y
+el front perdió `canGestionarSueldos()` / `canVerAnaliticoRrhh()`.
+
+**Deuda que queda abierta:** cualquiera que pueda _ver_ el panel de sueldos puede además modificar
+novedades, editar liquidaciones y enviar sueldos a Pagos Pendientes. `ver_sueldos` es un permiso de
+lectura haciendo de permiso de escritura.
+
+Lo único que sobrevive es `agregar_comentarios` en `PERMISOS_DEL_SISTEMA`: esa clave ya existía en
+la tabla `permisos` y ya la usaban `movimientosRoutes` y `cajaBancoRoutes`; declararla no cambia
+nada, solo cierra la inconsistencia.
+
+### b) Control de acceso por sucursal — **activo pero en modo `log`**
+
+El código está instalado y cableado, pero `SUCURSAL_ACCESS_MODE` arranca en **`log`**: registra
+cada acceso cruzado y **deja pasar**. Nadie pierde acceso, en particular los dos `directivo`
+(ids 34 y 28) que hoy operan sobre sucursales que no tienen asignadas (§7.1).
+
+**Deuda que queda abierta:** en modo `log` el IDOR sigue siendo explotable. El control no protege,
+solo deja rastro.
+
+Para cerrarlo:
+
+1. Dejarlo correr unos días y juntar las líneas `[sucursal-access]` del log del API.
+2. Ver qué usuarios aparecen y decidir, para cada uno, si el acceso es legítimo (⇒ asignarle la
+   sucursal en `usuarios_sucursales`) o no.
+3. Poner `SUCURSAL_ACCESS_MODE=enforce` en el entorno de producción.
+
+### c) Endpoints nuevos sin cubrir
+
+El commit `b0d9ca1` agregó, después de este trabajo, `PUT /api/pagos-pendientes/bulk/aprobar`,
+`PUT /api/pagos-pendientes/bulk/rechazar` y `GET|POST /api/movimientos/resumen-diario`. Los tres
+operan sobre datos por sucursal y **no tienen control de acceso por sucursal**. Los dos `bulk`
+reciben ids arbitrarios, igual que los de movimientos. Pendiente de cubrir.
 
 ---
 

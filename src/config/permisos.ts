@@ -243,16 +243,6 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     descripcion: 'Ver el panel de sueldos y liquidaciones del período',
     categoria: 'Recursos Humanos',
   },
-  {
-    clave: 'gestionar_sueldos',
-    descripcion: 'Modificar novedades, liquidaciones y enviar sueldos a pagos',
-    categoria: 'Recursos Humanos',
-  },
-  {
-    clave: 'ver_analitico_rrhh',
-    descripcion: 'Ver el analítico global de Recursos Humanos',
-    categoria: 'Recursos Humanos',
-  },
 
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
   // Al agregar un nuevo módulo, copiá el bloque de abajo y completalo:
