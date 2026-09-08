@@ -26,6 +26,7 @@ import {
   deleteReciboSueldo,
 } from '../controllers/personalDocumentosController'
 import { requireAuth, requirePermission, requireModule, requireAnyPermission } from '../middlewares/authMiddleware'
+import { requireSucursalAccess, requireSucursalAccessDeRecurso } from '../middlewares/sucursalAccessMiddleware'
 import { getCatalogoCodigosPostales, getProvinciasPostales } from '../controllers/codigosPostalesController'
 
 const router = Router()
@@ -33,7 +34,11 @@ const router = Router()
 router.use(requireAuth)
 router.use(requireModule('recursos_humanos'))
 
-router.get('/', requirePermission('ver_personal'), getPersonal)
+// En este router :id siempre identifica un legajo. Con router.param se verifica el acceso a la
+// sucursal del legajo una sola vez, para todas las rutas /:id y /:id/... de abajo.
+router.param('id', requireSucursalAccessDeRecurso('personal', 'id'))
+
+router.get('/', requirePermission('ver_personal'), requireSucursalAccess('query', 'sucursal_id'), getPersonal)
 router.get('/alertas-documentacion', requirePermission('ver_personal'), getAlertasDocumentacion)
 router.get(
   '/catalogos/provincias',
@@ -46,7 +51,7 @@ router.get(
   getCatalogoCodigosPostales,
 )
 router.get('/:id', requirePermission('ver_personal'), getPersonalById)
-router.post('/', requirePermission('crear_personal'), createPersonal)
+router.post('/', requirePermission('crear_personal'), requireSucursalAccess('body', 'sucursal_id'), createPersonal)
 router.put('/:id', requirePermission('gestionar_personal'), uploadDocumento.single('carnet_archivo'), updatePersonal)
 router.delete('/:id', requirePermission('eliminar_personal'), deletePersonal)
 

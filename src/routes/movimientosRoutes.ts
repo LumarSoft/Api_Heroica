@@ -26,12 +26,18 @@ import {
 } from '../controllers/documentosMovimientoController'
 import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 import { emailResumenTesoreria, getResumenTesoreria } from '../controllers/resumenTesoreriaController'
+import { requireSucursalAccess, requireSucursalAccessDeRecurso } from '../middlewares/sucursalAccessMiddleware'
 
 const router = Router()
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
 router.use(requireModule('tesoreria'))
+
+// En este router :id y :movimientoId identifican un movimiento: se resuelve su sucursal por
+// lookup y se verifica el acceso antes de que corra el controlador.
+router.param('id', requireSucursalAccessDeRecurso('movimiento', 'id'))
+router.param('movimientoId', requireSucursalAccessDeRecurso('movimiento', 'movimientoId'))
 
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros dinámicos
 
@@ -41,26 +47,51 @@ router.get('/resumen-diario', requirePermission('ver_movimientos'), getResumenTe
 router.post('/resumen-diario/email', requirePermission('ver_movimientos'), emailResumenTesoreria)
 
 // Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
-router.delete('/bulk', deleteBulkMovimientos)
-router.put('/bulk/mover', moverBulkMovimientos)
+router.delete('/bulk', requirePermission('eliminar_movimientos'), deleteBulkMovimientos)
+router.put('/bulk/mover', requirePermission('editar_movimientos'), moverBulkMovimientos)
 
 // Crear movimiento efectivo (debe ir antes de /:sucursalId)
-router.post('/efectivo', requirePermission('crear_movimientos'), createMovimientoEfectivo)
+router.post(
+  '/efectivo',
+  requirePermission('crear_movimientos'),
+  requireSucursalAccess('body', 'sucursal_id'),
+  createMovimientoEfectivo,
+)
 
 // Compra-venta de divisas
-router.post('/compra-venta-divisas', requirePermission('crear_movimientos'), compraVentaDivisas)
+router.post(
+  '/compra-venta-divisas',
+  requirePermission('crear_movimientos'),
+  requireSucursalAccess('body', 'sucursal_id'),
+  compraVentaDivisas,
+)
 
 // Mover movimiento a saldo real
 router.put('/efectivo/:id/mover-a-real', requirePermission('aprobar_movimientos'), moverAReal)
 
 // Obtener totales de una sucursal
-router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), getTotalesEfectivo)
+router.get(
+  '/:sucursalId/totales',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('params', 'sucursalId'),
+  getTotalesEfectivo,
+)
 
 // Exportar movimientos efectivo a Excel
-router.get('/:sucursalId/export', requirePermission('ver_movimientos'), exportEfectivoToExcel)
+router.get(
+  '/:sucursalId/export',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('params', 'sucursalId'),
+  exportEfectivoToExcel,
+)
 
 // Obtener todos los movimientos de una sucursal
-router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosBySucursal)
+router.get(
+  '/:sucursalId',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('params', 'sucursalId'),
+  getMovimientosBySucursal,
+)
 
 // Actualizar estado de movimiento
 router.put('/:id/estado', requirePermission('aprobar_movimientos'), updateEstadoMovimiento)

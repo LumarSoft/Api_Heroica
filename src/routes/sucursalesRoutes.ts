@@ -14,11 +14,17 @@ import {
   downloadDocumento,
 } from '../controllers/documentacionController'
 import { requireAuth, requirePermission } from '../middlewares/authMiddleware'
+import { requireSucursalAccess } from '../middlewares/sucursalAccessMiddleware'
 
 const router = Router()
 
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
+
+// En este router :id y :sucursalId identifican una sucursal: el id ya es el recurso, no hace
+// falta lookup. GET / se sigue filtrando dentro del controlador.
+router.param('id', requireSucursalAccess('params', 'id'))
+router.param('sucursalId', requireSucursalAccess('params', 'sucursalId'))
 
 // Obtener todas las sucursales (filtrado por usuario en el controller)
 router.get('/', requirePermission('ver_sucursales'), getSucursales)

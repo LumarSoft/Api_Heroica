@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { getConnection, query } from '../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../utils/movimientosHelpers'
+import { assertSucursalAccess, manejarErrorDeAcceso, sucursalesPermitidas } from '../utils/sucursalAccess'
 
 // Re-exports para que las rutas no necesiten cambiar
 export * from './movimientos/efectivoController'
@@ -74,9 +75,24 @@ export const deleteBulkMovimientos = async (req: Request, res: Response) => {
     }
 
     const placeholders = ids.map(() => '?').join(', ')
+
+    // Acotar a las sucursales del usuario: sin esto, cualquiera con el permiso borra movimientos
+    // de cualquier sucursal mandando ids arbitrarios.
+    const permitidas = await sucursalesPermitidas(req)
+    let filtroSucursal = ''
+    const params: unknown[] = [...ids]
+    if (permitidas !== null) {
+      if (permitidas.length === 0) {
+        return res.json({ success: true, message: '0 movimiento(s) eliminado(s).' })
+      }
+      filtroSucursal = ` AND sucursal_id IN (${permitidas.map(() => '?').join(', ')})`
+      params.push(...permitidas)
+    }
+
     const result: any = await query(
-      `UPDATE movimientos SET deleted_at = NOW() WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-      ids,
+      `UPDATE movimientos SET deleted_at = NOW()
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL${filtroSucursal}`,
+      params,
     )
     res.json({ success: true, message: `${result.affectedRows} movimiento(s) eliminado(s).` })
   } catch (error) {
@@ -109,25 +125,41 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Faltan datos de destino obligatorios.' })
     }
 
+    // Hay que poder operar tanto sobre el origen (los ids) como sobre el destino.
+    await assertSucursalAccess(req, destino_sucursal_id)
+
+    const permitidas = await sucursalesPermitidas(req)
+    let filtroSucursal = ''
+    const paramsSucursal: unknown[] = []
+    if (permitidas !== null) {
+      if (permitidas.length === 0) {
+        return res.json({ success: true, message: '0 movimiento(s) movido(s).' })
+      }
+      filtroSucursal = ` AND sucursal_id IN (${permitidas.map(() => '?').join(', ')})`
+      paramsSucursal.push(...permitidas)
+    }
+
     const nuevoEstado = destino_saldo === 'saldo_real' ? 'completado' : 'aprobado'
     const placeholders = ids.map(() => '?').join(', ')
+    let afectados = 0
 
     if (destino_tipo_movimiento === 'efectivo') {
-      await query(
+      const result: any = await query(
         `UPDATE movimientos
          SET sucursal_id = ?, tipo_movimiento = 'efectivo', saldo = ?, estado = ?,
              banco_id = NULL, medio_pago_id = NULL, numero_cheque = NULL,
              banco = NULL, cuenta = NULL, cbu = NULL, tipo_operacion = NULL
-         WHERE id IN (${placeholders})`,
-        [destino_sucursal_id, destino_saldo, nuevoEstado, ...ids],
+         WHERE id IN (${placeholders})${filtroSucursal}`,
+        [destino_sucursal_id, destino_saldo, nuevoEstado, ...ids, ...paramsSucursal],
       )
+      afectados = result.affectedRows
     } else {
-      await query(
+      const result: any = await query(
         `UPDATE movimientos
          SET sucursal_id = ?, tipo_movimiento = 'banco', saldo = ?, estado = ?,
              banco_id = ?, medio_pago_id = ?, numero_cheque = ?,
              banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?
-         WHERE id IN (${placeholders})`,
+         WHERE id IN (${placeholders})${filtroSucursal}`,
         [
           destino_sucursal_id,
           destino_saldo,
@@ -140,12 +172,15 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
           cbu || null,
           tipo_operacion || null,
           ...ids,
+          ...paramsSucursal,
         ],
       )
+      afectados = result.affectedRows
     }
 
-    res.json({ success: true, message: `${ids.length} movimiento(s) movido(s).` })
+    res.json({ success: true, message: `${afectados} movimiento(s) movido(s).` })
   } catch (error) {
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error en moverBulkMovimientos:', error)
     res.status(500).json({ success: false, message: 'Error al mover movimientos en bloque.' })
   }

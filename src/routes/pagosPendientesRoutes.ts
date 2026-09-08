@@ -12,6 +12,7 @@ import {
   rechazarPagosPendientesBulk,
 } from '../controllers/movimientosController'
 import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
+import { requireSucursalAccess, requireSucursalAccessDeRecurso } from '../middlewares/sucursalAccessMiddleware'
 
 const router = Router()
 
@@ -19,19 +20,37 @@ const router = Router()
 router.use(requireAuth)
 router.use(requireModule('tesoreria'))
 
+// Los pagos pendientes son filas de movimientos con estado = 'pendiente': :id es un movimiento.
+router.param('id', requireSucursalAccessDeRecurso('movimiento', 'id'))
+
 // Historial de un usuario
 router.get('/historial/:userId', requirePermission('ver_pendientes'), getHistorialByUser)
 
-// Todos los pagos pendientes (vista global)
+// Todos los pagos pendientes (vista global; el controlador acota a las sucursales del usuario)
 router.get('/all', requirePermission('ver_pendientes'), getAllPagosPendientes)
 
-router.get('/:sucursalId/count', requirePermission('ver_pendientes'), getPagosPendientesCount)
+router.get(
+  '/:sucursalId/count',
+  requirePermission('ver_pendientes'),
+  requireSucursalAccess('params', 'sucursalId'),
+  getPagosPendientesCount,
+)
 
 // Pagos pendientes de una sucursal
-router.get('/:sucursalId', requirePermission('ver_pendientes'), getPagosPendientesBySucursal)
+router.get(
+  '/:sucursalId',
+  requirePermission('ver_pendientes'),
+  requireSucursalAccess('params', 'sucursalId'),
+  getPagosPendientesBySucursal,
+)
 
 // Crear nuevo pago pendiente
-router.post('/', requirePermission('cargar_pendientes'), createPagoPendiente)
+router.post(
+  '/',
+  requirePermission('cargar_pendientes'),
+  requireSucursalAccess('body', 'sucursal_id'),
+  createPagoPendiente,
+)
 
 router.put('/bulk/aprobar', requirePermission('aprobar_pendientes'), aprobarPagosPendientesBulk)
 router.put('/bulk/rechazar', requirePermission('aprobar_pendientes'), rechazarPagosPendientesBulk)

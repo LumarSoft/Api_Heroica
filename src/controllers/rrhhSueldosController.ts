@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 import { sendNotificacionEmail } from '../services/notificacionesEmailService'
+import { assertSucursalAccess, manejarErrorDeAcceso } from '../utils/sucursalAccess'
 
 const MESES = [
   'Enero',
@@ -827,6 +828,16 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
   }
 }
 
+/**
+ * Verifica que el usuario tenga acceso a la sucursal a la que pertenece el legajo.
+ * Si el legajo no existe no hace nada: el flujo normal ya devuelve el error que corresponda.
+ */
+async function assertAccesoALegajo(req: Request, personalId: number): Promise<void> {
+  const rows = (await query('SELECT sucursal_id FROM personal WHERE id = ?', [personalId])) as any[]
+  if (!rows.length) return
+  await assertSucursalAccess(req, rows[0].sucursal_id)
+}
+
 // PUT /api/rrhh/sueldos/:personalId/periodo?sucursal_id=X&mes=M&anio=A
 export const updateSueldoPeriodo = async (req: Request, res: Response) => {
   try {
@@ -840,6 +851,10 @@ export const updateSueldoPeriodo = async (req: Request, res: Response) => {
     if (mes < 1 || mes > 12 || anio < 2000 || anio > 2100) {
       return res.status(400).json({ success: false, message: 'Período inválido' })
     }
+
+    // El middleware ya validó el acceso al sucursal_id recibido. Falta validar el legajo: si no,
+    // alcanzaría con mandar una sucursal propia y el personalId de otra para escribirle encima.
+    await assertAccesoALegajo(req, personalId)
 
     const payload = req.body?.data && typeof req.body.data === 'object' ? req.body.data : req.body
     const values = AJUSTE_FIELDS.map(field => {
@@ -864,6 +879,7 @@ export const updateSueldoPeriodo = async (req: Request, res: Response) => {
 
     res.json({ success: true, message: 'Sueldo del período actualizado' })
   } catch (error) {
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error al actualizar sueldo del período:', error)
     res.status(500).json({ success: false, message: 'Error al actualizar sueldo del período' })
   }
@@ -990,10 +1006,19 @@ export const updateLiquidacionFinalAjustes = async (req: Request, res: Response)
       return res.status(400).json({ success: false, message: 'liquidacionId es requerido' })
     }
 
-    const checkRows = (await query('SELECT id FROM rrhh_liquidaciones_finales WHERE id = ?', [liquidacionId])) as any[]
+    const checkRows = (await query(
+      `SELECT lf.id, p.sucursal_id
+       FROM rrhh_liquidaciones_finales lf
+       JOIN personal p ON p.id = lf.personal_id
+       WHERE lf.id = ?`,
+      [liquidacionId],
+    )) as any[]
     if (!checkRows.length) {
       return res.status(404).json({ success: false, message: 'Liquidación no encontrada' })
     }
+
+    // El id de sucursal no viaja en la request: se deriva del legajo de la liquidación.
+    await assertSucursalAccess(req, checkRows[0].sucursal_id)
 
     const payload = req.body?.data && typeof req.body.data === 'object' ? req.body.data : req.body
 
@@ -1025,6 +1050,7 @@ export const updateLiquidacionFinalAjustes = async (req: Request, res: Response)
 
     res.json({ success: true, message: 'Liquidación final actualizada' })
   } catch (error) {
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error al actualizar liquidación final:', error)
     res.status(500).json({ success: false, message: 'Error al actualizar liquidación final' })
   }
@@ -1060,6 +1086,10 @@ export const enviarLiquidacionAPagos = async (req: Request, res: Response) => {
     }
 
     const sucursalId = Number(row.sucursal_id)
+
+    // El id de sucursal no viaja en la request: se deriva del legajo de la liquidación.
+    await assertSucursalAccess(req, sucursalId)
+
     const bancoTotal = toNumber(row.banco) + toNumber(row.liq_banco)
     const efectivoTotal = toNumber(row.efectivo) + toNumber(row.liq_efectivo)
     if (bancoTotal <= 0 && efectivoTotal <= 0) {
@@ -1102,6 +1132,7 @@ export const enviarLiquidacionAPagos = async (req: Request, res: Response) => {
 
     res.json({ success: true, message: 'Liquidación final enviada a Pagos Pendientes' })
   } catch (error) {
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error al enviar liquidación a pagos pendientes:', error)
     res.status(500).json({ success: false, message: 'Error al enviar liquidación a Pagos Pendientes' })
   }
@@ -1120,6 +1151,8 @@ export const updateSueldoPeriodoMeta = async (req: Request, res: Response) => {
     if (mes < 1 || mes > 12 || anio < 2000 || anio > 2100) {
       return res.status(400).json({ success: false, message: 'Período inválido' })
     }
+
+    await assertAccesoALegajo(req, personalId)
 
     const payload = req.body?.data && typeof req.body.data === 'object' ? req.body.data : req.body
     const updates: string[] = ['sucursal_id = VALUES(sucursal_id)']
@@ -1152,6 +1185,7 @@ export const updateSueldoPeriodoMeta = async (req: Request, res: Response) => {
 
     res.json({ success: true, message: 'Datos del cobro actualizados' })
   } catch (error) {
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error al actualizar datos del cobro:', error)
     res.status(500).json({ success: false, message: 'Error al actualizar datos del cobro' })
   }

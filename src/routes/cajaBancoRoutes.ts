@@ -23,31 +23,63 @@ import {
   upload,
 } from '../controllers/documentosMovimientoController'
 import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
+import { requireSucursalAccess, requireSucursalAccessDeRecurso } from '../middlewares/sucursalAccessMiddleware'
 
 const router = Router()
 
-// Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
-router.delete('/bulk', deleteBulkMovimientos)
-router.put('/bulk/mover', moverBulkMovimientos)
+// :id y :movimientoId identifican un movimiento de banco.
+router.param('id', requireSucursalAccessDeRecurso('movimiento', 'id'))
+router.param('movimientoId', requireSucursalAccessDeRecurso('movimiento', 'movimientoId'))
 
-// Todas las rutas requieren autenticación
+// Todas las rutas requieren autenticación.
+// IMPORTANTE: esto va antes que cualquier ruta. Hasta ahora las dos rutas /bulk estaban
+// declaradas ARRIBA de este requireAuth y quedaban accesibles sin autenticar.
 router.use(requireAuth)
 router.use(requireModule('tesoreria'))
 
+// Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
+router.delete('/bulk', requirePermission('eliminar_movimientos'), deleteBulkMovimientos)
+router.put('/bulk/mover', requirePermission('editar_movimientos'), moverBulkMovimientos)
+
 // Obtener movimientos banco de una sucursal
-router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosBancoBySucursal)
+router.get(
+  '/:sucursalId',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('params', 'sucursalId'),
+  getMovimientosBancoBySucursal,
+)
 
 // Obtener totales de una sucursal
-router.get('/:sucursalId/totales', requirePermission('ver_movimientos'), getTotalesBanco)
+router.get(
+  '/:sucursalId/totales',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('params', 'sucursalId'),
+  getTotalesBanco,
+)
 
 // Exportar movimientos banco a Excel
-router.get('/:sucursalId/export', requirePermission('ver_movimientos'), exportBancoToExcel)
+router.get(
+  '/:sucursalId/export',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('params', 'sucursalId'),
+  exportBancoToExcel,
+)
 
 // Crear movimiento banco
-router.post('/', requirePermission('crear_movimientos'), createMovimientoBanco)
+router.post(
+  '/',
+  requirePermission('crear_movimientos'),
+  requireSucursalAccess('body', 'sucursal_id'),
+  createMovimientoBanco,
+)
 
 // Transferencia interna entre bancos (misma sucursal)
-router.post('/transferencia-interna', requirePermission('crear_movimientos'), transferenciaInternaBanco)
+router.post(
+  '/transferencia-interna',
+  requirePermission('crear_movimientos'),
+  requireSucursalAccess('body', 'sucursal_id'),
+  transferenciaInternaBanco,
+)
 
 // Actualizar movimiento banco
 router.put('/:id', requirePermission('editar_movimientos'), updateMovimientoBanco)
