@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import path from 'path'
 import { put } from '@vercel/blob'
 import { getConnection, query } from '../config/database'
+import { sucursalesPermitidas } from '../utils/sucursalAccess'
 import {
   computeAdjuntosFaltantesByPersonal,
   computeVencimientosProximosByPersonal,
@@ -102,22 +103,33 @@ export const getPersonal = async (req: Request, res: Response) => {
   try {
     const sucursalId = req.query.sucursal_id ? Number(req.query.sucursal_id) : null
 
-    const result = sucursalId
-      ? await query(
-          `SELECT ${PERSONAL_PUBLIC_FIELDS}
+    // Con sucursal_id el middleware ya validó el acceso. Sin sucursal_id no se devuelve todo el
+    // padrón: se acota a las sucursales del usuario (los superadmin siguen viendo todo).
+    let result: unknown
+    if (sucursalId) {
+      result = await query(
+        `SELECT ${PERSONAL_PUBLIC_FIELDS}
            FROM personal p
            LEFT JOIN puestos pu ON pu.id = p.puesto_id
            WHERE p.deleted_at IS NULL AND p.sucursal_id = ?
            ORDER BY p.legajo ASC`,
-          [sucursalId],
-        )
-      : await query(
-          `SELECT ${PERSONAL_PUBLIC_FIELDS}
+        [sucursalId],
+      )
+    } else {
+      const permitidas = await sucursalesPermitidas(req)
+      if (permitidas !== null && permitidas.length === 0) {
+        return res.json({ success: true, data: [] })
+      }
+      const filtro = permitidas === null ? '' : ` AND p.sucursal_id IN (${permitidas.map(() => '?').join(', ')})`
+      result = await query(
+        `SELECT ${PERSONAL_PUBLIC_FIELDS}
            FROM personal p
            LEFT JOIN puestos pu ON pu.id = p.puesto_id
-           WHERE p.deleted_at IS NULL
+           WHERE p.deleted_at IS NULL${filtro}
            ORDER BY p.legajo ASC`,
-        )
+        permitidas === null ? [] : permitidas,
+      )
+    }
 
     const rows = Array.isArray(result) ? (result as Array<Record<string, unknown>>) : []
     const personalFlags = rows.map(r => ({
@@ -198,12 +210,20 @@ export const getPersonalArchivos = async (req: Request, res: Response) => {
 }
 
 // GET /api/personal/alertas-documentacion
-export const getAlertasDocumentacion = async (_req: Request, res: Response) => {
+export const getAlertasDocumentacion = async (req: Request, res: Response) => {
   try {
+    // Alertas agregadas por sucursal: se acotan a las sucursales del usuario.
+    const permitidas = await sucursalesPermitidas(req)
+    if (permitidas !== null && permitidas.length === 0) {
+      return res.json({ success: true, data: [] })
+    }
+    const filtro = permitidas === null ? '' : ` AND p.sucursal_id IN (${permitidas.map(() => '?').join(', ')})`
+
     const rows = (await query(
       `SELECT p.id, p.sucursal_id, s.nombre AS sucursal_nombre, p.solicitud_alta_id, p.carnet_manipulacion_alimentos
        FROM personal p INNER JOIN sucursales s ON s.id = p.sucursal_id
-       WHERE p.deleted_at IS NULL AND p.activo = 1 ORDER BY s.nombre ASC`,
+       WHERE p.deleted_at IS NULL AND p.activo = 1${filtro} ORDER BY s.nombre ASC`,
+      permitidas === null ? [] : permitidas,
     )) as Array<Record<string, unknown>>
     const flags = rows.map(row => ({
       id: Number(row.id),

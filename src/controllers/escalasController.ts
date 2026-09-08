@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
+import { assertSucursalAccess, manejarErrorDeAcceso } from '../utils/sucursalAccess'
 
 const FIELDS = `
   e.id, e.sucursal_id,
@@ -151,6 +152,12 @@ export const copiarEscalas = async (req: Request, res: Response) => {
       })
     }
 
+    // Hay que tener acceso al origen y a cada destino: copiar escalas escribe en todos.
+    await assertSucursalAccess(req, origen_sucursal_id)
+    for (const destId of destino_sucursal_ids) {
+      await assertSucursalAccess(req, destId)
+    }
+
     const origen = (await query(
       `SELECT puesto_id, sueldo_base, valor_hora
        FROM escalas_salariales
@@ -195,6 +202,7 @@ export const copiarEscalas = async (req: Request, res: Response) => {
       data: { copiadas },
     })
   } catch (error) {
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error al copiar escalas salariales:', error)
     res.status(500).json({ success: false, message: 'Error al copiar escalas salariales' })
   }

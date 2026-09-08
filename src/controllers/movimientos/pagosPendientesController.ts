@@ -3,6 +3,7 @@ import { getConnection, query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
 import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
 import { getRolDeUsuario } from '../../services/authCacheService'
+import { sucursalesPermitidas } from '../../utils/sucursalAccess'
 
 const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({
@@ -99,6 +100,16 @@ export const getAllPagosPendientes = async (req: Request, res: Response) => {
     let sql =
       PAGOS_SELECT +
       `WHERE pp.estado = 'pendiente' AND (pp.tipo = 'egreso' OR pp.tipo IS NULL) AND pp.deleted_at IS NULL`
+
+    // Vista global: se acota a las sucursales del usuario. Los superadmin siguen viendo todo.
+    const permitidas = await sucursalesPermitidas(req)
+    if (permitidas !== null) {
+      if (permitidas.length === 0) {
+        return res.json({ success: true, data: [] })
+      }
+      sql += ` AND pp.sucursal_id IN (${permitidas.map(() => '?').join(', ')})`
+      params.push(...permitidas)
+    }
 
     if (moneda) {
       const m = String(moneda).toUpperCase()

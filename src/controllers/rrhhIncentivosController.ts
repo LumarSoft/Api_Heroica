@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
+import { sucursalesPermitidas } from '../utils/sucursalAccess'
 
 const TIPOS_VALIDOS = ['Incentivo', 'Premio']
 const METODOS_VALIDOS = ['porcentaje_escala', 'monto_fijo', 'multiplicador_valor_hora']
@@ -82,8 +83,19 @@ export const getIncentivos = async (req: Request, res: Response) => {
     const params: Array<string | number> = []
 
     if (sucursal_id) {
+      // El acceso a esta sucursal ya lo validó el middleware de la ruta.
       conditions.push('i.sucursal_id = ?')
       params.push(Number(sucursal_id))
+    } else {
+      // Sin filtro explícito no se devuelven los incentivos de todas las sucursales.
+      const permitidas = await sucursalesPermitidas(req)
+      if (permitidas !== null) {
+        if (permitidas.length === 0) {
+          return res.json({ success: true, data: [] })
+        }
+        conditions.push(`i.sucursal_id IN (${permitidas.map(() => '?').join(', ')})`)
+        params.push(...permitidas)
+      }
     }
     if (mes) {
       conditions.push('i.mes = ?')

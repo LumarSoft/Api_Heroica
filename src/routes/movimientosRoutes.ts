@@ -42,7 +42,14 @@ router.param('movimientoId', requireSucursalAccessDeRecurso('movimiento', 'movim
 // IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros dinámicos
 
 // Deudas inter-sucursal
-router.get('/deudas', requirePermission('ver_movimientos'), getDeudasInterSucursal)
+router.get(
+  '/deudas',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('query', 'sucursalId'),
+  getDeudasInterSucursal,
+)
+
+// Resumen diario de tesorería
 router.get('/resumen-diario', requirePermission('ver_movimientos'), getResumenTesoreria)
 router.post('/resumen-diario/email', requirePermission('ver_movimientos'), emailResumenTesoreria)
 
