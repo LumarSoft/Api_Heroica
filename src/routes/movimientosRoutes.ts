@@ -50,8 +50,18 @@ router.get(
 )
 
 // Resumen diario de tesorería
-router.get('/resumen-diario', requirePermission('ver_movimientos'), getResumenTesoreria)
-router.post('/resumen-diario/email', requirePermission('ver_movimientos'), emailResumenTesoreria)
+router.get(
+  '/resumen-diario',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('query', 'sucursalId'),
+  getResumenTesoreria,
+)
+router.post(
+  '/resumen-diario/email',
+  requirePermission('ver_movimientos'),
+  requireSucursalAccess('body', 'sucursal_id'),
+  emailResumenTesoreria,
+)
 
 // Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
 router.delete('/bulk', requirePermission('eliminar_movimientos'), deleteBulkMovimientos)

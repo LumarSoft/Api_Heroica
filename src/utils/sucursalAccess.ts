@@ -55,16 +55,32 @@ export async function assertSucursalAccess(
 }
 
 /**
- * Sucursales sobre las que el usuario puede operar.
+ * Sucursales sobre las que el usuario puede operar, para acotar listados con `IN (...)`.
  *
- * Devuelve `null` cuando no hay restricción que aplicar (superadmin), un array de ids en el resto
- * de los casos. El array vacío es un resultado legítimo: significa "ninguna", y el llamador debe
- * devolver lista vacía, no un error.
+ * Devuelve `null` cuando NO hay que acotar nada, y un array de ids cuando sí. El array vacío es un
+ * resultado legítimo: significa "ninguna", y el llamador debe devolver lista vacía, no un error.
+ *
+ * Devuelve `null` en dos casos:
+ *   - superadmin, que bypasea todo control;
+ *   - modo 'log', donde el objetivo es que **nadie pierda funcionalidad**. Acotar el listado sería
+ *     bloquear en silencio, que es justo lo que 'log' no debe hacer: se registra en el log lo que
+ *     se habría acotado y se devuelve todo igual que hoy.
  */
 export async function sucursalesPermitidas(req: Request): Promise<number[] | null> {
   if (!req.user) return []
   if (await esSuperadmin(req.user.rol_id)) return null
-  return Array.from(await getSucursalesDeUsuario(req.user.id))
+
+  const ids = Array.from(await getSucursalesDeUsuario(req.user.id))
+
+  if (MODE === 'log') {
+    console.warn(
+      `[sucursal-access] listado-sin-acotar usuario=${req.user.id} sucursales=[${ids.join(',')}] ` +
+        `${req.method} ${req.originalUrl} modo=log`,
+    )
+    return null
+  }
+
+  return ids
 }
 
 export function responderSinAcceso(res: Response): void {

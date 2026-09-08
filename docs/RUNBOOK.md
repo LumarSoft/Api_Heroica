@@ -225,9 +225,10 @@ asignaba a los roles que ya tenían el acceso equivalente. Todo eso se revirtió
 borró, las rutas volvieron a `ver_sueldos`, el analítico volvió a estar gateado solo por módulo y
 el front perdió `canGestionarSueldos()` / `canVerAnaliticoRrhh()`.
 
-**Deuda que queda abierta:** cualquiera que pueda _ver_ el panel de sueldos puede además modificar
-novedades, editar liquidaciones y enviar sueldos a Pagos Pendientes. `ver_sueldos` es un permiso de
-lectura haciendo de permiso de escritura.
+**Deuda aceptada explícitamente:** cualquiera que pueda _ver_ el panel de sueldos puede además
+modificar novedades, editar liquidaciones y enviar sueldos a Pagos Pendientes. `ver_sueldos` es un
+permiso de lectura haciendo también de permiso de escritura. Se decidió dejarlo así, con la misma
+clave para las dos cosas, para no tener que tocar los permisos de ningún usuario.
 
 Lo único que sobrevive es `agregar_comentarios` en `PERMISOS_DEL_SISTEMA`: esa clave ya existía en
 la tabla `permisos` y ya la usaban `movimientosRoutes` y `cajaBancoRoutes`; declararla no cambia
@@ -235,9 +236,31 @@ nada, solo cierra la inconsistencia.
 
 ### b) Control de acceso por sucursal — **activo pero en modo `log`**
 
-El código está instalado y cableado, pero `SUCURSAL_ACCESS_MODE` arranca en **`log`**: registra
-cada acceso cruzado y **deja pasar**. Nadie pierde acceso, en particular los dos `directivo`
-(ids 34 y 28) que hoy operan sobre sucursales que no tienen asignadas (§7.1).
+El código está instalado y cableado, pero `SUCURSAL_ACCESS_MODE` arranca en **`log`**.
+
+**Qué hace cada modo:**
+
+|                                                                               | `log` (default)                    | `enforce`                             |
+| ----------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------- |
+| Pedir datos de una sucursal ajena                                             | Pasa, con log                      | `403`                                 |
+| Listados globales (`/pagos-pendientes/all`, `/personal`, incentivos, alertas) | Devuelven **todo**, con log        | Acotados a las sucursales del usuario |
+| Operaciones en bloque por ids                                                 | Afectan **todos** los ids, con log | Solo los de sus sucursales            |
+
+**En `log` nadie pierde absolutamente ninguna funcionalidad.** Se comporta igual que antes de este
+trabajo; lo único que cambia es que aparecen líneas así en el log del API:
+
+```
+[sucursal-access] usuario=34 sucursal=9 GET /api/movimientos/9 modo=log
+[sucursal-access] listado-sin-acotar usuario=34 sucursales=[1,3,5,7,8] GET /api/pagos-pendientes/all modo=log
+```
+
+Eso es a propósito: los dos `directivo` (ids 34 y 28) operan hoy sobre sucursales que no tienen
+asignadas (§7.1), y acotarles los listados en silencio sería sacarles funcionalidad sin avisar.
+
+> ⚠️ **Ojo con el acotado de listados.** La primera implementación acotaba los listados **siempre**,
+> sin mirar el modo: en `log` los directivos habrían visto menos pagos pendientes y menos legajos
+> que hoy. Está corregido — `sucursalesPermitidas()` devuelve "sin restricción" en modo `log`. Si
+> alguna vez se agrega un listado nuevo, tiene que usar ese helper y no filtrar por su cuenta.
 
 **Deuda que queda abierta:** en modo `log` el IDOR sigue siendo explotable. El control no protege,
 solo deja rastro.
@@ -249,12 +272,17 @@ Para cerrarlo:
    sucursal en `usuarios_sucursales`) o no.
 3. Poner `SUCURSAL_ACCESS_MODE=enforce` en el entorno de producción.
 
-### c) Endpoints nuevos sin cubrir
+### c) Endpoints del commit `b0d9ca1` — **cubiertos**
 
-El commit `b0d9ca1` agregó, después de este trabajo, `PUT /api/pagos-pendientes/bulk/aprobar`,
-`PUT /api/pagos-pendientes/bulk/rechazar` y `GET|POST /api/movimientos/resumen-diario`. Los tres
-operan sobre datos por sucursal y **no tienen control de acceso por sucursal**. Los dos `bulk`
-reciben ids arbitrarios, igual que los de movimientos. Pendiente de cubrir.
+`PUT /api/pagos-pendientes/bulk/aprobar` y `/bulk/rechazar` reciben ids arbitrarios del cliente:
+ahora el `SELECT ... FOR UPDATE` trae también `sucursal_id` y se verifica el acceso a cada pago
+dentro de la transacción, antes del `UPDATE`. Si falla, `rollback` y `403`.
+
+`GET /api/movimientos/resumen-diario` y `POST /api/movimientos/resumen-diario/email` toman la
+sucursal de `query.sucursalId` y `body.sucursal_id` respectivamente: se cubren con
+`requireSucursalAccess` en la ruta.
+
+Como todo esto respeta `SUCURSAL_ACCESS_MODE`, en el default (`log`) no cambia nada para nadie.
 
 ---
 

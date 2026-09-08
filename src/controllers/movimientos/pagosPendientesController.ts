@@ -3,7 +3,7 @@ import { getConnection, query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
 import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
 import { getRolDeUsuario } from '../../services/authCacheService'
-import { sucursalesPermitidas } from '../../utils/sucursalAccess'
+import { assertSucursalAccess, manejarErrorDeAcceso, sucursalesPermitidas } from '../../utils/sucursalAccess'
 
 const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({
@@ -473,7 +473,7 @@ export const aprobarPagosPendientesBulk = async (req: Request, res: Response) =>
     await connection.beginTransaction()
     const placeholders = idsValidos.map(() => '?').join(',')
     const [rows] = await connection.execute(
-      `SELECT id, estado, comentarios, categoria_id, subcategoria_id, descripcion_id
+      `SELECT id, estado, comentarios, categoria_id, subcategoria_id, descripcion_id, sucursal_id
        FROM movimientos WHERE id IN (${placeholders}) AND deleted_at IS NULL FOR UPDATE`,
       idsValidos,
     )
@@ -481,6 +481,11 @@ export const aprobarPagosPendientesBulk = async (req: Request, res: Response) =>
     if (pagos.length !== idsValidos.length || pagos.some(pago => pago.estado !== 'pendiente')) {
       await connection.rollback()
       return res.status(409).json({ success: false, message: 'Uno o más pagos ya no están pendientes' })
+    }
+
+    // Los ids llegan del cliente: hay que verificar el acceso a la sucursal de cada pago.
+    for (const pago of pagos) {
+      await assertSucursalAccess(req, pago.sucursal_id)
     }
     if (
       pagos.some(
@@ -512,6 +517,7 @@ export const aprobarPagosPendientesBulk = async (req: Request, res: Response) =>
     return res.json({ success: true, message: `${idsValidos.length} pagos aprobados`, data: { ids: idsValidos } })
   } catch (error) {
     await connection.rollback()
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error al aprobar pagos en bloque:', error)
     return res.status(500).json({ success: false, message: 'Error al aprobar pagos en bloque' })
   } finally {
@@ -534,7 +540,7 @@ export const rechazarPagosPendientesBulk = async (req: Request, res: Response) =
     await connection.beginTransaction()
     const placeholders = idsValidos.map(() => '?').join(',')
     const [rows] = await connection.execute(
-      `SELECT id FROM movimientos WHERE id IN (${placeholders})
+      `SELECT id, sucursal_id FROM movimientos WHERE id IN (${placeholders})
        AND estado = 'pendiente' AND deleted_at IS NULL FOR UPDATE`,
       idsValidos,
     )
@@ -542,6 +548,12 @@ export const rechazarPagosPendientesBulk = async (req: Request, res: Response) =
       await connection.rollback()
       return res.status(409).json({ success: false, message: 'Uno o más pagos ya no estaban pendientes' })
     }
+
+    // Los ids llegan del cliente: hay que verificar el acceso a la sucursal de cada pago.
+    for (const pago of rows as any[]) {
+      await assertSucursalAccess(req, pago.sucursal_id)
+    }
+
     await connection.execute(
       `UPDATE movimientos SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?
        WHERE id IN (${placeholders}) AND estado = 'pendiente' AND deleted_at IS NULL`,
@@ -551,6 +563,7 @@ export const rechazarPagosPendientesBulk = async (req: Request, res: Response) =
     return res.json({ success: true, message: `${idsValidos.length} pagos rechazados`, data: { ids: idsValidos } })
   } catch (error) {
     await connection.rollback()
+    if (manejarErrorDeAcceso(error, res)) return
     console.error('Error al rechazar pagos en bloque:', error)
     return res.status(500).json({ success: false, message: 'Error al rechazar pagos en bloque' })
   } finally {
