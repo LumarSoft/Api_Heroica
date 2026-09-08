@@ -80,24 +80,31 @@ base local `heroica` con solo 24 tablas: **no sirve como baseline**, le falta to
 
 ## 4. Tareas programadas
 
-Los cuatro `cron.schedule` se registran en el callback de `app.listen()` (`src/index.ts:170-192`),
-junto con `syncPermisos()` y `syncModulos()`.
+**Desde la Fase 1 no hay ninguna.** El API corre en Vercel serverless: no existe un proceso
+persistente que ejecute `cron.schedule()`, así que los cuatro jobs no tenían ejecución garantizada.
+Eso explica que los tres de alertas no estuvieran mandando mails.
 
-| Job                                       | Archivo                                         | Horario                          | Estado real                                          |
-| ----------------------------------------- | ----------------------------------------------- | -------------------------------- | ---------------------------------------------------- |
-| Sync `heroica_oficial` → `heroica_prueba` | `services/dbSyncService.ts:43`                  | `0 6,18 * * *` + **al arranque** | Corre. Nadie depende de él. **A eliminar (Fase 1).** |
-| Alerta de fin de período de prueba        | `services/rrhhPeriodoPruebaAlertService.ts:153` | `0 8 * * *`                      | **No está mandando mails hoy. A eliminar (Fase 1).** |
-| Alertas de solicitudes RRHH               | `services/rrhhSolicitudesAlertService.ts:297`   | `10 8 * * *`                     | **No está mandando mails hoy. A eliminar (Fase 1).** |
-| Alertas de escalas salariales             | `services/escalasAlertService.ts:109`           | `20 8 * * *`                     | **No está mandando mails hoy. A eliminar (Fase 1).** |
+Lo que se hizo:
 
-> ⚠️ **Sobre el sync:** `dbSyncService` hace `DROP TABLE IF EXISTS heroica_prueba.<t>` seguido de
-> `CREATE ... LIKE` + `INSERT ... SELECT` para **cada** tabla de `heroica_oficial`, y se ejecuta
-> también en cada arranque del proceso. Los nombres de base están hardcodeados. Es destructivo por
-> diseño sobre `heroica_prueba`.
+| Job                                       | Antes                            | Ahora                                                     |
+| ----------------------------------------- | -------------------------------- | --------------------------------------------------------- |
+| Sync `heroica_oficial` → `heroica_prueba` | `0 6,18 * * *` + **al arranque** | **Servicio eliminado** (nadie dependía del refresco)      |
+| Alerta de fin de período de prueba        | `0 8 * * *`                      | Desprogramado. Queda `procesarAlertasPeriodoPrueba()`     |
+| Alertas de solicitudes RRHH               | `10 8 * * *`                     | Desprogramado. Queda `procesarAlertasSolicitudesRrhh()`   |
+| Alertas de escalas salariales             | `20 8 * * *`                     | Desprogramado. Queda `procesarAlertasEscalasSalariales()` |
 
-> ⚠️ **Sobre Vercel:** en serverless no hay proceso persistente, así que estos `cron.schedule`
-> **no tienen ejecución garantizada** en producción. Eso es coherente con que los tres jobs de
-> alertas no estén mandando mails. Se resuelve en la Fase 1.2.
+Las tres funciones `procesarAlertas*` siguen exportadas en `src/services/*AlertService.ts`: la
+lógica de detección y armado de mails está intacta. Para reactivar las alertas hay que exponerlas
+detrás de un endpoint protegido por `CRON_SECRET` y declararlo en `vercel.json` bajo `"crons"`.
+
+`syncPermisos()` y `syncModulos()` se siguen ejecutando en el callback de `app.listen()`.
+
+> ⚠️ **Sobre el sync eliminado:** `dbSyncService` hacía `DROP TABLE IF EXISTS heroica_prueba.<t>`
+> seguido de `CREATE ... LIKE` + `INSERT ... SELECT` para **cada** tabla de `heroica_oficial`, en
+> cada arranque, con los nombres de base hardcodeados. Era destructivo por diseño sobre
+> `heroica_prueba`. Recuperable del historial git si alguna vez hiciera falta.
+
+> `node-cron` quedó como dependencia sin uso en `package.json`. Se saca en una limpieza aparte.
 
 ---
 
@@ -113,6 +120,13 @@ Ninguna se versiona. Las plantillas sin valores son `.env.example` en cada repo.
 `RRHH_ALERTA_VENCIMIENTOS_DIAS_ANTES`, `RRHH_ALERTA_PERIODO_PRUEBA_DIAS_ANTES`,
 `RRHH_ALERTA_LEGAJOS_DIAS_ANTES`, `RRHH_ALERTA_ESCALAS_MESES_SIN_ACTUALIZAR`,
 `RRHH_PERIODO_PRUEBA_DIAS`, `RRHH_RESPONSABLE_EMAIL`.
+
+**Agregadas en la Fase 1:**
+
+| Variable               | Default     | Para qué                                                                                                                                                                    |
+| ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUCURSAL_ACCESS_MODE` | `enforce`   | `enforce`: sin acceso a la sucursal ⇒ 403. `log`: solo escribe `[sucursal-access] …` y deja pasar. Sirve para desplegar unos días observando. **No es un modo permanente.** |
+| `CRON_SECRET`          | — (sin uso) | Reservada para cuando se expongan las alertas como endpoints de Vercel Cron. Hoy no la lee nadie.                                                                           |
 
 ### Front (`Front_Heroica/.env`)
 
@@ -183,6 +197,28 @@ a las 6 y 5 sucursales que hoy ven sin tenerlas asignadas.
 > **Acción requerida antes del deploy de la Fase 1:** decidir si a los usuarios 34 y 28 se les
 > asignan las sucursales que les faltan, o si el recorte es intencional. Existe
 > `SUCURSAL_ACCESS_MODE=log` para desplegar en modo observación primero.
+
+---
+
+## 7.2 Plan de deploy de la Fase 1
+
+El orden importa. Salteárselo deja usuarios sin acceso a pantallas que hoy usan.
+
+1. **Backup de `heroica_oficial`.**
+2. **Correr la migración `RH-71_add_gestionar_sueldos_y_ver_analitico.sql`** contra
+   `heroica_oficial`. Es idempotente (`INSERT IGNORE`). Verificar con el `SELECT` comentado al pie
+   del archivo que `gestionar_sueldos` y `ver_analitico_rrhh` quedaron asignados a los mismos roles
+   que ya tenían el acceso equivalente.
+3. **Revisar los usuarios 34 y 28** (`directivo`, ver §7.1): si tienen que seguir operando sobre las
+   sucursales que hoy ven sin tenerlas asignadas, asignárselas ahora. Alternativa: desplegar con
+   `SUCURSAL_ACCESS_MODE=log` unos días, mirar el log y recién después pasar a `enforce`.
+4. **Desplegar el API.** Recién acá el código empieza a exigir los permisos nuevos y el control por
+   sucursal.
+5. **Desplegar el front.**
+
+> El arreglo de `DELETE /api/caja-banco/bulk` y `PUT /api/caja-banco/bulk/mover` (que estaban
+> accesibles **sin autenticación**) no depende de la migración ni de los pasos 3 a 5. Si hace falta
+> puede desplegarse solo y primero.
 
 ---
 
