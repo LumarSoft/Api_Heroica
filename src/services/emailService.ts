@@ -555,7 +555,7 @@ interface ResumenTesoreriaEmailData {
     ingresos: number
     egresos: number
     saldoFinal: number
-    movimientos: Array<{ concepto: string; monto: number; tipo: 'ingreso' | 'egreso' }>
+    movimientos: Array<{ descripcion: string | null; monto: number; tipo: 'ingreso' | 'egreso' }>
   }>
 }
 
@@ -573,7 +573,7 @@ export async function sendResumenTesoreriaEmail(destinatario: string, data: Resu
         ? dia.movimientos
             .map(
               movimiento =>
-                `<tr><td style="padding:5px 0;color:#374151;font-size:12px;">${escaparHtml(movimiento.concepto || 'Sin concepto')}</td><td align="right" style="padding:5px 0;color:${movimiento.tipo === 'egreso' ? '#be123c' : '#047857'};font-size:12px;font-weight:600;">${movimiento.tipo === 'egreso' ? '−' : '+'}${formatMonto(movimiento.monto, data.moneda)}</td></tr>`,
+                `<tr><td style="padding:5px 0;color:#374151;font-size:12px;">${escaparHtml(movimiento.descripcion || 'Sin descripción')}</td><td align="right" style="padding:5px 0;color:${movimiento.tipo === 'egreso' ? '#be123c' : '#047857'};font-size:12px;font-weight:600;">${movimiento.tipo === 'egreso' ? '−' : '+'}${formatMonto(movimiento.monto, data.moneda)}</td></tr>`,
             )
             .join('')
         : '<tr><td colspan="2" style="padding:12px 0;color:#9ca3af;font-size:12px;">Sin movimientos</td></tr>'

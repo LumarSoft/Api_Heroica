@@ -6,7 +6,7 @@ import { formatearFechaRespuesta } from '../utils/movimientosHelpers'
 interface MovimientoResumen {
   id: number
   fecha: string
-  concepto: string
+  descripcion: string | null
   comentarios?: string
   monto: number
   tipo: 'ingreso' | 'egreso'
@@ -46,11 +46,12 @@ async function obtenerResumen(
   const fechas = fechasReferencia(fechaBase)
   const monedaSql = moneda === 'ARS' ? `(moneda = ? OR moneda IS NULL OR moneda = '')` : 'moneda = ?'
   const movimientos: any = await query(
-    `SELECT id, fecha, concepto, comentarios, monto, tipo, tipo_movimiento
-     FROM movimientos
-     WHERE sucursal_id = ? AND ${monedaSql} AND DATE(fecha) BETWEEN ? AND ?
-       AND deleted_at IS NULL AND (estado IS NULL OR estado NOT IN ('pendiente', 'rechazado'))
-     ORDER BY fecha, id`,
+    `SELECT m.id, m.fecha, d.nombre AS descripcion, m.comentarios, m.monto, m.tipo, m.tipo_movimiento
+     FROM movimientos m
+     LEFT JOIN descripciones d ON m.descripcion_id = d.id
+     WHERE m.sucursal_id = ? AND ${monedaSql} AND DATE(m.fecha) BETWEEN ? AND ?
+       AND m.deleted_at IS NULL AND (m.estado IS NULL OR m.estado NOT IN ('pendiente', 'rechazado'))
+     ORDER BY m.fecha, m.id`,
     [sucursalId, moneda, fechas[0], fechas[2]],
   )
   const saldoAnterior: any = await query(
