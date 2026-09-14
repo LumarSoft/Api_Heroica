@@ -5,7 +5,7 @@ const FROM = process.env.EMAIL_FROM ?? 'noreply@adminheroica.com'
 
 // ─── Templates ────────────────────────────────────────────────────────────────
 
-function baseLayout(title: string, content: string): string {
+function baseLayout(title: string, content: string, containerWidth = 560): string {
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -16,7 +16,7 @@ function baseLayout(title: string, content: string): string {
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:'Segoe UI',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 0;">
     <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+      <table width="${containerWidth}" cellpadding="0" cellspacing="0" style="width:100%;max-width:${containerWidth}px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
         <!-- Header -->
         <tr>
           <td style="background:#111827;padding:28px 36px;">
@@ -555,7 +555,12 @@ interface ResumenTesoreriaEmailData {
     ingresos: number
     egresos: number
     saldoFinal: number
-    movimientos: Array<{ descripcion: string | null; monto: number; tipo: 'ingreso' | 'egreso' }>
+    movimientos: Array<{
+      descripcion: string | null
+      monto: number
+      tipo: 'ingreso' | 'egreso'
+      tipo_movimiento: 'efectivo' | 'banco'
+    }>
   }>
 }
 
@@ -573,7 +578,7 @@ export async function sendResumenTesoreriaEmail(destinatario: string, data: Resu
         ? dia.movimientos
             .map(
               movimiento =>
-                `<tr><td style="padding:5px 0;color:#374151;font-size:12px;">${escaparHtml(movimiento.descripcion || 'Sin descripción')}</td><td align="right" style="padding:5px 0;color:${movimiento.tipo === 'egreso' ? '#be123c' : '#047857'};font-size:12px;font-weight:600;">${movimiento.tipo === 'egreso' ? '−' : '+'}${formatMonto(movimiento.monto, data.moneda)}</td></tr>`,
+                `<tr><td style="padding:6px 8px 6px 0;color:#374151;font-size:12px;"><span style="display:block;font-weight:600;">${escaparHtml(movimiento.descripcion || 'Sin descripción')}</span><span style="display:block;margin-top:2px;color:#6b7280;font-size:10px;">${movimiento.tipo_movimiento === 'efectivo' ? 'Efectivo' : 'Banco'}</span></td><td align="right" valign="top" style="padding:6px 0;color:${movimiento.tipo === 'egreso' ? '#be123c' : '#047857'};font-size:12px;font-weight:600;white-space:nowrap;">${movimiento.tipo === 'egreso' ? '−' : '+'}${formatMonto(movimiento.monto, data.moneda)}</td></tr>`,
             )
             .join('')
         : '<tr><td colspan="2" style="padding:12px 0;color:#9ca3af;font-size:12px;">Sin movimientos</td></tr>'
@@ -593,6 +598,7 @@ export async function sendResumenTesoreriaEmail(destinatario: string, data: Resu
     `<h2 style="margin:0 0 6px;color:#111827;font-size:20px;">Resumen de tesorería</h2>
      <p style="margin:0 0 20px;color:#6b7280;font-size:14px;">${escaparHtml(data.sucursal)} · ${data.moneda}</p>
      <table width="100%" cellpadding="0" cellspacing="8"><tr>${columnas}</tr></table>`,
+    760,
   )
   const { error } = await resend.emails.send({
     from: FROM,

@@ -22,13 +22,14 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
 
     let sql = `
       SELECT
-        m.id, m.sucursal_id, m.fecha, m.concepto, m.monto, m.comentarios,
+        m.id, m.sucursal_id, m.fecha, d.nombre AS descripcion, m.monto, m.comentarios,
         m.tipo, m.tipo_movimiento, m.saldo, m.estado, m.es_deuda,
         m.fecha_original_vencimiento, m.moneda,
         suc.nombre AS sucursal_nombre,
         contraparte_suc.nombre AS sucursal_relacionada_nombre
       FROM movimientos m
       INNER JOIN sucursales suc ON m.sucursal_id = suc.id
+      LEFT JOIN descripciones d ON m.descripcion_id = d.id
       LEFT JOIN movimientos contraparte ON contraparte.id = m.movimiento_contraparte_id
       LEFT JOIN sucursales contraparte_suc ON contraparte_suc.id = contraparte.sucursal_id
       WHERE m.es_deuda = 1
