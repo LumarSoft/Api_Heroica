@@ -20,7 +20,9 @@ const LABELS: Record<string, string> = {
   foto_colaborador: 'Foto del colaborador',
   normas_convivencia: 'Normas de convivencia',
   constancia_uniforme: 'Constancia de uniforme',
+  constancia_alta: 'Constancia de alta',
   carnet_manipulacion_alimentos: 'Carnet de manipulación',
+  licencia_constancia: 'Constancia de licencia',
   // Bajas
   carta_documento: 'Carta documento / telegrama',
   // Apercibimientos / Suspensiones / Incentivos (solicitudes individuales)
@@ -33,8 +35,11 @@ export function labelForTipoDoc(tipoDoc: string): string {
   return LABELS[tipoDoc] ?? tipoDoc
 }
 
-export function isTipoDocumentoLegajo(value: string): value is AltaTipoRequerido {
-  return [...ALTA_TIPOS_REQUERIDOS, 'carnet_manipulacion_alimentos'].includes(value as AltaTipoRequerido)
+export type TipoDocumentoLegajo = AltaTipoRequerido | 'constancia_alta'
+
+export function isTipoDocumentoLegajo(value: string): value is TipoDocumentoLegajo {
+  // La constancia se adjunta al legajo una vez tramitada el alta.
+  return [...ALTA_TIPOS_REQUERIDOS, 'carnet_manipulacion_alimentos', 'constancia_alta'].includes(value)
 }
 
 interface ArchivosFaltantesRow {

@@ -3,6 +3,9 @@ import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
 import { put } from '@vercel/blob'
+import { query } from '../config/database'
+import { getSolicitudArchivos, verificarAccesoSucursal } from '../services/rrhhSolicitudesService'
+import { sendArchivoPrivado } from '../services/archivoPrivadoService'
 
 const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
 
@@ -60,15 +63,39 @@ export const uploadSolicitudArchivo = async (req: Request, res: Response) => {
         tamano_bytes: req.file.size,
       },
     })
-  } catch (error) {
-    console.error('Error al subir archivo de solicitud:', error)
-    if (!isProduction && req.file && (req.file as any).path) {
+  } catch {
+    if (!isProduction && req.file?.path) {
       try {
-        fs.unlinkSync((req.file as any).path)
+        fs.unlinkSync(req.file.path)
       } catch {
         /* ignore */
       }
     }
     res.status(500).json({ success: false, message: 'Error al subir el archivo' })
+  }
+}
+
+// POST /api/rrhh/solicitudes/:id/archivos/abrir
+export const openSolicitudArchivo = async (req: Request, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ success: false, message: 'Usuario no autenticado' })
+    const solicitudId = Number(req.params.id)
+    const url = typeof req.body.url === 'string' ? req.body.url : ''
+    if (!Number.isInteger(solicitudId) || solicitudId <= 0 || !url)
+      return res.status(400).json({ success: false, message: 'Archivo inválido' })
+
+    const rows = (await query('SELECT sucursal_id FROM rrhh_solicitudes WHERE id = ? AND deleted_at IS NULL', [
+      solicitudId,
+    ])) as Array<{ sucursal_id: number }>
+    if (!rows[0]) return res.status(404).json({ success: false, message: 'Solicitud no encontrada' })
+    if (!(await verificarAccesoSucursal(req.user, rows[0].sucursal_id)))
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
+
+    const archivos = await getSolicitudArchivos(solicitudId)
+    const archivo = archivos.find(item => item.url === url)
+    if (!archivo) return res.status(404).json({ success: false, message: 'Archivo no encontrado en la solicitud' })
+    await sendArchivoPrivado(res, archivo.url, archivo.nombre_original)
+  } catch {
+    if (!res.headersSent) res.status(500).json({ success: false, message: 'No se pudo abrir el archivo' })
   }
 }

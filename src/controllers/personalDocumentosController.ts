@@ -2,9 +2,10 @@ import type { Request, Response } from 'express'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
-import { get, put } from '@vercel/blob'
-import { Readable } from 'stream'
+import { put } from '@vercel/blob'
+import { sendArchivoPrivado } from '../services/archivoPrivadoService'
 import { query } from '../config/database'
+import { isPeriodoRecibo } from '../services/recibosSueldoService'
 import { isTipoDocumentoLegajo, labelForTipoDoc, listArchivosByPersonal } from '../services/personalArchivosService'
 
 const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
@@ -33,32 +34,6 @@ export const uploadDocumento = multer({
   },
   limits: { fileSize: 10 * 1024 * 1024 },
 })
-
-function contentDisposition(nombre: string | null): string {
-  const safeName = encodeURIComponent(nombre || 'documento')
-  return `inline; filename*=UTF-8''${safeName}`
-}
-
-async function sendArchivoPrivado(res: Response, url: string, nombre: string | null): Promise<void> {
-  res.setHeader('Content-Disposition', contentDisposition(nombre))
-  if (!/^https?:\/\//i.test(url)) {
-    const relativePath = url.replace(/^\/+/, '')
-    const uploadsDir = path.resolve(__dirname, '../../uploads')
-    const filePath = path.resolve(__dirname, '../..', relativePath)
-    if (!relativePath.startsWith('uploads/') || !filePath.startsWith(`${uploadsDir}${path.sep}`)) {
-      throw new Error('Ruta de archivo inválida')
-    }
-    await new Promise<void>((resolve, reject) => {
-      res.sendFile(filePath, error => (error ? reject(error) : resolve()))
-    })
-    return
-  }
-  if (!process.env.BLOB_READ_WRITE_TOKEN) throw new Error('BLOB_READ_WRITE_TOKEN no configurado')
-  const blob = await get(url, { access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN })
-  if (!blob || blob.statusCode !== 200) throw new Error('Archivo no disponible')
-  res.setHeader('Content-Type', blob.blob.contentType)
-  Readable.fromWeb(blob.stream).pipe(res)
-}
 
 // POST /api/personal/:id/archivos/abrir
 // Obtiene archivos privados de Vercel Blob con la credencial de la API, sin exponerla al navegador.
@@ -99,9 +74,11 @@ export const getRecibosSueldo = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'Este colaborador no tiene recibos de sueldo' })
     const mes = req.query.mes ? Number(req.query.mes) : null
     const anio = req.query.anio ? Number(req.query.anio) : null
+    if (mes !== null && !isPeriodoRecibo(mes))
+      return res.status(400).json({ success: false, message: 'El período del recibo no es válido' })
     const params: Array<number> = [personalId]
     let filtros = 'personal_id = ?'
-    if (mes && mes >= 1 && mes <= 12) {
+    if (mes !== null && isPeriodoRecibo(mes)) {
       filtros += ' AND mes = ?'
       params.push(mes)
     }
@@ -125,7 +102,14 @@ export const createReciboSueldo = async (req: Request, res: Response) => {
     const personalId = Number(req.params.id)
     const mes = Number(req.body.mes)
     const anio = Number(req.body.anio)
-    if (!req.file || !(await validarPersonalConRecibos(personalId)) || mes < 1 || mes > 12 || anio < 2000)
+    if (
+      !req.file ||
+      !isPeriodoRecibo(mes) ||
+      !Number.isInteger(anio) ||
+      anio < 2000 ||
+      anio > 9999 ||
+      !(await validarPersonalConRecibos(personalId))
+    )
       return res.status(400).json({ success: false, message: 'Datos de recibo inválidos' })
     let url: string
     if (isProduction) {

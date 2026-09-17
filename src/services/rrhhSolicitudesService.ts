@@ -1,3 +1,10 @@
+import {
+  ADELANTO_PAGOS_JOIN_SQL,
+  ADELANTO_PAGO_COLUMNS_SQL,
+  crearPagoAdelanto,
+  separarPagoAdelanto,
+  type AdelantoPagoColumnas,
+} from './rrhhAdelantosService'
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise'
 import { query } from '../config/database'
 import { CBU_DIGITOS } from '../config/constants'
@@ -44,7 +51,7 @@ export interface SolicitudArchivo {
   nombre_original: string | null
 }
 
-export interface SolicitudRow extends RowDataPacket {
+export interface SolicitudRow extends RowDataPacket, AdelantoPagoColumnas {
   id: number
   sucursal_id: number
   sucursal_nombre: string
@@ -136,6 +143,7 @@ interface VacacionesDetalles {
 }
 
 interface LicenciaDetalles {
+  constancia_adjunto?: unknown
   tipo_licencia: string
   fecha_desde: string
   fecha_hasta: string
@@ -959,6 +967,12 @@ export async function validateSolicitudContext(
       'La fecha desde no puede ser posterior a la fecha hasta en licencias',
     )
 
+    // Las actualizaciones antiguas que omiten el campo conservan la constancia; null la elimina.
+    const constancia =
+      licenciaDetalles.constancia_adjunto === undefined
+        ? getPrevArchivo('licencia_constancia')
+        : parseAltaAdjunto(licenciaDetalles.constancia_adjunto)
+
     return {
       detalles: {
         tipo_licencia: String(licenciaDetalles.tipo_licencia).trim(),
@@ -966,7 +980,15 @@ export async function validateSolicitudContext(
         fecha_hasta: licenciaDetalles.fecha_hasta,
         motivo: String(licenciaDetalles.motivo).trim(),
       },
-      archivos: [],
+      archivos: constancia
+        ? [
+            {
+              tipo_doc: 'licencia_constancia',
+              url: constancia.url,
+              nombre_original: constancia.nombre_original ?? null,
+            },
+          ]
+        : [],
       empleados: [],
     }
   }
@@ -1223,12 +1245,24 @@ export async function validateSolicitudContext(
 // Historial
 // ──────────────────────────────────────────────────────────────────────────────
 
+type SolicitudHistorialEvento =
+  | 'Creada'
+  | 'Editada'
+  | 'Aprobada'
+  | 'Rechazada'
+  | 'Cancelada'
+  | 'Legajo creado'
+  | 'Legajo desactivado'
+  | 'Puesto actualizado'
+  | 'Liquidacion final generada'
+  | 'Error de liquidacion final'
+
 export async function insertHistorial(
   connection: PoolConnection,
   solicitudId: number,
   personalId: number | null,
   usuarioId: number | null,
-  evento: string,
+  evento: SolicitudHistorialEvento,
   detalle: string | null,
 ): Promise<void> {
   await connection.execute(
@@ -1321,10 +1355,13 @@ function extractEmpleadosFromLegacyDetalles(row: SolicitudRow): EmpleadoNovedad[
   return []
 }
 
-export async function enrichSolicitud(
-  row: SolicitudRow,
-): Promise<
-  SolicitudRow & { historial: SolicitudHistorialItem[]; archivos: SolicitudArchivo[]; empleados: EmpleadoNovedad[] }
+export async function enrichSolicitud(row: SolicitudRow): Promise<
+  Omit<SolicitudRow, keyof AdelantoPagoColumnas> & {
+    historial: SolicitudHistorialItem[]
+    archivos: SolicitudArchivo[]
+    empleados: EmpleadoNovedad[]
+    pago_tesoreria: ReturnType<typeof separarPagoAdelanto>['pago_tesoreria']
+  }
 > {
   const [historial, archivosTabla, empleadosTabla] = await Promise.all([
     getSolicitudHistorial(row.id),
@@ -1337,6 +1374,7 @@ export async function enrichSolicitud(
   const empleados = empleadosTabla.length > 0 ? empleadosTabla : extractEmpleadosFromLegacyDetalles(row)
 
   let detalles = parseDetalles(row.detalles)
+  const { solicitud, pago_tesoreria } = separarPagoAdelanto(row)
 
   // Retrocompatibilidad: enriquecer con el nombre del puesto en solicitudes de tipo Altas
   // que fueron creadas antes de que se guardara puesto_nombre en el JSON.
@@ -1350,7 +1388,8 @@ export async function enrichSolicitud(
   }
 
   return {
-    ...row,
+    ...solicitud,
+    pago_tesoreria,
     detalles,
     historial,
     archivos,
@@ -1370,6 +1409,12 @@ export async function resolveSolicitudSideEffects(
   let personalId = solicitud.personal_id
   let personalCreadoId = solicitud.personal_creado_id
   let liquidacionFinalEstado: ResolveSideEffectsResult['liquidacionFinalEstado'] = 'No aplica'
+
+  if (solicitud.tipo === 'Adelantos') {
+    const detalles = parseDetalles(solicitud.detalles)
+    if (!detalles) throw new Error('El adelanto no tiene detalles válidos')
+    await crearPagoAdelanto(connection, solicitud, detalles)
+  }
 
   if (solicitud.tipo === 'Altas') {
     const detalles = parseDetalles(solicitud.detalles) as
@@ -1604,10 +1649,12 @@ export const SOLICITUD_SELECT = `
          p.legajo,
          p.dni,
          u.nombre AS usuario_nombre,
-         ur.nombre AS resuelto_por_nombre
+         ur.nombre AS resuelto_por_nombre,
+         ${ADELANTO_PAGO_COLUMNS_SQL}
   FROM rrhh_solicitudes s
   INNER JOIN sucursales suc ON s.sucursal_id = suc.id
   LEFT JOIN personal p ON COALESCE(s.personal_creado_id, s.personal_id) = p.id
   INNER JOIN usuarios u ON s.usuario_id = u.id
   LEFT JOIN usuarios ur ON s.resuelto_por_usuario_id = ur.id
+  ${ADELANTO_PAGOS_JOIN_SQL}
 `

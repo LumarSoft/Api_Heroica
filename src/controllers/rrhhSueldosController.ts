@@ -1,3 +1,10 @@
+import {
+  ADELANTO_PAGOS_JOIN_SQL,
+  ADELANTO_PAGO_COLUMNS_SQL,
+  ADELANTO_INCORPORADO_SQL,
+  ADELANTO_FECHA_SQL,
+  detallesAdelantoPagado,
+} from '../services/rrhhAdelantosService'
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 import { sendNotificacionEmail } from '../services/notificacionesEmailService'
@@ -326,13 +333,15 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
 
     const solicitudesRows = personalIds.length
       ? ((await query(
-          `SELECT personal_id, tipo, detalles
-           FROM rrhh_solicitudes
-           WHERE deleted_at IS NULL
-             AND estado = 'Aprobada'
-             AND personal_id IN (${personalIds.map(() => '?').join(',')})
-             AND MONTH(fecha_solicitud) = ?
-             AND YEAR(fecha_solicitud) = ?`,
+          `SELECT s.personal_id, s.tipo, s.detalles, ${ADELANTO_PAGO_COLUMNS_SQL}
+           FROM rrhh_solicitudes s
+           ${ADELANTO_PAGOS_JOIN_SQL}
+           WHERE s.deleted_at IS NULL
+             AND s.estado = 'Aprobada'
+             AND ${ADELANTO_INCORPORADO_SQL}
+             AND s.personal_id IN (${personalIds.map(() => '?').join(',')})
+             AND MONTH(${ADELANTO_FECHA_SQL}) = ?
+             AND YEAR(${ADELANTO_FECHA_SQL}) = ?`,
           [...personalIds, mes, anio],
         )) as any[])
       : []
@@ -346,7 +355,7 @@ export const getSueldosPeriodo = async (req: Request, res: Response) => {
         solicitudesMap.set(personalId, createSueldoAggregate())
       }
       const aggregate = solicitudesMap.get(personalId)!
-      const detalles = parseDetalles(solicitud.detalles)
+      const detalles = detallesAdelantoPagado(parseDetalles(solicitud.detalles), solicitud)
       const tipo = String(solicitud.tipo)
       if (tipo === 'Horas extras') {
         const horas = toNumber(detalles.cantidad_horas)

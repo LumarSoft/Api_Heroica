@@ -3,6 +3,7 @@ import { getConnection, query } from '../../config/database'
 import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
 import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
 import { getRolDeUsuario } from '../../services/authCacheService'
+import { estadoPagoAprobado } from '../../services/estadoPagoService'
 
 const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({
@@ -259,6 +260,10 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
 export const aprobarPagoPendiente = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    const estadoFinal = estadoPagoAprobado(req.body.estado)
+    if (!estadoFinal) {
+      return res.status(400).json({ success: false, message: 'Al aprobar, el estado debe ser aprobado o completado' })
+    }
     const {
       usuario_revisor_id,
       tipo_caja,
@@ -329,15 +334,17 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
 
     await query(
       `UPDATE movimientos
-       SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?, saldo = 'saldo_necesario',
+       SET estado = ?, usuario_revisor_id = ?, tipo_movimiento = ?, saldo = ?,
            fecha = COALESCE(?, fecha), concepto = COALESCE(?, concepto), comentarios = ?, monto = ?, 
            prioridad = COALESCE(?, prioridad), categoria_id = ?, subcategoria_id = ?, 
            descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?,
            numero_cheque = COALESCE(?, numero_cheque)
        WHERE id = ?`,
       [
+        estadoFinal,
         usuario_revisor_id,
         newTipoMovimiento,
+        estadoFinal === 'completado' ? 'saldo_real' : 'saldo_necesario',
         fecha ? normalizarFecha(fecha) : null,
         concepto || null,
         nuevaDescripcion,
