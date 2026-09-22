@@ -97,15 +97,13 @@ export async function computeVencimientosProximosByPersonal(
      FROM personal_documentos d
      WHERE d.personal_id IN (${placeholders}) AND d.deleted_at IS NULL AND d.fecha_vencimiento IS NOT NULL
        AND d.fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
-       AND (
-         d.tipo_doc <> 'carnet_manipulacion_alimentos'
-         OR d.id = (
-           SELECT current_carnet.id FROM personal_documentos current_carnet
-           WHERE current_carnet.personal_id = d.personal_id
-             AND current_carnet.tipo_doc = 'carnet_manipulacion_alimentos'
-             AND current_carnet.deleted_at IS NULL
-           ORDER BY current_carnet.created_at DESC, current_carnet.id DESC LIMIT 1
-         )
+       AND d.tipo_doc = 'carnet_manipulacion_alimentos'
+       AND d.id = (
+         SELECT current_carnet.id FROM personal_documentos current_carnet
+         WHERE current_carnet.personal_id = d.personal_id
+           AND current_carnet.tipo_doc = 'carnet_manipulacion_alimentos'
+           AND current_carnet.deleted_at IS NULL
+         ORDER BY current_carnet.created_at DESC, current_carnet.id DESC LIMIT 1
        )
      ORDER BY fecha_vencimiento ASC`,
     [...ids, diasAntes, ...ids, diasAntes],
@@ -317,7 +315,9 @@ export async function listArchivosByPersonal(personalId: number): Promise<Archiv
 
   // 3) Documentos subidos directamente al legajo
   const docDirectos = (await query(
-    `SELECT id, label, tipo_doc, url, nombre_original, fecha_vencimiento, subido_por_nombre, created_at
+    `SELECT id, label, tipo_doc, url, nombre_original,
+            CASE WHEN tipo_doc = 'carnet_manipulacion_alimentos' THEN fecha_vencimiento ELSE NULL END AS fecha_vencimiento,
+            subido_por_nombre, created_at
      FROM personal_documentos
      WHERE personal_id = ? AND deleted_at IS NULL
      ORDER BY created_at DESC`,

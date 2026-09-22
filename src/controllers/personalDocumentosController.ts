@@ -192,9 +192,10 @@ export const createPersonalDocumento = async (req: Request, res: Response) => {
     }
     const label = labelForTipoDoc(tipoDoc)
 
+    const esCarnetManipulacion = tipoDoc === 'carnet_manipulacion_alimentos'
     const fechaVencimientoRaw = String(req.body.fecha_vencimiento ?? '').trim()
-    const fechaVencimiento = fechaVencimientoRaw || null
-    if (tipoDoc === 'carnet_manipulacion_alimentos' && !fechaVencimiento) {
+    const fechaVencimiento = esCarnetManipulacion ? fechaVencimientoRaw || null : null
+    if (esCarnetManipulacion && !fechaVencimiento) {
       return res.status(400).json({ success: false, message: 'La fecha de vencimiento del carnet es requerida' })
     }
     if (fechaVencimiento && !/^\d{4}-\d{2}-\d{2}$/.test(fechaVencimiento)) {
