@@ -24,6 +24,7 @@ import {
   createReciboSueldo,
   openReciboSueldo,
   deleteReciboSueldo,
+  createPersonalArchivoUploadToken,
 } from '../controllers/personalDocumentosController'
 import { requireAuth, requirePermission, requireModule, requireAnyPermission } from '../middlewares/authMiddleware'
 import { getCatalogoCodigosPostales, getProvinciasPostales } from '../controllers/codigosPostalesController'
@@ -54,6 +55,7 @@ router.get('/:id/profesional', requirePermission('ver_personal'), getProfesional
 router.get('/:id/analitico', requirePermission('ver_personal'), getAnalitico)
 router.get('/:id/archivos', requirePermission('ver_personal'), getPersonalArchivos)
 router.post('/:id/archivos/abrir', requirePermission('ver_personal'), openPersonalArchivo)
+router.post('/:id/uploads/token', requirePermission('gestionar_personal'), createPersonalArchivoUploadToken)
 router.get('/:id/recibos-sueldo', requirePermission('ver_personal'), getRecibosSueldo)
 router.post(
   '/:id/recibos-sueldo',

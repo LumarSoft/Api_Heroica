@@ -7,6 +7,14 @@ import { sendArchivoPrivado } from '../services/archivoPrivadoService'
 import { query } from '../config/database'
 import { isPeriodoRecibo } from '../services/recibosSueldoService'
 import { isTipoDocumentoLegajo, labelForTipoDoc, listArchivosByPersonal } from '../services/personalArchivosService'
+import {
+  crearTokenArchivoPersonal,
+  MAX_ARCHIVO_PERSONAL_BYTES,
+  MIME_ARCHIVO_PERSONAL_PERMITIDOS,
+  nombreArchivoSeguro,
+  validarArchivoPersonalDirecto,
+  type DestinoArchivoPersonal,
+} from '../services/personalArchivoUploadService'
 
 const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
 
@@ -24,16 +32,59 @@ const storage = isProduction
       },
     })
 
-const MIME_PERMITIDOS = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
-
 export const uploadDocumento = multer({
   storage,
   fileFilter: (_req, file, cb) => {
-    if (MIME_PERMITIDOS.has(file.mimetype)) cb(null, true)
+    if (MIME_ARCHIVO_PERSONAL_PERMITIDOS.has(file.mimetype)) cb(null, true)
     else cb(new Error('Solo se permiten archivos PDF o imagen (JPG, PNG, WebP)'))
   },
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: MAX_ARCHIVO_PERSONAL_BYTES },
 })
+
+async function existePersonal(personalId: number): Promise<boolean> {
+  const rows = (await query(`SELECT id FROM personal WHERE id = ? AND deleted_at IS NULL`, [personalId])) as Array<{
+    id: number
+  }>
+  return rows.length > 0
+}
+
+// POST /api/personal/:id/uploads/token
+export const createPersonalArchivoUploadToken = async (req: Request, res: Response) => {
+  try {
+    if (!isProduction) return res.json({ success: true, data: { modo: 'servidor' } })
+
+    const personalId = Number(req.params.id)
+    const destino = req.body.destino as DestinoArchivoPersonal
+    const contentType = typeof req.body.content_type === 'string' ? req.body.content_type : ''
+    const tamano = Number(req.body.tamano_bytes)
+
+    if (!Number.isInteger(personalId) || personalId <= 0 || !['documento', 'recibo'].includes(destino)) {
+      return res.status(400).json({ success: false, message: 'Destino de archivo inválido' })
+    }
+    if (!MIME_ARCHIVO_PERSONAL_PERMITIDOS.has(contentType)) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Solo se permiten archivos PDF o imagen (JPG, PNG, WebP)' })
+    }
+    if (!Number.isFinite(tamano) || tamano <= 0) {
+      return res.status(400).json({ success: false, message: 'El archivo está vacío o es inválido' })
+    }
+    if (tamano > MAX_ARCHIVO_PERSONAL_BYTES) {
+      return res.status(400).json({ success: false, message: 'El archivo supera el máximo de 10 MB' })
+    }
+    const personalValido =
+      destino === 'recibo' ? await validarPersonalConRecibos(personalId) : await existePersonal(personalId)
+    if (!personalValido) {
+      return res.status(404).json({ success: false, message: 'Colaborador no encontrado o no habilitado' })
+    }
+
+    const data = await crearTokenArchivoPersonal(personalId, destino, contentType)
+    res.json({ success: true, data: { modo: 'directo', ...data } })
+  } catch (error) {
+    console.error('Error al preparar subida de archivo de personal:', error)
+    res.status(500).json({ success: false, message: 'No se pudo preparar la subida del archivo' })
+  }
+}
 
 // POST /api/personal/:id/archivos/abrir
 // Obtiene archivos privados de Vercel Blob con la credencial de la API, sin exponerla al navegador.
@@ -103,7 +154,6 @@ export const createReciboSueldo = async (req: Request, res: Response) => {
     const mes = Number(req.body.mes)
     const anio = Number(req.body.anio)
     if (
-      !req.file ||
       !isPeriodoRecibo(mes) ||
       !Number.isInteger(anio) ||
       anio < 2000 ||
@@ -112,21 +162,31 @@ export const createReciboSueldo = async (req: Request, res: Response) => {
     )
       return res.status(400).json({ success: false, message: 'Datos de recibo inválidos' })
     let url: string
-    if (isProduction) {
+    let nombreOriginal: string
+    if (req.file && isProduction) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) throw new Error('BLOB_READ_WRITE_TOKEN no configurado')
+      const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
       const blob = await put(
-        `recibos/${personalId}/${Date.now()}${path.extname(req.file.originalname)}`,
+        `recibos/${personalId}/recibo-${suffix}${path.extname(req.file.originalname)}`,
         req.file.buffer,
         { access: 'private', token: process.env.BLOB_READ_WRITE_TOKEN },
       )
       url = blob.url
-    } else {
+      nombreOriginal = nombreArchivoSeguro(req.file.originalname)
+    } else if (req.file) {
       url = `uploads/personal/${(req.file as Express.Multer.File & { filename: string }).filename}`
+      nombreOriginal = nombreArchivoSeguro(req.file.originalname)
+    } else {
+      const directUrl = typeof req.body.url === 'string' ? req.body.url.trim() : ''
+      if (!directUrl) return res.status(400).json({ success: false, message: 'No se proporcionó ningún archivo' })
+      const directo = await validarArchivoPersonalDirecto(directUrl, personalId, 'recibo')
+      url = directo.url
+      nombreOriginal = nombreArchivoSeguro(req.body.nombre_original)
     }
     const user = (req as Request & { user?: { id: number; nombre: string } }).user
     const result = (await query(
       `INSERT INTO personal_recibos_sueldo (personal_id, mes, anio, url, nombre_original, subido_por_id, subido_por_nombre) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [personalId, mes, anio, url, req.file.originalname, user?.id ?? null, user?.nombre ?? null],
+      [personalId, mes, anio, url, nombreOriginal, user?.id ?? null, user?.nombre ?? null],
     )) as { insertId: number }
     res.status(201).json({
       success: true,
@@ -135,7 +195,7 @@ export const createReciboSueldo = async (req: Request, res: Response) => {
         mes,
         anio,
         url,
-        nombre_original: req.file.originalname,
+        nombre_original: nombreOriginal,
         subido_por_nombre: user?.nombre ?? null,
         created_at: new Date().toISOString(),
       },
@@ -177,10 +237,6 @@ export const deleteReciboSueldo = async (req: Request, res: Response) => {
 // POST /api/personal/:id/documentos
 export const createPersonalDocumento = async (req: Request, res: Response) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No se proporcionó ningún archivo' })
-    }
-
     const personalId = Number(req.params.id)
     if (!Number.isFinite(personalId) || personalId <= 0) {
       return res.status(400).json({ success: false, message: 'ID inválido' })
@@ -202,42 +258,41 @@ export const createPersonalDocumento = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'La fecha de vencimiento no es válida' })
     }
 
-    const exists: any = await query(`SELECT id FROM personal WHERE id = ? AND deleted_at IS NULL`, [personalId])
-    if (!Array.isArray(exists) || exists.length === 0) {
+    if (!(await existePersonal(personalId))) {
       return res.status(404).json({ success: false, message: 'Colaborador no encontrado' })
     }
 
     let url: string
+    let nombreOriginal: string
 
-    if (isProduction) {
+    if (req.file && isProduction) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) throw new Error('BLOB_READ_WRITE_TOKEN no configurado')
       const suffix = Date.now() + '-' + Math.round(Math.random() * 1e9)
       const ext = path.extname(req.file.originalname)
-      const blob = await put(`personal/doc-${suffix}${ext}`, req.file.buffer, {
+      const blob = await put(`personal/${personalId}/doc-${suffix}${ext}`, req.file.buffer, {
         access: 'private',
         token: process.env.BLOB_READ_WRITE_TOKEN,
       })
       url = blob.url
-    } else {
+      nombreOriginal = nombreArchivoSeguro(req.file.originalname)
+    } else if (req.file) {
       url = `uploads/personal/${(req.file as Express.Multer.File & { filename: string }).filename}`
+      nombreOriginal = nombreArchivoSeguro(req.file.originalname)
+    } else {
+      const directUrl = typeof req.body.url === 'string' ? req.body.url.trim() : ''
+      if (!directUrl) return res.status(400).json({ success: false, message: 'No se proporcionó ningún archivo' })
+      const directo = await validarArchivoPersonalDirecto(directUrl, personalId, 'documento')
+      url = directo.url
+      nombreOriginal = nombreArchivoSeguro(req.body.nombre_original)
     }
 
-    const user = (req as any).user
-    const result: any = await query(
+    const user = (req as Request & { user?: { id: number; nombre: string } }).user
+    const result = (await query(
       `INSERT INTO personal_documentos
        (personal_id, label, tipo_doc, url, nombre_original, fecha_vencimiento, subido_por_id, subido_por_nombre)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        personalId,
-        label,
-        tipoDoc,
-        url,
-        req.file.originalname,
-        fechaVencimiento,
-        user?.id ?? null,
-        user?.nombre ?? null,
-      ],
-    )
+      [personalId, label, tipoDoc, url, nombreOriginal, fechaVencimiento, user?.id ?? null, user?.nombre ?? null],
+    )) as { insertId: number }
 
     res.status(201).json({
       success: true,
@@ -247,16 +302,16 @@ export const createPersonalDocumento = async (req: Request, res: Response) => {
         label,
         tipo_doc: tipoDoc,
         url,
-        nombre_original: req.file.originalname,
+        nombre_original: nombreOriginal,
         fecha_vencimiento: fechaVencimiento,
         subido_por_nombre: user?.nombre ?? null,
       },
     })
   } catch (error) {
     console.error('Error al subir documento de personal:', error)
-    if (!isProduction && req.file && (req.file as any).path) {
+    if (!isProduction && req.file?.path) {
       try {
-        fs.unlinkSync((req.file as any).path)
+        fs.unlinkSync(req.file.path)
       } catch {
         /* ignore */
       }
