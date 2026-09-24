@@ -87,6 +87,8 @@ interface AltaAdjuntoSlot {
   nombre_original?: string | null
 }
 
+type AltaAdjuntoMultiple = AltaAdjuntoSlot | AltaAdjuntoSlot[]
+
 interface AltaDetalles {
   nombre: string
   dni: string
@@ -120,10 +122,12 @@ interface AltaDetalles {
   carnet_adjunto: AltaAdjuntoSlot | null
   carnet_fecha_vencimiento: string | null
   adjuntos: {
-    dni_frente_dorso: AltaAdjuntoSlot
-    ddjj_domicilio: AltaAdjuntoSlot
-    descripcion_puesto_firmada: AltaAdjuntoSlot
+    dni_frente_dorso: AltaAdjuntoMultiple
+    ddjj_domicilio: AltaAdjuntoMultiple
+    descripcion_puesto_firmada: AltaAdjuntoMultiple
     foto_colaborador: AltaAdjuntoSlot
+    normas_convivencia: AltaAdjuntoMultiple
+    constancia_uniforme: AltaAdjuntoMultiple
   }
 }
 
@@ -289,6 +293,14 @@ function parseAltaAdjunto(value: unknown): AltaAdjuntoSlot | null {
   const nombreRaw = o.nombre_original
   const nombre_original = typeof nombreRaw === 'string' && nombreRaw.trim() ? nombreRaw.trim() : null
   return { url, nombre_original }
+}
+
+/** Acepta el formato múltiple actual y el objeto único usado por clientes anteriores. */
+function parseAltaAdjuntos(value: unknown): AltaAdjuntoSlot[] | null {
+  if (value === undefined) return null
+  if (Array.isArray(value)) return value.map(parseAltaAdjunto).filter((slot): slot is AltaAdjuntoSlot => slot !== null)
+  const slot = parseAltaAdjunto(value)
+  return slot ? [slot] : []
 }
 
 function isValidEmail(value: string | null): boolean {
@@ -668,6 +680,12 @@ export async function validateSolicitudContext(
     return { url: a.url, nombre_original: a.nombre_original ?? null }
   }
 
+  function getPrevArchivos(tipoDoc: string): AltaAdjuntoSlot[] {
+    return prevArchivos
+      .filter(archivo => archivo.tipo_doc === tipoDoc && Boolean(archivo.url))
+      .map(archivo => ({ url: archivo.url, nombre_original: archivo.nombre_original ?? null }))
+  }
+
   if (context.personalId) {
     await validarPersonalAsignado(connection, context.sucursalId, context.personalId, context.tipo)
   }
@@ -801,16 +819,27 @@ export async function validateSolicitudContext(
       'dni_frente_dorso',
       'ddjj_domicilio',
       'descripcion_puesto_firmada',
-      'foto_colaborador',
       'normas_convivencia',
       'constancia_uniforme',
     ] as const) {
-      const incomingSlot = parseAltaAdjunto((adjuntosFuente as Record<string, unknown> | undefined)?.[key])
-      const slot = incomingSlot ?? getPrevArchivo(key)
+      const incomingSlots = parseAltaAdjuntos(adjuntosFuente?.[key])
+      const slots = incomingSlots ?? getPrevArchivos(key)
+      if (slots.length > 5) throw new Error('Podés adjuntar hasta 5 archivos por ítem de documentación')
       // Documentación opcional: la ficha puede guardarse sin adjuntos y completarse luego editando.
-      if (slot) {
+      for (const slot of slots) {
         archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
       }
+    }
+
+    const fotoFueInformada = Object.prototype.hasOwnProperty.call(adjuntosFuente ?? {}, 'foto_colaborador')
+    const incomingFoto = parseAltaAdjunto(adjuntosFuente?.foto_colaborador)
+    const foto = fotoFueInformada ? incomingFoto : getPrevArchivo('foto_colaborador')
+    if (foto) {
+      archivos.push({
+        tipo_doc: 'foto_colaborador',
+        url: foto.url,
+        nombre_original: foto.nombre_original ?? null,
+      })
     }
 
     const periodoPrueba = Boolean(a.periodo_prueba)
@@ -1290,7 +1319,7 @@ export async function getSolicitudHistorial(solicitudId: number): Promise<Solici
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Extrae archivos del campo JSON detalles para registros anteriores a RH-60. */
-function extractArchivosFromLegacyDetalles(row: SolicitudRow): SolicitudArchivo[] {
+function extractArchivosFromLegacyDetalles(row: Pick<SolicitudRow, 'tipo' | 'detalles'>): SolicitudArchivo[] {
   const detalles = parseDetalles(row.detalles)
   if (!detalles) return []
   const archivos: SolicitudArchivo[] = []
@@ -1324,6 +1353,17 @@ function extractArchivosFromLegacyDetalles(row: SolicitudRow): SolicitudArchivo[
   }
 
   return archivos
+}
+
+/** Incluye el fallback JSON necesario para abrir solicitudes creadas antes de RH-60. */
+export async function getSolicitudArchivosConLegacy(solicitudId: number): Promise<SolicitudArchivo[]> {
+  const archivosTabla = await getSolicitudArchivos(solicitudId)
+  if (archivosTabla.length > 0) return archivosTabla
+
+  const rows = (await query(`SELECT tipo, detalles FROM rrhh_solicitudes WHERE id = ? AND deleted_at IS NULL LIMIT 1`, [
+    solicitudId,
+  ])) as Array<Pick<SolicitudRow, 'tipo' | 'detalles'>>
+  return rows[0] ? extractArchivosFromLegacyDetalles(rows[0]) : []
 }
 
 /** Extrae empleados del campo JSON detalles para registros anteriores a RH-61. */

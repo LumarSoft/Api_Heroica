@@ -5,7 +5,7 @@ import fs from 'fs'
 import { put } from '@vercel/blob'
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client'
 import { query } from '../config/database'
-import { getSolicitudArchivos, verificarAccesoSucursal } from '../services/rrhhSolicitudesService'
+import { getSolicitudArchivosConLegacy, verificarAccesoSucursal } from '../services/rrhhSolicitudesService'
 import { sendArchivoPrivado } from '../services/archivoPrivadoService'
 
 const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
@@ -138,7 +138,7 @@ export const openSolicitudArchivo = async (req: Request, res: Response) => {
     if (!(await verificarAccesoSucursal(req.user, rows[0].sucursal_id)))
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta solicitud' })
 
-    const archivos = await getSolicitudArchivos(solicitudId)
+    const archivos = await getSolicitudArchivosConLegacy(solicitudId)
     const archivo = archivos.find(item => item.url === url)
     if (!archivo) return res.status(404).json({ success: false, message: 'Archivo no encontrado en la solicitud' })
     await sendArchivoPrivado(res, archivo.url, archivo.nombre_original)
