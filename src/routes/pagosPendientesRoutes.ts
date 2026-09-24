@@ -10,6 +10,7 @@ import {
   getHistorialByUser,
   aprobarPagosPendientesBulk,
   rechazarPagosPendientesBulk,
+  getMisSolicitudesPago,
 } from '../controllers/movimientosController'
 import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
@@ -21,6 +22,9 @@ router.use(requireModule('tesoreria'))
 
 // Historial de un usuario
 router.get('/historial/:userId', requirePermission('ver_pendientes'), getHistorialByUser)
+
+// Seguimiento personal del usuario autenticado. Debe declararse antes de /:sucursalId.
+router.get('/mis-solicitudes', requirePermission('ver_pendientes'), getMisSolicitudesPago)
 
 // Todos los pagos pendientes (vista global)
 router.get('/all', requirePermission('ver_pendientes'), getAllPagosPendientes)

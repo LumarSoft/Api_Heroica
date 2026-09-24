@@ -6,6 +6,7 @@ import { normalizarFecha, formatearFechaRespuesta } from '../utils/movimientosHe
 export * from './movimientos/efectivoController'
 export * from './movimientos/bancoController'
 export * from './movimientos/pagosPendientesController'
+export * from './movimientos/pagosSeguimientoController'
 
 // GET /api/movimientos/deudas?sucursalId=&fechaInicio=&fechaFin=
 export const getDeudasInterSucursal = async (req: Request, res: Response) => {

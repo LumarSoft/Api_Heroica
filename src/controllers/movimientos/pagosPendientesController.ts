@@ -334,7 +334,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
 
     await query(
       `UPDATE movimientos
-       SET estado = ?, usuario_revisor_id = ?, tipo_movimiento = ?, saldo = ?,
+       SET estado = ?, usuario_revisor_id = ?, fecha_revision = NOW(), tipo_movimiento = ?, saldo = ?,
            fecha = COALESCE(?, fecha), concepto = COALESCE(?, concepto), comentarios = ?, monto = ?, 
            prioridad = COALESCE(?, prioridad), categoria_id = ?, subcategoria_id = ?, 
            descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?,
@@ -412,7 +412,9 @@ export const rechazarPagoPendiente = async (req: Request, res: Response) => {
     }
 
     await query(
-      `UPDATE movimientos SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ? WHERE id = ?`,
+      `UPDATE movimientos
+       SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?, fecha_revision = NOW()
+       WHERE id = ?`,
       [usuario_revisor_id, motivo_rechazo, id],
     )
 
@@ -492,7 +494,7 @@ export const aprobarPagosPendientesBulk = async (req: Request, res: Response) =>
     }
 
     await connection.execute(
-      `UPDATE movimientos SET estado = 'aprobado', usuario_revisor_id = ?, tipo_movimiento = ?,
+      `UPDATE movimientos SET estado = 'aprobado', usuario_revisor_id = ?, fecha_revision = NOW(), tipo_movimiento = ?,
        saldo = 'saldo_necesario', banco_id = ?, medio_pago_id = ?, numero_cheque = ?
        WHERE id IN (${placeholders})`,
       [
@@ -539,7 +541,7 @@ export const rechazarPagosPendientesBulk = async (req: Request, res: Response) =
       return res.status(409).json({ success: false, message: 'Uno o más pagos ya no estaban pendientes' })
     }
     await connection.execute(
-      `UPDATE movimientos SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?
+      `UPDATE movimientos SET estado = 'rechazado', usuario_revisor_id = ?, motivo_rechazo = ?, fecha_revision = NOW()
        WHERE id IN (${placeholders}) AND estado = 'pendiente' AND deleted_at IS NULL`,
       [usuario_revisor_id, String(motivo_rechazo).trim(), ...idsValidos],
     )
