@@ -25,6 +25,7 @@ import {
   upload,
 } from '../controllers/documentosMovimientoController'
 import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
+import { emailResumenTesoreria, getResumenTesoreria } from '../controllers/resumenTesoreriaController'
 
 const router = Router()
 
@@ -36,6 +37,8 @@ router.use(requireModule('tesoreria'))
 
 // Deudas inter-sucursal
 router.get('/deudas', requirePermission('ver_movimientos'), getDeudasInterSucursal)
+router.get('/resumen-diario', requirePermission('ver_movimientos'), getResumenTesoreria)
+router.post('/resumen-diario/email', requirePermission('ver_movimientos'), emailResumenTesoreria)
 
 // Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
 router.delete('/bulk', deleteBulkMovimientos)

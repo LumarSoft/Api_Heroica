@@ -1,3 +1,10 @@
+import {
+  ADELANTO_PAGOS_JOIN_SQL,
+  ADELANTO_PAGO_COLUMNS_SQL,
+  ADELANTO_INCORPORADO_SQL,
+  ADELANTO_FECHA_SQL,
+  detallesAdelantoPagado,
+} from '../services/rrhhAdelantosService'
 import { Request, Response } from 'express'
 import { query } from '../config/database'
 
@@ -51,12 +58,15 @@ export const getProfesional = async (req: Request, res: Response) => {
 
     // Solicitudes aprobadas relevantes
     const solicitudesResult: any = await query(
-      `SELECT s.id, s.tipo, s.detalles, s.estado, s.fecha_solicitud, s.created_at,
-              u.nombre AS creador_nombre
+      `SELECT s.id, s.tipo, s.detalles, s.estado,
+              DATE_FORMAT(${ADELANTO_FECHA_SQL}, '%Y-%m-%d') AS fecha_solicitud, s.created_at,
+              u.nombre AS creador_nombre, ${ADELANTO_PAGO_COLUMNS_SQL}
        FROM rrhh_solicitudes s
        LEFT JOIN usuarios u ON u.id = s.usuario_id
+       ${ADELANTO_PAGOS_JOIN_SQL}
        WHERE COALESCE(s.personal_creado_id, s.personal_id) = ?
          AND s.estado = 'Aprobada'
+         AND ${ADELANTO_INCORPORADO_SQL}
          AND s.tipo IN ('Apercibimientos','Adelantos','Incentivos y premios','Novedades de sueldo','Suspensiones','Descuentos','Horas extras')
          AND s.deleted_at IS NULL
        ORDER BY s.fecha_solicitud DESC`,
@@ -66,7 +76,10 @@ export const getProfesional = async (req: Request, res: Response) => {
     const solicitudes = Array.isArray(solicitudesResult)
       ? solicitudesResult.map((s: any) => ({
           ...s,
-          detalles: typeof s.detalles === 'string' ? JSON.parse(s.detalles) : (s.detalles ?? {}),
+          detalles: detallesAdelantoPagado(
+            typeof s.detalles === 'string' ? JSON.parse(s.detalles) : (s.detalles ?? {}),
+            s,
+          ),
         }))
       : []
 

@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import type { RowDataPacket } from 'mysql2/promise'
+import { ADELANTO_INCORPORADO_SQL, registrarCircuitoAdelanto } from '../services/rrhhAdelantosService'
 import { getConnection, query } from '../config/database'
 import {
   ESTADOS_VALIDOS,
@@ -73,6 +74,7 @@ export const getSolicitudes = async (req: Request, res: Response) => {
     if (normalizedPersonalId) {
       conditions.push('COALESCE(s.personal_creado_id, s.personal_id) = ?')
       params.push(normalizedPersonalId)
+      if (req.query.legajo === '1') conditions.push(ADELANTO_INCORPORADO_SQL)
     }
 
     if (typeof tipo === 'string' && TIPOS_VALIDOS.includes(tipo as SolicitudTipo)) {
@@ -193,6 +195,7 @@ export const createSolicitud = async (req: Request, res: Response) => {
     )
 
     const solicitudId = Number((insertResult as { insertId: number }).insertId)
+    if (tipo === 'Adelantos') await registrarCircuitoAdelanto(connection, solicitudId)
     await insertSolicitudArchivos(connection, solicitudId, archivos)
     await insertSolicitudEmpleados(connection, solicitudId, empleados)
     await insertHistorial(connection, solicitudId, normalizedPersonalId, user.id, 'Creada', 'Solicitud creada.')
@@ -300,6 +303,7 @@ export const updateSolicitud = async (req: Request, res: Response) => {
       ],
     )
 
+    if (tipo === 'Adelantos') await registrarCircuitoAdelanto(connection, solicitudId)
     await replaceSolicitudArchivos(connection, solicitudId, archivos)
     await replaceSolicitudEmpleados(connection, solicitudId, empleados)
     await insertHistorial(
@@ -413,7 +417,11 @@ export const updateEstadoSolicitud = async (req: Request, res: Response) => {
       resolvedPersonalId,
       user.id,
       nuevoEstado === 'Aprobada' ? 'Aprobada' : 'Rechazada',
-      nuevoEstado === 'Aprobada' ? 'Solicitud aprobada.' : motivoResolucion,
+      nuevoEstado === 'Aprobada'
+        ? solicitud.tipo === 'Adelantos'
+          ? 'Adelanto aprobado y enviado a Tesorería. Se incorpora al legajo cuando el pago se complete.'
+          : 'Solicitud aprobada.'
+        : motivoResolucion,
     )
 
     await connection.commit()

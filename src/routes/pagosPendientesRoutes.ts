@@ -8,6 +8,9 @@ import {
   rechazarPagoPendiente,
   deletePagoPendiente,
   getHistorialByUser,
+  aprobarPagosPendientesBulk,
+  rechazarPagosPendientesBulk,
+  getMisSolicitudesPago,
 } from '../controllers/movimientosController'
 import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
 
@@ -20,6 +23,9 @@ router.use(requireModule('tesoreria'))
 // Historial de un usuario
 router.get('/historial/:userId', requirePermission('ver_pendientes'), getHistorialByUser)
 
+// Seguimiento personal del usuario autenticado. Debe declararse antes de /:sucursalId.
+router.get('/mis-solicitudes', requirePermission('ver_pendientes'), getMisSolicitudesPago)
+
 // Todos los pagos pendientes (vista global)
 router.get('/all', requirePermission('ver_pendientes'), getAllPagosPendientes)
 
@@ -30,6 +36,9 @@ router.get('/:sucursalId', requirePermission('ver_pendientes'), getPagosPendient
 
 // Crear nuevo pago pendiente
 router.post('/', requirePermission('cargar_pendientes'), createPagoPendiente)
+
+router.put('/bulk/aprobar', requirePermission('aprobar_pendientes'), aprobarPagosPendientesBulk)
+router.put('/bulk/rechazar', requirePermission('aprobar_pendientes'), rechazarPagosPendientesBulk)
 
 // Aprobar pago pendiente
 router.put('/:id/aprobar', requirePermission('aprobar_pendientes'), aprobarPagoPendiente)

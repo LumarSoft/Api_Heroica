@@ -61,10 +61,12 @@ function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string |
   // El filtro de deudas solo aplica a saldo necesario. En saldo real una deuda es
   // plata que ya salió de la cuenta, así que siempre tiene que estar contemplada
   // (mismo criterio que la vista: el control ni siquiera se muestra en esa pestaña).
+  // Nos guiamos por `estado` (no por la columna `saldo`) para usar la misma fuente
+  // de verdad que la pantalla: completado = saldo real.
   if (f.filtroDeuda === 'solo_deudas') {
-    clauses.push("(m.saldo = 'saldo_real' OR m.es_deuda = 1)")
+    clauses.push("(m.estado = 'completado' OR m.es_deuda = 1)")
   } else if (f.filtroDeuda === 'sin_deudas') {
-    clauses.push("(m.saldo = 'saldo_real' OR m.es_deuda = 0 OR m.es_deuda IS NULL)")
+    clauses.push("(m.estado = 'completado' OR m.es_deuda = 0 OR m.es_deuda IS NULL)")
   }
   // Los filtros propios de banco no deben descartar los movimientos de efectivo
   // cuando se exportan ambas cajas juntas.
@@ -89,9 +91,12 @@ function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string |
     clauses.push('m.tipo = ?')
     params.push(f.tipoMovimiento)
   }
+  // La pantalla clasifica Saldo Real / Necesario por `estado` (completado / aprobado),
+  // no por la columna `saldo`. Esta última se desincroniza al pagar una deuda, así que
+  // filtramos por `estado` para que el Excel coincida con lo que se ve en la caja.
   if (f.tipoSaldo && f.tipoSaldo !== 'todos') {
-    clauses.push('m.saldo = ?')
-    params.push(f.tipoSaldo)
+    clauses.push('m.estado = ?')
+    params.push(f.tipoSaldo === 'saldo_real' ? 'completado' : 'aprobado')
   }
 
   return { clauses, params }
@@ -158,7 +163,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
 
   const rows = (await query(
     `SELECT m.fecha, m.tipo, m.concepto, m.monto,
-            m.saldo AS tipo_movimiento,
+            m.estado,
             m.tipo_movimiento AS caja,
             c.nombre AS categoria,
             s.nombre AS subcategoria,
@@ -211,7 +216,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
       categoria: m.categoria || '',
       subcategoria: m.subcategoria || '',
       monto: Number(m.monto),
-      tipo_movimiento: m.tipo_movimiento === 'saldo_real' ? 'Saldo Real' : 'Saldo Necesario',
+      tipo_movimiento: m.estado === 'completado' ? 'Saldo Real' : 'Saldo Necesario',
       banco: esEfectivo ? '' : m.banco || '',
       medio_pago: esEfectivo ? '' : m.medio_pago || '',
     })

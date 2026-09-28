@@ -6,6 +6,7 @@ import {
   updatePersonal,
   deletePersonal,
   getPersonalArchivos,
+  getAlertasDocumentacion,
 } from '../controllers/personalController'
 import {
   getProfesional,
@@ -18,8 +19,15 @@ import {
   uploadDocumento,
   createPersonalDocumento,
   deletePersonalDocumento,
+  openPersonalArchivo,
+  getRecibosSueldo,
+  createReciboSueldo,
+  openReciboSueldo,
+  deleteReciboSueldo,
+  createPersonalArchivoUploadToken,
 } from '../controllers/personalDocumentosController'
-import { requireAuth, requirePermission, requireModule } from '../middlewares/authMiddleware'
+import { requireAuth, requirePermission, requireModule, requireAnyPermission } from '../middlewares/authMiddleware'
+import { getCatalogoCodigosPostales, getProvinciasPostales } from '../controllers/codigosPostalesController'
 
 const router = Router()
 
@@ -27,14 +35,36 @@ router.use(requireAuth)
 router.use(requireModule('recursos_humanos'))
 
 router.get('/', requirePermission('ver_personal'), getPersonal)
+router.get('/alertas-documentacion', requirePermission('ver_personal'), getAlertasDocumentacion)
+router.get(
+  '/catalogos/provincias',
+  requireAnyPermission(['ver_personal', 'crear_solicitudes', 'editar_solicitudes']),
+  getProvinciasPostales,
+)
+router.get(
+  '/catalogos/codigos-postales',
+  requireAnyPermission(['ver_personal', 'crear_solicitudes', 'editar_solicitudes']),
+  getCatalogoCodigosPostales,
+)
 router.get('/:id', requirePermission('ver_personal'), getPersonalById)
 router.post('/', requirePermission('crear_personal'), createPersonal)
-router.put('/:id', requirePermission('gestionar_personal'), updatePersonal)
+router.put('/:id', requirePermission('gestionar_personal'), uploadDocumento.single('carnet_archivo'), updatePersonal)
 router.delete('/:id', requirePermission('eliminar_personal'), deletePersonal)
 
 router.get('/:id/profesional', requirePermission('ver_personal'), getProfesional)
 router.get('/:id/analitico', requirePermission('ver_personal'), getAnalitico)
 router.get('/:id/archivos', requirePermission('ver_personal'), getPersonalArchivos)
+router.post('/:id/archivos/abrir', requirePermission('ver_personal'), openPersonalArchivo)
+router.post('/:id/uploads/token', requirePermission('gestionar_personal'), createPersonalArchivoUploadToken)
+router.get('/:id/recibos-sueldo', requirePermission('ver_personal'), getRecibosSueldo)
+router.post(
+  '/:id/recibos-sueldo',
+  requirePermission('gestionar_personal'),
+  uploadDocumento.single('file'),
+  createReciboSueldo,
+)
+router.post('/:id/recibos-sueldo/:reciboId/abrir', requirePermission('ver_personal'), openReciboSueldo)
+router.delete('/:id/recibos-sueldo/:reciboId', requirePermission('gestionar_personal'), deleteReciboSueldo)
 router.get('/:id/notas', requirePermission('ver_personal'), getNotas)
 router.post('/:id/notas', requirePermission('gestionar_personal'), createNota)
 router.delete('/:id/notas/:notaId', requirePermission('gestionar_personal'), deleteNota)

@@ -1,8 +1,16 @@
+import {
+  ADELANTO_PAGOS_JOIN_SQL,
+  ADELANTO_PAGO_COLUMNS_SQL,
+  crearPagoAdelanto,
+  separarPagoAdelanto,
+  type AdelantoPagoColumnas,
+} from './rrhhAdelantosService'
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise'
 import { query } from '../config/database'
 import { CBU_DIGITOS } from '../config/constants'
 import { getMotivoBajaActivoEnSucursal } from './rrhhMotivosBajaService'
 import { esSuperadmin, getPermisosDeRol, getSucursalesDeUsuario } from './authCacheService'
+import { normalizeUbicacionPostal } from './codigosPostalesService'
 
 export const TIPOS_VALIDOS = [
   'Altas',
@@ -43,7 +51,7 @@ export interface SolicitudArchivo {
   nombre_original: string | null
 }
 
-export interface SolicitudRow extends RowDataPacket {
+export interface SolicitudRow extends RowDataPacket, AdelantoPagoColumnas {
   id: number
   sucursal_id: number
   sucursal_nombre: string
@@ -79,12 +87,20 @@ interface AltaAdjuntoSlot {
   nombre_original?: string | null
 }
 
+type AltaAdjuntoMultiple = AltaAdjuntoSlot | AltaAdjuntoSlot[]
+
 interface AltaDetalles {
   nombre: string
   dni: string
   cuil: string
   domicilio: string
   domicilio_dni: string
+  domicilio_real_provincia_codigo?: string | null
+  domicilio_real_localidad?: string | null
+  domicilio_real_codigo_postal?: string | null
+  domicilio_dni_provincia_codigo?: string | null
+  domicilio_dni_localidad?: string | null
+  domicilio_dni_codigo_postal?: string | null
   fecha_nacimiento: string
   telefono: string
   email: string | null
@@ -106,10 +122,12 @@ interface AltaDetalles {
   carnet_adjunto: AltaAdjuntoSlot | null
   carnet_fecha_vencimiento: string | null
   adjuntos: {
-    dni_frente_dorso: AltaAdjuntoSlot
-    ddjj_domicilio: AltaAdjuntoSlot
-    descripcion_puesto_firmada: AltaAdjuntoSlot
+    dni_frente_dorso: AltaAdjuntoMultiple
+    ddjj_domicilio: AltaAdjuntoMultiple
+    descripcion_puesto_firmada: AltaAdjuntoMultiple
     foto_colaborador: AltaAdjuntoSlot
+    normas_convivencia: AltaAdjuntoMultiple
+    constancia_uniforme: AltaAdjuntoMultiple
   }
 }
 
@@ -129,6 +147,7 @@ interface VacacionesDetalles {
 }
 
 interface LicenciaDetalles {
+  constancia_adjunto?: unknown
   tipo_licencia: string
   fecha_desde: string
   fecha_hasta: string
@@ -274,6 +293,14 @@ function parseAltaAdjunto(value: unknown): AltaAdjuntoSlot | null {
   const nombreRaw = o.nombre_original
   const nombre_original = typeof nombreRaw === 'string' && nombreRaw.trim() ? nombreRaw.trim() : null
   return { url, nombre_original }
+}
+
+/** Acepta el formato múltiple actual y el objeto único usado por clientes anteriores. */
+function parseAltaAdjuntos(value: unknown): AltaAdjuntoSlot[] | null {
+  if (value === undefined) return null
+  if (Array.isArray(value)) return value.map(parseAltaAdjunto).filter((slot): slot is AltaAdjuntoSlot => slot !== null)
+  const slot = parseAltaAdjunto(value)
+  return slot ? [slot] : []
 }
 
 function isValidEmail(value: string | null): boolean {
@@ -653,6 +680,12 @@ export async function validateSolicitudContext(
     return { url: a.url, nombre_original: a.nombre_original ?? null }
   }
 
+  function getPrevArchivos(tipoDoc: string): AltaAdjuntoSlot[] {
+    return prevArchivos
+      .filter(archivo => archivo.tipo_doc === tipoDoc && Boolean(archivo.url))
+      .map(archivo => ({ url: archivo.url, nombre_original: archivo.nombre_original ?? null }))
+  }
+
   if (context.personalId) {
     await validarPersonalAsignado(connection, context.sucursalId, context.personalId, context.tipo)
   }
@@ -664,6 +697,22 @@ export async function validateSolicitudContext(
     const dni = cleanTrim(a.dni)
     const cuilParsed = onlyDigits(cleanTrim(a.cuil != null ? String(a.cuil) : ''))
     const domicilio = cleanTrim(a.domicilio)
+    const domicilioRealPostal = normalizeUbicacionPostal({
+      provincia_codigo: a.domicilio_real_provincia_codigo,
+      localidad: a.domicilio_real_localidad,
+      codigo_postal: a.domicilio_real_codigo_postal,
+    })
+    if (!domicilioRealPostal.provinciaCodigo || !domicilioRealPostal.localidad || !domicilioRealPostal.codigoPostal) {
+      throw new Error('Seleccione provincia, localidad y código postal de la dirección real')
+    }
+    const domicilioDniPostal = normalizeUbicacionPostal({
+      provincia_codigo: a.domicilio_dni_provincia_codigo,
+      localidad: a.domicilio_dni_localidad,
+      codigo_postal: a.domicilio_dni_codigo_postal,
+    })
+    if (!domicilioDniPostal.provinciaCodigo || !domicilioDniPostal.localidad || !domicilioDniPostal.codigoPostal) {
+      throw new Error('Seleccione provincia, localidad y código postal del domicilio según DNI')
+    }
     const fechaNacimiento = cleanTrim(a.fecha_nacimiento)
     const telefono = cleanTrim(a.telefono)
     const fechaInicioCobro = cleanTrim(a.fecha_inicio_cobro_oficina)
@@ -671,15 +720,6 @@ export async function validateSolicitudContext(
 
     const JORNADA_DIAS = Number(a.jornada_semanal_dias)
     const PROPUESTA = Number(a.propuesta_economica)
-
-    const ADJUNTOS_LABELS = {
-      dni_frente_dorso: 'DNI (ambos lados)',
-      ddjj_domicilio: 'Declaración jurada de domicilio',
-      descripcion_puesto_firmada: 'Descripción de puesto firmada',
-      foto_colaborador: 'Foto del colaborador',
-      normas_convivencia: 'Normas de convivencia firmadas',
-      constancia_uniforme: 'Constancia de entrega de uniforme',
-    } as const
 
     if (!nombre) throw new Error('Ingrese nombres y apellidos del colaborador')
     if (!dni) throw new Error('Ingrese el DNI del colaborador')
@@ -779,16 +819,27 @@ export async function validateSolicitudContext(
       'dni_frente_dorso',
       'ddjj_domicilio',
       'descripcion_puesto_firmada',
-      'foto_colaborador',
       'normas_convivencia',
       'constancia_uniforme',
     ] as const) {
-      const incomingSlot = parseAltaAdjunto((adjuntosFuente as Record<string, unknown> | undefined)?.[key])
-      const slot = incomingSlot ?? getPrevArchivo(key)
-      if (!slot) {
-        throw new Error(`Falta subir escaneado: ${ADJUNTOS_LABELS[key]}`)
+      const incomingSlots = parseAltaAdjuntos(adjuntosFuente?.[key])
+      const slots = incomingSlots ?? getPrevArchivos(key)
+      if (slots.length > 5) throw new Error('Podés adjuntar hasta 5 archivos por ítem de documentación')
+      // Documentación opcional: la ficha puede guardarse sin adjuntos y completarse luego editando.
+      for (const slot of slots) {
+        archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
       }
-      archivos.push({ tipo_doc: key, url: slot.url, nombre_original: slot.nombre_original ?? null })
+    }
+
+    const fotoFueInformada = Object.prototype.hasOwnProperty.call(adjuntosFuente ?? {}, 'foto_colaborador')
+    const incomingFoto = parseAltaAdjunto(adjuntosFuente?.foto_colaborador)
+    const foto = fotoFueInformada ? incomingFoto : getPrevArchivo('foto_colaborador')
+    if (foto) {
+      archivos.push({
+        tipo_doc: 'foto_colaborador',
+        url: foto.url,
+        nombre_original: foto.nombre_original ?? null,
+      })
     }
 
     const periodoPrueba = Boolean(a.periodo_prueba)
@@ -809,6 +860,12 @@ export async function validateSolicitudContext(
         cuil: cuilParsed,
         domicilio,
         domicilio_dni: domicilioDni,
+        domicilio_real_provincia_codigo: domicilioRealPostal.provinciaCodigo,
+        domicilio_real_localidad: domicilioRealPostal.localidad,
+        domicilio_real_codigo_postal: domicilioRealPostal.codigoPostal,
+        domicilio_dni_provincia_codigo: domicilioDniPostal.provinciaCodigo,
+        domicilio_dni_localidad: domicilioDniPostal.localidad,
+        domicilio_dni_codigo_postal: domicilioDniPostal.codigoPostal,
         fecha_nacimiento: fechaNacimiento,
         telefono,
         email,
@@ -939,6 +996,12 @@ export async function validateSolicitudContext(
       'La fecha desde no puede ser posterior a la fecha hasta en licencias',
     )
 
+    // Las actualizaciones antiguas que omiten el campo conservan la constancia; null la elimina.
+    const constancia =
+      licenciaDetalles.constancia_adjunto === undefined
+        ? getPrevArchivo('licencia_constancia')
+        : parseAltaAdjunto(licenciaDetalles.constancia_adjunto)
+
     return {
       detalles: {
         tipo_licencia: String(licenciaDetalles.tipo_licencia).trim(),
@@ -946,7 +1009,15 @@ export async function validateSolicitudContext(
         fecha_hasta: licenciaDetalles.fecha_hasta,
         motivo: String(licenciaDetalles.motivo).trim(),
       },
-      archivos: [],
+      archivos: constancia
+        ? [
+            {
+              tipo_doc: 'licencia_constancia',
+              url: constancia.url,
+              nombre_original: constancia.nombre_original ?? null,
+            },
+          ]
+        : [],
       empleados: [],
     }
   }
@@ -1203,12 +1274,24 @@ export async function validateSolicitudContext(
 // Historial
 // ──────────────────────────────────────────────────────────────────────────────
 
+type SolicitudHistorialEvento =
+  | 'Creada'
+  | 'Editada'
+  | 'Aprobada'
+  | 'Rechazada'
+  | 'Cancelada'
+  | 'Legajo creado'
+  | 'Legajo desactivado'
+  | 'Puesto actualizado'
+  | 'Liquidacion final generada'
+  | 'Error de liquidacion final'
+
 export async function insertHistorial(
   connection: PoolConnection,
   solicitudId: number,
   personalId: number | null,
   usuarioId: number | null,
-  evento: string,
+  evento: SolicitudHistorialEvento,
   detalle: string | null,
 ): Promise<void> {
   await connection.execute(
@@ -1236,7 +1319,7 @@ export async function getSolicitudHistorial(solicitudId: number): Promise<Solici
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Extrae archivos del campo JSON detalles para registros anteriores a RH-60. */
-function extractArchivosFromLegacyDetalles(row: SolicitudRow): SolicitudArchivo[] {
+function extractArchivosFromLegacyDetalles(row: Pick<SolicitudRow, 'tipo' | 'detalles'>): SolicitudArchivo[] {
   const detalles = parseDetalles(row.detalles)
   if (!detalles) return []
   const archivos: SolicitudArchivo[] = []
@@ -1272,6 +1355,17 @@ function extractArchivosFromLegacyDetalles(row: SolicitudRow): SolicitudArchivo[
   return archivos
 }
 
+/** Incluye el fallback JSON necesario para abrir solicitudes creadas antes de RH-60. */
+export async function getSolicitudArchivosConLegacy(solicitudId: number): Promise<SolicitudArchivo[]> {
+  const archivosTabla = await getSolicitudArchivos(solicitudId)
+  if (archivosTabla.length > 0) return archivosTabla
+
+  const rows = (await query(`SELECT tipo, detalles FROM rrhh_solicitudes WHERE id = ? AND deleted_at IS NULL LIMIT 1`, [
+    solicitudId,
+  ])) as Array<Pick<SolicitudRow, 'tipo' | 'detalles'>>
+  return rows[0] ? extractArchivosFromLegacyDetalles(rows[0]) : []
+}
+
 /** Extrae empleados del campo JSON detalles para registros anteriores a RH-61. */
 function extractEmpleadosFromLegacyDetalles(row: SolicitudRow): EmpleadoNovedad[] {
   const detalles = parseDetalles(row.detalles)
@@ -1301,10 +1395,13 @@ function extractEmpleadosFromLegacyDetalles(row: SolicitudRow): EmpleadoNovedad[
   return []
 }
 
-export async function enrichSolicitud(
-  row: SolicitudRow,
-): Promise<
-  SolicitudRow & { historial: SolicitudHistorialItem[]; archivos: SolicitudArchivo[]; empleados: EmpleadoNovedad[] }
+export async function enrichSolicitud(row: SolicitudRow): Promise<
+  Omit<SolicitudRow, keyof AdelantoPagoColumnas> & {
+    historial: SolicitudHistorialItem[]
+    archivos: SolicitudArchivo[]
+    empleados: EmpleadoNovedad[]
+    pago_tesoreria: ReturnType<typeof separarPagoAdelanto>['pago_tesoreria']
+  }
 > {
   const [historial, archivosTabla, empleadosTabla] = await Promise.all([
     getSolicitudHistorial(row.id),
@@ -1317,6 +1414,7 @@ export async function enrichSolicitud(
   const empleados = empleadosTabla.length > 0 ? empleadosTabla : extractEmpleadosFromLegacyDetalles(row)
 
   let detalles = parseDetalles(row.detalles)
+  const { solicitud, pago_tesoreria } = separarPagoAdelanto(row)
 
   // Retrocompatibilidad: enriquecer con el nombre del puesto en solicitudes de tipo Altas
   // que fueron creadas antes de que se guardara puesto_nombre en el JSON.
@@ -1330,7 +1428,8 @@ export async function enrichSolicitud(
   }
 
   return {
-    ...row,
+    ...solicitud,
+    pago_tesoreria,
     detalles,
     historial,
     archivos,
@@ -1350,6 +1449,12 @@ export async function resolveSolicitudSideEffects(
   let personalId = solicitud.personal_id
   let personalCreadoId = solicitud.personal_creado_id
   let liquidacionFinalEstado: ResolveSideEffectsResult['liquidacionFinalEstado'] = 'No aplica'
+
+  if (solicitud.tipo === 'Adelantos') {
+    const detalles = parseDetalles(solicitud.detalles)
+    if (!detalles) throw new Error('El adelanto no tiene detalles válidos')
+    await crearPagoAdelanto(connection, solicitud, detalles)
+  }
 
   if (solicitud.tipo === 'Altas') {
     const detalles = parseDetalles(solicitud.detalles) as
@@ -1384,12 +1489,14 @@ export async function resolveSolicitudSideEffects(
     const [insertResult] = await connection.execute(
       `INSERT INTO personal
        (legajo, nombre, dni, cuil, email, telefono, fecha_nacimiento, domicilio_real, domicilio_dni,
+        domicilio_real_provincia_codigo, domicilio_real_localidad, domicilio_real_codigo_postal,
+        domicilio_dni_provincia_codigo, domicilio_dni_localidad, domicilio_dni_codigo_postal,
         puesto_id, sucursal_id, fecha_incorporacion, fecha_inicio_cobro,
         periodo_prueba, periodo_prueba_dias, jornada_semanal_dias, jornada_diaria_horas,
         propuesta_economica, beneficios, condicion_laboral, fecha_alta_temprana, banco, cbu,
         carnet_manipulacion_alimentos, carnet_archivo_url, carnet_archivo_nombre, carnet_vencimiento,
         solicitud_alta_id, datos_alta_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nuevoLegajo,
         detalles.nombre.trim(),
@@ -1400,6 +1507,12 @@ export async function resolveSolicitudSideEffects(
         detalles.fecha_nacimiento,
         detalles.domicilio.trim(),
         detalles.domicilio_dni.trim(),
+        detalles.domicilio_real_provincia_codigo ?? null,
+        detalles.domicilio_real_localidad ?? null,
+        detalles.domicilio_real_codigo_postal ?? null,
+        detalles.domicilio_dni_provincia_codigo ?? null,
+        detalles.domicilio_dni_localidad ?? null,
+        detalles.domicilio_dni_codigo_postal ?? null,
         detalles.puesto_id,
         solicitud.sucursal_id,
         detalles.fecha_incorporacion,
@@ -1576,10 +1689,12 @@ export const SOLICITUD_SELECT = `
          p.legajo,
          p.dni,
          u.nombre AS usuario_nombre,
-         ur.nombre AS resuelto_por_nombre
+         ur.nombre AS resuelto_por_nombre,
+         ${ADELANTO_PAGO_COLUMNS_SQL}
   FROM rrhh_solicitudes s
   INNER JOIN sucursales suc ON s.sucursal_id = suc.id
   LEFT JOIN personal p ON COALESCE(s.personal_creado_id, s.personal_id) = p.id
   INNER JOIN usuarios u ON s.usuario_id = u.id
   LEFT JOIN usuarios ur ON s.resuelto_por_usuario_id = ur.id
+  ${ADELANTO_PAGOS_JOIN_SQL}
 `
