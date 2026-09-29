@@ -3,13 +3,22 @@
   "builds": [
     {
       "src": "src/index.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 60
+      }
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
       "dest": "src/index.ts"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/ventas/cron",
+      "schedule": "30 7 * * *"
     }
   ]
 }

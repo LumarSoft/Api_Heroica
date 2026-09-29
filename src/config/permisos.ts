@@ -239,6 +239,28 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     categoria: 'Recursos Humanos',
   },
 
+  // ── MÓDULO: VENTAS ──────────────────────────────────────────────────────
+  {
+    clave: 'ver_ventas',
+    descripcion: 'Ver el panel de ventas y las operaciones importadas',
+    categoria: 'Ventas',
+  },
+  {
+    clave: 'exportar_ventas',
+    descripcion: 'Exportar ventas a Excel',
+    categoria: 'Ventas',
+  },
+  {
+    clave: 'sincronizar_ventas',
+    descripcion: 'Ver el estado de las integraciones y sincronizar ventas manualmente',
+    categoria: 'Ventas',
+  },
+  {
+    clave: 'configurar_ventas',
+    descripcion: 'Asignar los locales de Bistrosoft/Hiopos a sucursales y diagnosticar integraciones',
+    categoria: 'Ventas',
+  },
+
   // ── [TEMPLATE] NUEVO MÓDULO ──────────────────────────────────────────────
   // Al agregar un nuevo módulo, copiá el bloque de abajo y completalo:
   //

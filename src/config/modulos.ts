@@ -37,6 +37,11 @@ export const MODULOS_DEL_SISTEMA: ModuloDefinicion[] = [
     nombre: 'Recursos Humanos',
     descripcion: 'Personal, legajos, escalas, sueldos, solicitudes y calendario',
   },
+  {
+    clave: 'ventas',
+    nombre: 'Ventas',
+    descripcion: 'Ventas consolidadas desde Bistrosoft y Hiopos, panel gerencial e integraciones',
+  },
 ]
 
 /**
