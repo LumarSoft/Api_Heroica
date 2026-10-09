@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { getConnection, query } from '../config/database'
-import { normalizarFecha, formatearFechaRespuesta } from '../utils/movimientosHelpers'
+import { normalizarFecha } from '../utils/movimientosHelpers'
+import { obtenerDeudasPendientes } from '../utils/deudasHelpers'
 
 // Re-exports para que las rutas no necesiten cambiar
 export * from './movimientos/efectivoController'
@@ -21,46 +22,8 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'sucursalId es requerido' })
     }
 
-    let sql = `
-      SELECT
-        m.id, m.sucursal_id, m.fecha, d.nombre AS descripcion, m.monto, m.comentarios,
-        m.tipo, m.tipo_movimiento, m.saldo, m.estado, m.es_deuda,
-        m.fecha_original_vencimiento, m.moneda,
-        suc.nombre AS sucursal_nombre,
-        contraparte_suc.nombre AS sucursal_relacionada_nombre
-      FROM movimientos m
-      INNER JOIN sucursales suc ON m.sucursal_id = suc.id
-      LEFT JOIN descripciones d ON m.descripcion_id = d.id
-      LEFT JOIN movimientos contraparte ON contraparte.id = m.movimiento_contraparte_id
-      LEFT JOIN sucursales contraparte_suc ON contraparte_suc.id = contraparte.sucursal_id
-      WHERE m.es_deuda = 1
-        AND m.estado != 'completado'
-        AND m.sucursal_id = ?
-        AND m.deleted_at IS NULL
-        AND suc.activo = 1
-    `
-    const params: (string | number)[] = [String(sucursalId)]
-
-    if (fechaInicio) {
-      sql += ` AND m.fecha >= ?`
-      params.push(`${fechaInicio} 00:00:00`)
-    }
-    if (fechaFin) {
-      sql += ` AND m.fecha <= ?`
-      params.push(`${fechaFin} 23:59:59`)
-    }
-    sql += ` ORDER BY m.id DESC`
-
-    const result: any = await query(sql, params)
-    const resultFormatted = result.map((m: any) => ({
-      ...m,
-      fecha: formatearFechaRespuesta(m.fecha),
-      fecha_original_vencimiento: m.fecha_original_vencimiento
-        ? formatearFechaRespuesta(m.fecha_original_vencimiento)
-        : null,
-    }))
-
-    return res.json({ success: true, data: resultFormatted })
+    const deudas = await obtenerDeudasPendientes({ sucursalIds: [String(sucursalId)], fechaInicio, fechaFin })
+    return res.json({ success: true, data: deudas })
   } catch (error) {
     console.error('Error en getDeudasInterSucursal:', error)
     return res.status(500).json({ success: false, message: 'Error interno del servidor' })
