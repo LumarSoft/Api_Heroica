@@ -25,6 +25,7 @@ import {
   createDescripcion,
   updateDescripcion,
   deleteDescripcion,
+  updateDescripcionesLote,
   // Proveedores
   getProveedores,
   createProveedor,
@@ -50,6 +51,12 @@ import {
   // Permisos
   getPermisos,
 } from '../controllers/configuracionController'
+import {
+  exportarDescripciones,
+  previewImportacionDescripciones,
+  confirmarImportacionDescripciones,
+  subirExcelDescripciones,
+} from '../controllers/descripcionesExcelController'
 import { requireAuth, requirePermission, requireAnyPermission } from '../middlewares/authMiddleware'
 
 const router = Router()
@@ -99,7 +106,23 @@ router.delete('/medios-pago/:id', requirePermission('gestionar_roles'), deleteMe
 
 // ========== DESCRIPCIONES ==========
 router.get('/descripciones', requireAnyPermission(CATALOGOS_READ_PERMISOS), getDescripciones)
+// Exportar / importar Excel (edición masiva). El import sincroniza: altas, cambios y bajas.
+router.get('/descripciones/exportar', requirePermission('gestionar_roles'), exportarDescripciones)
+router.post(
+  '/descripciones/importar/preview',
+  requirePermission('gestionar_roles'),
+  subirExcelDescripciones,
+  previewImportacionDescripciones,
+)
+router.post(
+  '/descripciones/importar/confirmar',
+  requirePermission('gestionar_roles'),
+  subirExcelDescripciones,
+  confirmarImportacionDescripciones,
+)
 router.post('/descripciones', requirePermission('gestionar_roles'), createDescripcion)
+// Antes de /:id para que "lote" no se tome como un id.
+router.put('/descripciones/lote', requirePermission('gestionar_roles'), updateDescripcionesLote)
 router.put('/descripciones/:id', requirePermission('gestionar_roles'), updateDescripcion)
 router.delete('/descripciones/:id', requirePermission('gestionar_roles'), deleteDescripcion)
 

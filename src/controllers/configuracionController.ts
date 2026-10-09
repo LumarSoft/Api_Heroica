@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { query } from '../config/database'
 import bcrypt from 'bcryptjs'
 import { invalidarRol, invalidarUsuario } from '../services/authCacheService'
+import { guardarLote } from '../services/descripcionesLoteService'
 
 // ========== CATEGORÍAS ==========
 
@@ -1058,6 +1059,29 @@ export const deleteDescripcion = async (req: Request, res: Response) => {
     res.json({ success: true, message: 'Descripción eliminada' })
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error al eliminar descripción' })
+  }
+}
+
+// PUT /api/configuracion/descripciones/lote
+// Guarda varios cambios juntos desde la grilla editable. Todo o nada.
+export const updateDescripcionesLote = async (req: Request, res: Response) => {
+  try {
+    const { errores, actualizadas } = await guardarLote(req.body?.descripciones)
+    if (errores.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hay cambios con errores. Corregilos y volvé a guardar; no se guardó nada.',
+        errores,
+      })
+    }
+    res.json({
+      success: true,
+      message: actualizadas === 1 ? '1 descripción actualizada' : `${actualizadas} descripciones actualizadas`,
+      data: { actualizadas },
+    })
+  } catch (error) {
+    console.error('Error al guardar descripciones en lote:', error)
+    res.status(500).json({ success: false, message: 'Error al guardar los cambios. No se guardó nada.' })
   }
 }
 
