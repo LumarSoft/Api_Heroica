@@ -167,7 +167,7 @@ export async function mapaDeCalor(filtros: FiltrosVentas) {
       params,
     ),
     query(
-      `SELECT WEEKDAY(fecha) AS dia, COUNT(*) AS jornadas FROM ventas_dias_sincronizados
+      `SELECT WEEKDAY(fecha) AS dia, COUNT(DISTINCT fecha) AS jornadas FROM ventas_dias_sincronizados
        WHERE fecha BETWEEN ? AND ? GROUP BY dia`,
       [filtros.desde, filtros.hasta],
     ),

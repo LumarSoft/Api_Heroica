@@ -233,10 +233,10 @@ async function mediosDePago(filtros: FiltrosVentas) {
 }
 
 async function diasFaltantes(desde: string, hasta: string): Promise<number> {
-  const [fila] = (await query('SELECT COUNT(*) AS dias FROM ventas_dias_sincronizados WHERE fecha BETWEEN ? AND ?', [
-    desde,
-    hasta,
-  ])) as Array<{ dias: number }>
+  const [fila] = (await query(
+    'SELECT COUNT(DISTINCT fecha) AS dias FROM ventas_dias_sincronizados WHERE fecha BETWEEN ? AND ?',
+    [desde, hasta],
+  )) as Array<{ dias: number }>
   const total = Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86_400_000) + 1
   return Math.max(total - num(fila?.dias), 0)
 }
@@ -281,7 +281,7 @@ export async function armarMail(p: ReporteProgramado, periodo: PeriodoEnvio) {
     <p style="margin:0 0 18px;color:#6b7280;font-size:14px;">Ventas de ${escapar(periodo.etiqueta)} · ${escapar(alcance)} · comparado con ${escapar(periodo.comparado.etiqueta)}</p>`
   if (faltan > 0) {
     html += `<p style="margin:0 0 16px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;color:#92400e;font-size:13px;">
-      Atención: ${faltan} ${faltan === 1 ? 'día del período todavía no está importado' : 'días del período todavía no están importados'} desde Hiopos. Los números pueden estar incompletos.</p>`
+      Atención: ${faltan} ${faltan === 1 ? 'día del período todavía no está importado' : 'días del período todavía no están importados'}. Los números pueden estar incompletos.</p>`
   }
   html += `<table width="100%" cellpadding="0" cellspacing="6"><tr>
     ${tarjeta('Facturación', moneda(k.facturacion), variacionHtml(k.facturacion, kAnt.facturacion))}

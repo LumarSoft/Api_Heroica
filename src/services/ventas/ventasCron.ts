@@ -4,7 +4,7 @@ import { procesarPendientes } from './sincronizacionService'
 
 /**
  * Fuera de Vercel (local o un servidor propio) la API corre como proceso largo: cada
- * 15 minutos avanza las sincronizaciones de Hiopos y revisa los envíos por mail.
+ * 15 minutos avanza las sincronizaciones (Bistrosoft y Hiopos) y revisa los envíos por mail.
  * En Vercel no se usa: ahí lo hace Vercel Cron (vercel.json) y el sync bajo demanda.
  */
 export function startVentasCron(): void {

@@ -3,7 +3,8 @@
  *  MÓDULO DE VENTAS — CONTRATOS
  * ============================================================
  *
- * Las ventas llegan desde Hiopos (HiOffice) a través del Bridge de ICG: un dashboard
+ * Las ventas llegan de dos puntos de venta que conviven: Bistrosoft (API TransactionDetailReport,
+ * ver bistrosoftNormalizer.ts) y Hiopos (HiOffice) a través del Bridge de ICG: un dashboard
  * de exportación configurado en HiOffice devuelve filas (una por línea de ticket) con
  * las columnas que eligió quien lo armó. El mapeo de columnas (ver hioposMapeo.ts)
  * dice qué columna es cada dato y el normalizador las convierte a
@@ -12,7 +13,11 @@
  * ============================================================
  */
 
-export type FuenteVentas = 'hiopos'
+export type FuenteVentas = 'bistrosoft' | 'hiopos'
+
+export const FUENTES_VENTAS: FuenteVentas[] = ['bistrosoft', 'hiopos']
+
+export const NOMBRE_FUENTE: Record<FuenteVentas, string> = { bistrosoft: 'Bistrosoft', hiopos: 'Hiopos' }
 
 /**
  * producto: ítem vendido · pago: encabezado del ticket (total + medio de pago) ·

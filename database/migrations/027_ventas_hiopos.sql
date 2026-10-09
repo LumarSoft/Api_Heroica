@@ -1,8 +1,8 @@
--- Migración 027: Ventas pasa a Hiopos (HiOffice / Bridge ICG). Se elimina Bistrosoft.
+-- Migración 027: Ventas suma Hiopos (HiOffice / Bridge ICG) junto a Bistrosoft.
 -- Fecha: 2026-10-08
 -- Requiere: 026_ventas_integraciones.sql
 --
---   * Borra todo lo importado desde Bistrosoft y deja `fuente` solo en 'hiopos'.
+--   * Las dos fuentes conviven: `fuente` sigue siendo ENUM('bistrosoft','hiopos').
 --   * ventas_lineas: vendedor, caja, número de documento visible y tipo de documento.
 --   * ventas_sincronizaciones: tipo de corrida ('rango' = días completos, 'cambios' =
 --     documentos modificados desde la última marca de agua).
@@ -10,28 +10,26 @@
 --   * ventas_reportes_guardados / ventas_reportes_programados: constructor de reportes
 --     y envíos por mail.
 --
+-- Nota: una versión anterior de esta migración borraba Bistrosoft y dejaba el ENUM solo en
+-- 'hiopos'. Si esa versión ya se corrió en una base, correr también la 028.
+--
 -- Compatible con MySQL viejo: las columnas nuevas se agregan consultando
 -- information_schema (no hay ADD COLUMN IF NOT EXISTS). Se puede correr más de una vez.
 
 -- ============================================================
--- 1. Fuera Bistrosoft
+-- 1. Fuentes
 -- ============================================================
 
-DELETE FROM `ventas_lineas` WHERE `fuente` = 'bistrosoft';
-DELETE FROM `ventas_dias_sincronizados` WHERE `fuente` = 'bistrosoft';
-DELETE FROM `ventas_sincronizaciones` WHERE `fuente` = 'bistrosoft';
-DELETE FROM `ventas_locales_externos` WHERE `fuente` = 'bistrosoft';
-DELETE FROM `ventas_fuentes_estado` WHERE `fuente` = 'bistrosoft';
-
+-- En una base nueva no cambia nada (la 026 ya crea el ENUM con las dos fuentes).
 ALTER TABLE `ventas_locales_externos`
-  MODIFY `fuente` ENUM('hiopos') NOT NULL DEFAULT 'hiopos',
-  MODIFY `codigo_externo` VARCHAR(100) NOT NULL COMMENT 'Código (o nombre) del almacén/tienda en HiOffice';
-ALTER TABLE `ventas_sincronizaciones` MODIFY `fuente` ENUM('hiopos') NOT NULL DEFAULT 'hiopos';
-ALTER TABLE `ventas_lineas` MODIFY `fuente` ENUM('hiopos') NOT NULL DEFAULT 'hiopos';
-ALTER TABLE `ventas_dias_sincronizados` MODIFY `fuente` ENUM('hiopos') NOT NULL DEFAULT 'hiopos';
-ALTER TABLE `ventas_fuentes_estado` MODIFY `fuente` ENUM('hiopos') NOT NULL DEFAULT 'hiopos';
+  MODIFY `fuente` ENUM('bistrosoft','hiopos') NOT NULL,
+  MODIFY `codigo_externo` VARCHAR(100) NOT NULL COMMENT 'shopCode en Bistrosoft; código (o nombre) del almacén en HiOffice';
+ALTER TABLE `ventas_sincronizaciones` MODIFY `fuente` ENUM('bistrosoft','hiopos') NOT NULL;
+ALTER TABLE `ventas_lineas` MODIFY `fuente` ENUM('bistrosoft','hiopos') NOT NULL;
+ALTER TABLE `ventas_dias_sincronizados` MODIFY `fuente` ENUM('bistrosoft','hiopos') NOT NULL;
+ALTER TABLE `ventas_fuentes_estado` MODIFY `fuente` ENUM('bistrosoft','hiopos') NOT NULL;
 
-INSERT IGNORE INTO `ventas_fuentes_estado` (`fuente`) VALUES ('hiopos');
+INSERT IGNORE INTO `ventas_fuentes_estado` (`fuente`) VALUES ('bistrosoft'), ('hiopos');
 
 -- ============================================================
 -- 2. Columnas nuevas
@@ -127,6 +125,6 @@ INSERT INTO `modulos` (`clave`, `nombre`, `descripcion`) VALUES
 ON DUPLICATE KEY UPDATE `nombre` = VALUES(`nombre`), `descripcion` = VALUES(`descripcion`);
 
 INSERT INTO `permisos` (`clave`, `descripcion`, `categoria`) VALUES
-  ('configurar_ventas', 'Configurar la integración con Hiopos (dashboard, columnas) y asignar locales a sucursales', 'Ventas'),
+  ('configurar_ventas', 'Configurar las integraciones de ventas (Bistrosoft, Hiopos) y asignar locales a sucursales', 'Ventas'),
   ('gestionar_reportes_ventas', 'Compartir reportes de ventas y programar envíos por mail', 'Ventas')
 ON DUPLICATE KEY UPDATE `descripcion` = VALUES(`descripcion`), `categoria` = VALUES(`categoria`);

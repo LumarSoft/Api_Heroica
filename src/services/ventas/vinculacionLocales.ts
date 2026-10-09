@@ -1,7 +1,7 @@
 import { query } from '../../config/database'
 
 /**
- * Vinculación automática entre los almacenes/tiendas que informa Hiopos (ej.
+ * Vinculación automática entre los almacenes/tiendas que informan Bistrosoft y Hiopos (ej.
  * "HEROICA GUEMES") y las sucursales de Heroica (ej. "Heroica Güemes").
  *
  *  - Nombre equivalente (sin tildes, mayúsculas ni la palabra "Heroica", y tolerando un

@@ -142,7 +142,7 @@ async function calcularDesgloses(filtros: FiltrosVentas, agrupacion: Agrupacion)
         venta.params,
       ),
       query(
-        `SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha FROM ventas_dias_sincronizados WHERE fecha BETWEEN ? AND ?`,
+        `SELECT DISTINCT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha FROM ventas_dias_sincronizados WHERE fecha BETWEEN ? AND ?`,
         [filtros.desde, filtros.hasta],
       ),
     ])
@@ -209,10 +209,10 @@ async function calcularDesgloses(filtros: FiltrosVentas, agrupacion: Agrupacion)
 }
 
 async function diasImportados(desde: string, hasta: string): Promise<{ diasConDatos: number; diasTotales: number }> {
-  const [fila] = (await query('SELECT COUNT(*) AS dias FROM ventas_dias_sincronizados WHERE fecha BETWEEN ? AND ?', [
-    desde,
-    hasta,
-  ])) as Array<{ dias: number }>
+  const [fila] = (await query(
+    'SELECT COUNT(DISTINCT fecha) AS dias FROM ventas_dias_sincronizados WHERE fecha BETWEEN ? AND ?',
+    [desde, hasta],
+  )) as Array<{ dias: number }>
   const diasTotales = Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / 86_400_000) + 1
   return { diasConDatos: Number(fila?.dias ?? 0), diasTotales }
 }

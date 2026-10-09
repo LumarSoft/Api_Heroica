@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import ExcelJS from 'exceljs'
 import { query } from '../config/database'
+import { FUENTES_VENTAS, type FuenteVentas } from '../services/ventas/types'
 import { construirWhereVentas, FiltrosVentas, parsearFiltrosVentas, responderErrorVentas } from '../utils/ventasFiltros'
 
 const POR_PAGINA = 50
@@ -107,7 +108,7 @@ export const getDetalleOperacion = async (req: Request, res: Response) => {
     const fuente = String(req.query.fuente ?? '')
     const fecha = String(req.query.fecha ?? '')
     const transaccionId = String(req.query.transaccion_id ?? '')
-    if (fuente !== 'hiopos' || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !transaccionId) {
+    if (!FUENTES_VENTAS.includes(fuente as FuenteVentas) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !transaccionId) {
       res.status(400).json({ success: false, message: 'Operación inválida' })
       return
     }

@@ -6,6 +6,7 @@ import {
   getConfigHiopos,
   getEstadoIntegraciones,
   getLocalesExternos,
+  getMuestraBistrosoft,
   getSincronizaciones,
   postDiagnosticoHiopos,
   postProcesarPendientes,
@@ -70,7 +71,7 @@ router.put('/reportes/programados/:id', gestionarReportes, putProgramado)
 router.delete('/reportes/programados/:id', gestionarReportes, deleteProgramado)
 router.post('/reportes/programados/:id/enviar', gestionarReportes, postEnviarProgramado)
 
-// Integración con Hiopos
+// Integraciones (Bistrosoft / Hiopos)
 const verIntegraciones = requireAnyPermission(['sincronizar_ventas', 'configurar_ventas'])
 router.get('/integraciones/estado', verIntegraciones, getEstadoIntegraciones)
 router.get('/integraciones/sincronizaciones', verIntegraciones, getSincronizaciones)
@@ -82,6 +83,7 @@ router.post(
 )
 router.get('/integraciones/locales', verIntegraciones, getLocalesExternos)
 router.put('/integraciones/locales/:id', requirePermission('configurar_ventas'), putLocalExterno)
+router.get('/integraciones/bistrosoft/muestra', requirePermission('configurar_ventas'), getMuestraBistrosoft)
 router.get('/integraciones/hiopos/config', verIntegraciones, getConfigHiopos)
 router.put('/integraciones/hiopos/config', requirePermission('configurar_ventas'), putConfigHiopos)
 router.post('/integraciones/hiopos/diagnostico', requirePermission('configurar_ventas'), postDiagnosticoHiopos)

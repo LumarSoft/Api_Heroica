@@ -1,6 +1,8 @@
 import crypto from 'crypto'
 import type { PoolConnection, ResultSetHeader } from 'mysql2/promise'
 import { getConnection, query } from '../../config/database'
+import { obtenerTransaccionesDelDia } from './bistrosoftClient'
+import { normalizarItemsBistrosoft } from './bistrosoftNormalizer'
 import { epochMsTexto, HioposError, type FiltroDashboard, type HioposSesion } from './hioposClient'
 import { decodificarDocumentos } from './hioposDecoder'
 import {
@@ -16,7 +18,11 @@ import type { FuenteVentas, ItemCrudo, LineaVentaNormalizada } from './types'
 import { vincularLocalesAutomaticamente } from './vinculacionLocales'
 
 /**
- * Importación de ventas de Hiopos, en dos modos (ver migraciones 026 y 027):
+ * Importación de ventas. Dos fuentes conviven en `ventas_lineas` (columna `fuente`):
+ *
+ * BISTROSOFT: un día por consulta (la API admite 12 req/min) y se reemplaza ese día.
+ *
+ * HIOPOS, en dos modos (ver migraciones 026, 027 y 028):
  *
  *  - Por RANGO de días: se exportan los documentos con Fecha Doc en el tramo y, en una
  *    transacción, se reemplazan las líneas de esos días. Nunca hay duplicados y lo
@@ -27,7 +33,8 @@ import { vincularLocalesAutomaticamente } from './vinculacionLocales'
  *    ya importados, para no dejar días a medias en la cobertura.
  */
 
-const FUENTE: FuenteVentas = 'hiopos'
+const HIOPOS: FuenteVentas = 'hiopos'
+const BISTROSOFT: FuenteVentas = 'bistrosoft'
 const LOTE_INSERT = 500
 const CODIGO_SIN_LOCAL = '__sin_local__'
 /** Ventana de Fecha Doc para el modo cambios: documentos de hasta ~4 meses atrás. */
@@ -104,17 +111,20 @@ function jsonEstable(valor: unknown): string {
 }
 
 /** Hash por línea; incluye el número de aparición dentro del documento (dos cafés iguales). */
-function calcularHashes(lineas: LineaVentaNormalizada[]): string[] {
+function calcularHashes(fuente: FuenteVentas, lineas: LineaVentaNormalizada[]): string[] {
   const apariciones = new Map<string, number>()
   return lineas.map(l => {
-    const base = `${FUENTE}|${l.transaccionId}|${l.tipoLinea}|${jsonEstable(l.raw)}|${l.importe}`
+    const base = `${fuente}|${l.transaccionId}|${l.tipoLinea}|${jsonEstable(l.raw)}|${l.importe}`
     const n = (apariciones.get(base) ?? 0) + 1
     apariciones.set(base, n)
     return crypto.createHash('sha256').update(`${base}|${n}`).digest('hex')
   })
 }
 
-async function resolverLocales(lineas: LineaVentaNormalizada[]): Promise<Map<string, LocalExterno>> {
+async function resolverLocales(
+  fuente: FuenteVentas,
+  lineas: LineaVentaNormalizada[],
+): Promise<Map<string, LocalExterno>> {
   const nombres = new Map<string, string | null>()
   for (const l of lineas) {
     const codigo = l.localCodigo ?? CODIGO_SIN_LOCAL
@@ -129,7 +139,7 @@ async function resolverLocales(lineas: LineaVentaNormalizada[]): Promise<Map<str
     `INSERT INTO ventas_locales_externos (fuente, codigo_externo, nombre_externo)
      VALUES ${entradas.map(() => '(?, ?, ?)').join(', ')}
      ON DUPLICATE KEY UPDATE nombre_externo = COALESCE(VALUES(nombre_externo), nombre_externo)`,
-    entradas.flatMap(([codigo, nombre]) => [FUENTE, codigo.slice(0, 100), nombre?.slice(0, 255) ?? null]),
+    entradas.flatMap(([codigo, nombre]) => [fuente, codigo.slice(0, 100), nombre?.slice(0, 255) ?? null]),
   )
 
   // Un local nuevo cuyo nombre coincide con una sucursal queda vinculado antes de insertar.
@@ -138,7 +148,7 @@ async function resolverLocales(lineas: LineaVentaNormalizada[]): Promise<Map<str
   const filas = (await query(
     `SELECT id, codigo_externo, sucursal_id FROM ventas_locales_externos
      WHERE fuente = ? AND codigo_externo IN (${entradas.map(() => '?').join(', ')})`,
-    [FUENTE, ...entradas.map(([codigo]) => codigo.slice(0, 100))],
+    [fuente, ...entradas.map(([codigo]) => codigo.slice(0, 100))],
   )) as Array<{ id: number; codigo_externo: string; sucursal_id: number | null }>
 
   return new Map(filas.map(f => [f.codigo_externo, { id: f.id, sucursalId: f.sucursal_id }]))
@@ -146,11 +156,12 @@ async function resolverLocales(lineas: LineaVentaNormalizada[]): Promise<Map<str
 
 async function insertarLineas(
   conn: PoolConnection,
+  fuente: FuenteVentas,
   sincronizacionId: number,
   lineas: LineaVentaNormalizada[],
   locales: Map<string, LocalExterno>,
 ): Promise<number> {
-  const hashes = calcularHashes(lineas)
+  const hashes = calcularHashes(fuente, lineas)
   let observados = 0
   for (let inicio = 0; inicio < lineas.length; inicio += LOTE_INSERT) {
     const lote = lineas.slice(inicio, inicio + LOTE_INSERT)
@@ -160,7 +171,7 @@ async function insertarLineas(
       const observada = !local?.sucursalId
       if (observada) observados++
       valores.push(
-        FUENTE,
+        fuente,
         sincronizacionId,
         hashes[inicio + i],
         local?.id ?? null,
@@ -200,13 +211,13 @@ async function insertarLineas(
   return observados
 }
 
-async function borrarDocumentos(conn: PoolConnection, transacciones: string[]): Promise<number> {
+async function borrarDocumentos(conn: PoolConnection, fuente: FuenteVentas, transacciones: string[]): Promise<number> {
   let borrados = 0
   for (let i = 0; i < transacciones.length; i += LOTE_INSERT) {
     const lote = transacciones.slice(i, i + LOTE_INSERT)
     const [r] = await conn.query<ResultSetHeader>(
       `DELETE FROM ventas_lineas WHERE fuente = ? AND transaccion_id IN (${lote.map(() => '?').join(', ')})`,
-      [FUENTE, ...lote],
+      [fuente, ...lote],
     )
     borrados += r.affectedRows
   }
@@ -216,6 +227,7 @@ async function borrarDocumentos(conn: PoolConnection, transacciones: string[]): 
 /** Recalcula líneas y tickets de los días tocados (cobertura). */
 async function recontarDias(
   conn: PoolConnection,
+  fuente: FuenteVentas,
   dias: string[],
   sincronizacionId: number,
 ): Promise<{ nuevos: number; actualizados: number }> {
@@ -225,14 +237,14 @@ async function recontarDias(
     const [[conteo]] = (await conn.query(
       `SELECT COUNT(*) AS lineas, COUNT(DISTINCT CASE WHEN tipo_linea = 'pago' THEN transaccion_id END) AS tickets
        FROM ventas_lineas WHERE fuente = ? AND fecha = ?`,
-      [FUENTE, dia],
+      [fuente, dia],
     )) as unknown as [[{ lineas: number; tickets: number }]]
     const [registro] = await conn.query<ResultSetHeader>(
       `INSERT INTO ventas_dias_sincronizados (fuente, fecha, sincronizacion_id, lineas, tickets)
        VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE sincronizacion_id = VALUES(sincronizacion_id), lineas = VALUES(lineas),
                                tickets = VALUES(tickets), actualizado_at = CURRENT_TIMESTAMP`,
-      [FUENTE, dia, sincronizacionId, Number(conteo.lineas), Number(conteo.tickets)],
+      [fuente, dia, sincronizacionId, Number(conteo.lineas), Number(conteo.tickets)],
     )
     // affectedRows 1 = día nuevo; 2 = ya estaba y se actualizó.
     if (registro.affectedRows === 1) nuevos++
@@ -241,7 +253,7 @@ async function recontarDias(
   return { nuevos, actualizados }
 }
 
-async function actualizarUltimaVenta(dias: string[]): Promise<void> {
+async function actualizarUltimaVenta(fuente: FuenteVentas, dias: string[]): Promise<void> {
   if (dias.length === 0) return
   await query(
     `UPDATE ventas_locales_externos le
@@ -249,7 +261,7 @@ async function actualizarUltimaVenta(dias: string[]): Promise<void> {
            FROM ventas_lineas WHERE fuente = ? AND fecha IN (${dias.map(() => '?').join(', ')}) AND local_externo_id IS NOT NULL
            GROUP BY local_externo_id) x ON x.local_externo_id = le.id
      SET le.ultima_venta_at = GREATEST(COALESCE(le.ultima_venta_at, x.ultima), x.ultima)`,
-    [FUENTE, ...dias],
+    [fuente, ...dias],
   )
 }
 
@@ -307,6 +319,63 @@ function contarRechazos(contadores: ContadoresImportacion, rechazadas: Array<{ m
   for (const r of rechazadas) contadores.motivosRechazo[r.motivo] = (contadores.motivosRechazo[r.motivo] ?? 0) + 1
 }
 
+/**
+ * Reemplaza en una transacción las líneas de los días [desde, hasta] de una fuente. Un día
+ * que antes tenía ventas y ahora vino vacío se conserva (las APIs a veces fallan en silencio).
+ */
+async function reemplazarDias(
+  fuente: FuenteVentas,
+  sincronizacionId: number,
+  desde: string,
+  hasta: string,
+  lineas: LineaVentaNormalizada[],
+  contadores: ContadoresImportacion,
+): Promise<ContadoresImportacion> {
+  const dias = listarDias(desde, hasta)
+  const conDatos = new Set(lineas.map(l => l.fecha))
+  const previos = (await query(
+    `SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, COUNT(*) AS lineas FROM ventas_lineas
+     WHERE fuente = ? AND fecha BETWEEN ? AND ? GROUP BY fecha`,
+    [fuente, desde, hasta],
+  )) as Array<{ fecha: string; lineas: number }>
+  const conLineasPrevias = new Set(previos.filter(p => Number(p.lineas) > 0).map(p => p.fecha))
+  contadores.diasConservados = dias.filter(d => !conDatos.has(d) && conLineasPrevias.has(d))
+  const aReemplazar = dias.filter(d => !contadores.diasConservados.includes(d))
+
+  const locales = await resolverLocales(fuente, lineas)
+  const transacciones = [...new Set(lineas.map(l => l.transaccionId.slice(0, 100)))]
+  contadores.documentos = transacciones.length
+
+  const conn = await getConnection()
+  try {
+    await conn.beginTransaction()
+    if (aReemplazar.length > 0) {
+      const [borrado] = await conn.query<ResultSetHeader>(
+        `DELETE FROM ventas_lineas WHERE fuente = ? AND fecha IN (${aReemplazar.map(() => '?').join(', ')})`,
+        [fuente, ...aReemplazar],
+      )
+      contadores.reemplazados += borrado.affectedRows
+    }
+    // Documentos a los que les cambiaron la fecha: se borran de donde estaban.
+    contadores.reemplazados += await borrarDocumentos(conn, fuente, transacciones)
+    contadores.observados = await insertarLineas(conn, fuente, sincronizacionId, lineas, locales)
+    const otrosDias = [...new Set(lineas.map(l => l.fecha))].filter(d => !aReemplazar.includes(d))
+    const { nuevos, actualizados } = await recontarDias(conn, fuente, [...aReemplazar, ...otrosDias], sincronizacionId)
+    contadores.diasNuevos = nuevos
+    contadores.diasActualizados = actualizados
+    await conn.commit()
+  } catch (err: unknown) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
+
+  contadores.importados = lineas.length
+  await actualizarUltimaVenta(fuente, [...conDatos])
+  return contadores
+}
+
 /** Importa un tramo de días completos [desde, hasta]. */
 export async function importarTramo(
   sesion: HioposSesion,
@@ -326,49 +395,22 @@ export async function importarTramo(
   contarRechazos(contadores, normalizado.rechazadas)
   const lineas = normalizado.lineas.filter(l => l.fecha >= desde && l.fecha <= hasta)
 
-  const dias = listarDias(desde, hasta)
-  const conDatos = new Set(lineas.map(l => l.fecha))
-  const previos = (await query(
-    `SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, COUNT(*) AS lineas FROM ventas_lineas
-     WHERE fuente = ? AND fecha BETWEEN ? AND ? GROUP BY fecha`,
-    [FUENTE, desde, hasta],
-  )) as Array<{ fecha: string; lineas: number }>
-  const conLineasPrevias = new Set(previos.filter(p => Number(p.lineas) > 0).map(p => p.fecha))
-  contadores.diasConservados = dias.filter(d => !conDatos.has(d) && conLineasPrevias.has(d))
-  const aReemplazar = dias.filter(d => !contadores.diasConservados.includes(d))
+  return reemplazarDias(HIOPOS, sincronizacionId, desde, hasta, lineas, contadores)
+}
 
-  const locales = await resolverLocales(lineas)
-  const transacciones = [...new Set(lineas.map(l => l.transaccionId.slice(0, 100)))]
-  contadores.documentos = transacciones.length
-
-  const conn = await getConnection()
-  try {
-    await conn.beginTransaction()
-    if (aReemplazar.length > 0) {
-      const [borrado] = await conn.query<ResultSetHeader>(
-        `DELETE FROM ventas_lineas WHERE fuente = ? AND fecha IN (${aReemplazar.map(() => '?').join(', ')})`,
-        [FUENTE, ...aReemplazar],
-      )
-      contadores.reemplazados += borrado.affectedRows
-    }
-    // Documentos a los que les cambiaron la fecha: se borran de donde estaban.
-    contadores.reemplazados += await borrarDocumentos(conn, transacciones)
-    contadores.observados = await insertarLineas(conn, sincronizacionId, lineas, locales)
-    const otrosDias = [...new Set(lineas.map(l => l.fecha))].filter(d => !aReemplazar.includes(d))
-    const { nuevos, actualizados } = await recontarDias(conn, [...aReemplazar, ...otrosDias], sincronizacionId)
-    contadores.diasNuevos = nuevos
-    contadores.diasActualizados = actualizados
-    await conn.commit()
-  } catch (err: unknown) {
-    await conn.rollback()
-    throw err
-  } finally {
-    conn.release()
+/** Bistrosoft: importa UN día operativo completo (todas sus páginas) y lo reemplaza. */
+export async function importarDiaBistrosoft(sincronizacionId: number, dia: string): Promise<ContadoresImportacion> {
+  const contadores = contadoresVacios()
+  const { items } = await obtenerTransaccionesDelDia(dia)
+  contadores.recibidos = items.length
+  const lineas: LineaVentaNormalizada[] = []
+  const rechazadas: Array<{ motivo: string }> = []
+  for (const r of normalizarItemsBistrosoft(items, dia)) {
+    if (r.ok) lineas.push(r.linea)
+    else rechazadas.push({ motivo: r.motivo })
   }
-
-  contadores.importados = lineas.length
-  await actualizarUltimaVenta([...conDatos])
-  return contadores
+  contarRechazos(contadores, rechazadas)
+  return reemplazarDias(BISTROSOFT, sincronizacionId, dia, dia, lineas, contadores)
 }
 
 /** Filtro "Fecha Modificado" con la plantilla del dashboard (solo cambian value y value2). */
@@ -426,7 +468,7 @@ export async function importarCambios(
     const filasCubiertas = (await query(
       `SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha FROM ventas_dias_sincronizados
        WHERE fuente = ? AND fecha IN (${fechas.map(() => '?').join(', ')})`,
-      [FUENTE, ...fechas],
+      [HIOPOS, ...fechas],
     )) as Array<{ fecha: string }>
     for (const f of filasCubiertas) cubiertos.add(f.fecha)
   }
@@ -436,15 +478,20 @@ export async function importarCambios(
   ).size
 
   if (lineas.length > 0) {
-    const locales = await resolverLocales(lineas)
+    const locales = await resolverLocales(HIOPOS, lineas)
     const transacciones = [...new Set(lineas.map(l => l.transaccionId.slice(0, 100)))]
     contadores.documentos = transacciones.length
     const conn = await getConnection()
     try {
       await conn.beginTransaction()
-      contadores.reemplazados = await borrarDocumentos(conn, transacciones)
-      contadores.observados = await insertarLineas(conn, sincronizacionId, lineas, locales)
-      const { actualizados } = await recontarDias(conn, [...new Set(lineas.map(l => l.fecha))], sincronizacionId)
+      contadores.reemplazados = await borrarDocumentos(conn, HIOPOS, transacciones)
+      contadores.observados = await insertarLineas(conn, HIOPOS, sincronizacionId, lineas, locales)
+      const { actualizados } = await recontarDias(
+        conn,
+        HIOPOS,
+        [...new Set(lineas.map(l => l.fecha))],
+        sincronizacionId,
+      )
       contadores.diasActualizados = actualizados
       await conn.commit()
     } catch (err: unknown) {
@@ -454,7 +501,7 @@ export async function importarCambios(
       conn.release()
     }
     contadores.importados = lineas.length
-    await actualizarUltimaVenta([...new Set(lineas.map(l => l.fecha))])
+    await actualizarUltimaVenta(HIOPOS, [...new Set(lineas.map(l => l.fecha))])
   }
 
   return { ...contadores, watermarkNuevo, desdeMs, hastaMs }

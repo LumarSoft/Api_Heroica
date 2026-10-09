@@ -1,6 +1,6 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
-import type { FuenteVentas } from '../services/ventas/types'
+import { FUENTES_VENTAS, type FuenteVentas } from '../services/ventas/types'
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_TRAMOS = 12
@@ -38,26 +38,29 @@ function tramosFaltantes(importados: Set<string>, desde: string, hasta: string):
 }
 
 /**
- * GET /api/ventas/cobertura?desde=&hasta=
+ * GET /api/ventas/cobertura?desde=&hasta=&fuente=
  * Qué días de ventas hay importados: rango disponible, última actualización y días
  * faltantes (en todo el rango disponible y, si se pasa, dentro del período consultado).
+ * Sin `fuente`, un día cuenta como importado si lo trajo cualquiera de las fuentes.
  */
 export const getCoberturaVentas = async (req: Request, res: Response) => {
   const desde = typeof req.query.desde === 'string' && FECHA_RE.test(req.query.desde) ? req.query.desde : null
   const hasta = typeof req.query.hasta === 'string' && FECHA_RE.test(req.query.hasta) ? req.query.hasta : null
-  const fuente: FuenteVentas = 'hiopos'
+  const fuente = FUENTES_VENTAS.includes(req.query.fuente as FuenteVentas) ? (req.query.fuente as FuenteVentas) : null
+  const filtro = fuente ? 'WHERE fuente = ?' : ''
+  const params = fuente ? [fuente] : []
 
   try {
     const [filas, [ultima]] = (await Promise.all([
       query(
-        `SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, lineas FROM ventas_dias_sincronizados
-         WHERE fuente = ? ORDER BY fecha`,
-        [fuente],
+        `SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, SUM(lineas) AS lineas FROM ventas_dias_sincronizados
+         ${filtro} GROUP BY fecha ORDER BY fecha`,
+        params,
       ),
       query(
         `SELECT DATE_FORMAT(MAX(actualizado_at), '%Y-%m-%dT%H:%i:%s') AS ultima FROM ventas_dias_sincronizados
-         WHERE fuente = ?`,
-        [fuente],
+         ${filtro}`,
+        params,
       ),
     ])) as [Array<{ fecha: string; lineas: number }>, Array<{ ultima: string | null }>]
 

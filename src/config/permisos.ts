@@ -257,7 +257,7 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
   },
   {
     clave: 'configurar_ventas',
-    descripcion: 'Configurar la integración con Hiopos (dashboard, columnas) y asignar locales a sucursales',
+    descripcion: 'Configurar las integraciones de ventas (Bistrosoft, Hiopos) y asignar locales a sucursales',
     categoria: 'Ventas',
   },
   {

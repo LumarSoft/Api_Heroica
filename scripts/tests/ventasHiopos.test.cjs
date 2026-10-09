@@ -438,3 +438,53 @@ test('login como usuario de HiOffice + empresa (como la web) y aviso de licencia
     await sesion.cerrar()
   }
 })
+
+// ─── Bistrosoft (convive con Hiopos) ──────────────────────────────────────────
+
+test('Bistrosoft: propaga la anulación del ticket, día operativo y sin datos de clientes', () => {
+  const { normalizarItemsBistrosoft } = src('services/ventas/bistrosoftNormalizer')
+  const base = { uuid: 'u1', ticketNumber: 7, shopCode: '11112935', shop: 'HEROICA CORDOBA SHOPPING' }
+  const items = [
+    {
+      ...base,
+      transactionType: 'Venta',
+      amount: 3000,
+      paymentMethod: 'Efectivo',
+      status: 'VOID',
+      timestamp: '2026-10-08T01:30:00',
+      waiter: 'Caro',
+      client: 'Juan',
+    },
+    {
+      ...base,
+      transactionType: '- ITEM',
+      amount: 3000,
+      quantity: 1,
+      sku: 'X1',
+      product: 'Torta',
+      category: 'Pastelería',
+      timestamp: '2026-10-08T01:30:00',
+    },
+    {
+      transactionType: 'CAJA (Apertura)',
+      amount: 1000,
+      ticketNumber: 0,
+      shopCode: '11112935',
+      timestamp: '2026-10-07T08:00:00',
+    },
+    { ...base, transactionType: '- ITEM' },
+  ]
+  const r = normalizarItemsBistrosoft(items, '2026-10-07')
+  assert.equal(r.filter(x => x.ok).length, 3)
+  assert.equal(r[3].ok, false)
+  const [pago, producto, caja] = r.map(x => x.linea)
+  assert.equal(pago.anulada, true)
+  assert.equal(producto.anulada, true, 'la anulación del encabezado se propaga')
+  assert.equal(pago.fecha, '2026-10-07', 'una venta de la madrugada es del día operativo consultado')
+  assert.equal(pago.documento, '7')
+  assert.equal(pago.vendedor, 'Caro')
+  assert.equal(pago.tipoLinea, 'pago')
+  assert.equal(producto.cantidad, 1)
+  assert.equal(caja.tipoLinea, 'caja')
+  assert.ok(!('client' in pago.raw))
+})

@@ -1,5 +1,7 @@
 import { Request, Response } from 'express'
 import { query } from '../config/database'
+import { bistrosoftConfigurado, obtenerMuestra } from '../services/ventas/bistrosoftClient'
+import { normalizarItemsBistrosoft } from '../services/ventas/bistrosoftNormalizer'
 import { hioposConfigurado } from '../services/ventas/hioposClient'
 import { diagnosticarHiopos } from '../services/ventas/hioposDiagnostico'
 import {
@@ -20,6 +22,7 @@ import {
   SincronizacionEnCursoError,
   syncAutomaticaHabilitada,
 } from '../services/ventas/sincronizacionService'
+import { FUENTES_VENTAS, NOMBRE_FUENTE, type FuenteVentas } from '../services/ventas/types'
 import {
   buscarSucursal,
   obtenerSucursalesActivas,
@@ -28,7 +31,7 @@ import {
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/
 const GUID_RE = /^[0-9a-fA-F-]{8,64}$/
-/** Sin una corrida exitosa en este lapso, la integración se marca con alerta. */
+/** Sin una corrida exitosa en este lapso, la fuente se marca con alerta. */
 const HORAS_ALERTA_SIN_SYNC = 3
 
 function errorInterno(res: Response, contexto: string, err: unknown, mensaje: string) {
@@ -36,65 +39,72 @@ function errorInterno(res: Response, contexto: string, err: unknown, mensaje: st
   res.status(500).json({ success: false, message: mensaje })
 }
 
-/** GET /api/ventas/integraciones/estado */
+/** GET /api/ventas/integraciones/estado — una entrada por fuente (Bistrosoft y Hiopos). */
 export const getEstadoIntegraciones = async (_req: Request, res: Response) => {
   try {
-    const [[fila], [sinAsignar], pendientes, config] = (await Promise.all([
+    const [ultimas, sinAsignar, pendientes, config] = (await Promise.all([
       query(
-        `SELECT MAX(CASE WHEN estado IN ('exitosa', 'con_observaciones') THEN finalizada_at END) AS ultima_exitosa,
-                (SELECT s2.estado FROM ventas_sincronizaciones s2 WHERE s2.fuente = 'hiopos' AND s2.estado <> 'en_curso'
+        `SELECT s.fuente,
+                MAX(CASE WHEN s.estado IN ('exitosa', 'con_observaciones') THEN s.finalizada_at END) AS ultima_exitosa,
+                (SELECT s2.estado FROM ventas_sincronizaciones s2 WHERE s2.fuente = s.fuente AND s2.estado <> 'en_curso'
                  ORDER BY s2.id DESC LIMIT 1) AS ultimo_estado,
-                (SELECT s2.mensaje FROM ventas_sincronizaciones s2 WHERE s2.fuente = 'hiopos' AND s2.estado <> 'en_curso'
+                (SELECT s2.mensaje FROM ventas_sincronizaciones s2 WHERE s2.fuente = s.fuente AND s2.estado <> 'en_curso'
                  ORDER BY s2.id DESC LIMIT 1) AS ultimo_mensaje
-         FROM ventas_sincronizaciones WHERE fuente = 'hiopos'`,
+         FROM ventas_sincronizaciones s GROUP BY s.fuente`,
       ),
-      query(`SELECT COUNT(*) AS cantidad FROM ventas_locales_externos WHERE fuente = 'hiopos' AND sucursal_id IS NULL`),
-      query(`SELECT 1 FROM ventas_sincronizaciones WHERE fuente = 'hiopos' AND estado = 'en_curso' LIMIT 1`),
+      query(
+        `SELECT fuente, COUNT(*) AS cantidad FROM ventas_locales_externos WHERE sucursal_id IS NULL GROUP BY fuente`,
+      ),
+      query(`SELECT DISTINCT fuente FROM ventas_sincronizaciones WHERE estado = 'en_curso'`),
       leerConfigHiopos(),
     ])) as [
       Array<Record<string, unknown>>,
-      Array<{ cantidad: number }>,
-      unknown[],
+      Array<{ fuente: string; cantidad: number }>,
+      Array<{ fuente: string }>,
       Awaited<ReturnType<typeof leerConfigHiopos>>,
     ]
 
-    const credenciales = hioposConfigurado()
-    const configurada = credenciales && Boolean(config.exportationId)
-    const syncAutomatica = syncAutomaticaHabilitada() && configurada
-    const ultimaExitosa = fila?.ultima_exitosa ? new Date(String(fila.ultima_exitosa)).toISOString() : null
-    const ultimoEstado = fila?.ultimo_estado ? String(fila.ultimo_estado) : null
-    const desactualizada =
-      syncAutomatica && (!ultimaExitosa || Date.now() - Date.parse(ultimaExitosa) > HORAS_ALERTA_SIN_SYNC * 3_600_000)
+    const data = FUENTES_VENTAS.map((fuente: FuenteVentas) => {
+      const fila = ultimas.find(u => u.fuente === fuente)
+      const esHiopos = fuente === 'hiopos'
+      const credenciales = esHiopos ? hioposConfigurado() : bistrosoftConfigurado()
+      const configurada = credenciales && (!esHiopos || Boolean(config.exportationId))
+      const syncAutomatica = syncAutomaticaHabilitada(fuente) && configurada
+      const ultimaExitosa = fila?.ultima_exitosa ? new Date(String(fila.ultima_exitosa)).toISOString() : null
+      const ultimoEstado = fila?.ultimo_estado ? String(fila.ultimo_estado) : null
+      const desactualizada =
+        syncAutomatica && (!ultimaExitosa || Date.now() - Date.parse(ultimaExitosa) > HORAS_ALERTA_SIN_SYNC * 3_600_000)
 
-    let alerta: string | null = null
-    if (!credenciales) alerta = 'Faltan las credenciales de Hiopos en el servidor (HIOPOS_EMAIL / HIOPOS_PASSWORD)'
-    else if (!config.exportationId) alerta = 'Falta indicar el dashboard de exportación de HiOffice'
-    else if (validarMapeo(config.mapeo).length > 0 && config.columnasDetectadas.length > 0)
-      alerta = 'El mapeo de columnas está incompleto: revisalo en Integraciones'
-    else if (ultimoEstado === 'fallida') alerta = `La última sincronización falló: ${fila?.ultimo_mensaje ?? ''}`
-    else if (desactualizada) alerta = `Sin sincronizaciones exitosas en las últimas ${HORAS_ALERTA_SIN_SYNC} horas`
+      let alerta: string | null = null
+      if (!credenciales) {
+        alerta = esHiopos
+          ? 'Faltan las credenciales de Hiopos en el servidor (HIOPOS_EMAIL / HIOPOS_PASSWORD)'
+          : 'Faltan las credenciales de Bistrosoft en el servidor (BISTROSOFT_USERNAME / BISTROSOFT_PASSWORD)'
+      } else if (esHiopos && !config.exportationId) alerta = 'Falta indicar el dashboard de exportación de HiOffice'
+      else if (esHiopos && validarMapeo(config.mapeo).length > 0 && config.columnasDetectadas.length > 0)
+        alerta = 'El mapeo de columnas está incompleto: revisalo en Integraciones'
+      else if (ultimoEstado === 'fallida') alerta = `La última sincronización falló: ${fila?.ultimo_mensaje ?? ''}`
+      else if (desactualizada) alerta = `Sin sincronizaciones exitosas en las últimas ${HORAS_ALERTA_SIN_SYNC} horas`
 
-    res.json({
-      success: true,
-      data: [
-        {
-          fuente: 'hiopos',
-          nombre: 'Hiopos',
-          disponible: true,
-          credenciales,
-          configurada,
-          syncAutomatica,
-          incremental: Boolean(config.attrFechaModificado),
-          enCurso: pendientes.length > 0,
-          ultimaExitosa,
-          ultimoEstado,
-          localesSinAsignar: Number(sinAsignar?.cantidad ?? 0),
-          alerta,
-        },
-      ],
+      return {
+        fuente,
+        nombre: NOMBRE_FUENTE[fuente],
+        disponible: true,
+        credenciales,
+        configurada,
+        syncAutomatica,
+        incremental: esHiopos && Boolean(config.attrFechaModificado),
+        enCurso: pendientes.some(p => p.fuente === fuente),
+        ultimaExitosa,
+        ultimoEstado,
+        localesSinAsignar: Number(sinAsignar.find(l => l.fuente === fuente)?.cantidad ?? 0),
+        alerta,
+      }
     })
+
+    res.json({ success: true, data })
   } catch (err: unknown) {
-    errorInterno(res, 'getEstadoIntegraciones', err, 'Error al consultar el estado de la integración')
+    errorInterno(res, 'getEstadoIntegraciones', err, 'Error al consultar el estado de las integraciones')
   }
 }
 
@@ -149,12 +159,17 @@ export const getSincronizaciones = async (req: Request, res: Response) => {
 }
 
 /**
- * POST /api/ventas/integraciones/sincronizar { desde, hasta }
+ * POST /api/ventas/integraciones/sincronizar { fuente, desde, hasta }
  * Encola la corrida y responde 202. La procesan las llamadas a /procesar (la pantalla
  * de integraciones las hace mientras haya corridas en curso) y el cron.
  */
 export const postSincronizar = async (req: Request, res: Response) => {
   const { desde, hasta } = req.body ?? {}
+  const fuente = (req.body?.fuente ?? 'hiopos') as FuenteVentas
+  if (!FUENTES_VENTAS.includes(fuente)) {
+    res.status(400).json({ success: false, message: 'Fuente de ventas inválida' })
+    return
+  }
   if (typeof desde !== 'string' || typeof hasta !== 'string' || !FECHA_RE.test(desde) || !FECHA_RE.test(hasta)) {
     res.status(400).json({ success: false, message: 'Las fechas desde y hasta son obligatorias (YYYY-MM-DD)' })
     return
@@ -169,7 +184,7 @@ export const postSincronizar = async (req: Request, res: Response) => {
   }
 
   try {
-    const sincronizacionId = await crearSincronizacionManual({ desde, hasta, userId: req.user?.id ?? null })
+    const sincronizacionId = await crearSincronizacionManual({ fuente, desde, hasta, userId: req.user?.id ?? null })
     res.status(202).json({
       success: true,
       message: 'Sincronización en cola',
@@ -259,7 +274,7 @@ export const getLocalesExternos = async (_req: Request, res: Response) => {
       })),
     })
   } catch (err: unknown) {
-    errorInterno(res, 'getLocalesExternos', err, 'Error al consultar los locales de Hiopos')
+    errorInterno(res, 'getLocalesExternos', err, 'Error al consultar los locales de las integraciones')
   }
 }
 
@@ -295,6 +310,39 @@ export const putLocalExterno = async (req: Request, res: Response) => {
     res.json({ success: true, message: 'Local actualizado', data: { lineasActualizadas } })
   } catch (err: unknown) {
     errorInterno(res, 'putLocalExterno', err, 'Error al actualizar el local')
+  }
+}
+
+/**
+ * GET /api/ventas/integraciones/bistrosoft/muestra?fecha=YYYY-MM-DD
+ * Diagnóstico para validar el mapeo con datos reales: devuelve los campos que
+ * trae Bistrosoft y cómo se normalizan los primeros ítems.
+ */
+export const getMuestraBistrosoft = async (req: Request, res: Response) => {
+  const fecha = String(req.query.fecha ?? '')
+  if (!FECHA_RE.test(fecha)) {
+    res.status(400).json({ success: false, message: 'La fecha es obligatoria (YYYY-MM-DD)' })
+    return
+  }
+  if (!bistrosoftConfigurado()) {
+    res.status(400).json({ success: false, message: 'Bistrosoft no está configurado en el servidor' })
+    return
+  }
+
+  try {
+    const pagina = await obtenerMuestra(fecha)
+    const campos = [...new Set(pagina.items.flatMap(i => Object.keys(i)))].sort()
+    const normalizados = normalizarItemsBistrosoft(pagina.items, fecha)
+    const ejemplos = normalizados.slice(0, 10).map(resultado => (resultado.ok ? resultado.linea : resultado))
+    res.json({
+      success: true,
+      data: { totalPaginas: pagina.totalPages, totalItems: pagina.totalCount, campos, ejemplos },
+    })
+  } catch (err: unknown) {
+    res.status(502).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'No se pudo consultar Bistrosoft',
+    })
   }
 }
 

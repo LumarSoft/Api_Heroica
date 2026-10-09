@@ -40,7 +40,7 @@ export const MODULOS_DEL_SISTEMA: ModuloDefinicion[] = [
   {
     clave: 'ventas',
     nombre: 'Ventas',
-    descripcion: 'Ventas consolidadas desde Hiopos: panel gerencial, reportes e integración',
+    descripcion: 'Ventas consolidadas desde Bistrosoft y Hiopos: panel gerencial, reportes e integraciones',
   },
 ]
 
