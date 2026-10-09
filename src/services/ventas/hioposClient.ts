@@ -117,12 +117,15 @@ export function interpretarLogin(xml: string): DatosLogin {
   if (error !== null || /<serverError/i.test(xml)) {
     const codigo = valorXml(xml, 'code')
     const mensaje = valorXml(xml, 'message')
-    throw new HioposError(
+    // 6 = contraseña incorrecta · 13 = CloudLicense no tiene ningún cliente con ese identificador
+    // (típico: se cargó el usuario de HiOffice en vez del email/número de cliente de ICG).
+    const detalle =
       codigo === '6'
         ? 'Hiopos rechazó el email o la contraseña configurados (HIOPOS_EMAIL / HIOPOS_PASSWORD)'
-        : `Hiopos devolvió un error al iniciar sesión${codigo ? ` (código ${codigo})` : ''}${mensaje ? `: ${mensaje}` : ''}`,
-      codigo === '6' ? 'credenciales' : 'servidor',
-    )
+        : codigo === '13'
+          ? `CloudLicense no encuentra un cliente con ese identificador (HIOPOS_EMAIL). No es el usuario con el que se entra a HiOffice: es el email (o número) del cliente registrado en ICG CloudLicense${mensaje ? `. Detalle: ${mensaje}` : ''}`
+          : `Hiopos devolvió un error al iniciar sesión${codigo ? ` (código ${codigo})` : ''}${mensaje ? `: ${mensaje}` : ''}`
+    throw new HioposError(detalle, codigo === '6' || codigo === '13' ? 'credenciales' : 'servidor')
   }
 
   const address = valorXml(xml, 'address')
