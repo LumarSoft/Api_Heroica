@@ -1,4 +1,4 @@
-import { HioposError, HioposSesion, hioposConfigurado, type FiltroDashboard } from './hioposClient'
+import { HioposError, HioposSesion, hioposConfigurado, hioposCustomerId, type FiltroDashboard } from './hioposClient'
 import { decodificarDocumentos } from './hioposDecoder'
 import {
   detectarColumnas,
@@ -72,13 +72,26 @@ export async function diagnosticarHiopos(config: ConfigHiopos, fecha: string): P
     paso('Credenciales', false, 'Faltan HIOPOS_EMAIL y HIOPOS_PASSWORD en las variables de entorno del servidor.')
     return r
   }
-  paso('Credenciales', true, 'HIOPOS_EMAIL y HIOPOS_PASSWORD están cargadas.')
+  paso(
+    'Credenciales',
+    true,
+    hioposCustomerId()
+      ? `Usuario de HiOffice + empresa ${hioposCustomerId()} (HIOPOS_EMAIL, HIOPOS_PASSWORD, HIOPOS_CUSTOMER_ID).`
+      : 'Cliente de CloudLicense (HIOPOS_EMAIL y HIOPOS_PASSWORD).',
+  )
 
   const sesion = new HioposSesion()
   try {
     const login = await sesion.login()
     r.servidor = login.baseUrl
-    paso('Login en CloudLicense', true, `Sesión iniciada. Servidor asignado: ${login.baseUrl}`)
+    paso('Login', true, `Sesión iniciada. Servidor asignado: ${login.baseUrl}`)
+    if (sesion.servidorCliente?.bridgeExportation === false) {
+      paso(
+        'Licencia de exportación',
+        false,
+        'CloudLicense informa bridgeExportation = false: la empresa no tiene habilitado el módulo de exportación por web service (Bridge). Hay que pedirle a Hiopos/ICG que lo active; sin eso el export puede fallar.',
+      )
+    }
 
     if (!config.exportationId) {
       paso(

@@ -1,3 +1,5 @@
+import crypto from 'crypto'
+
 /**
  * Cliente del Bridge de ICG para Hiopos / HiOffice.
  *
@@ -78,6 +80,80 @@ export function hioposConfigurado(): boolean {
   return Boolean(process.env.HIOPOS_EMAIL && process.env.HIOPOS_PASSWORD)
 }
 
+/**
+ * Número de cliente (empresa) de HiOffice, ej. 95368. Con él se entra como lo hace la web
+ * de HiOffice: usuario + contraseña + empresa (ver `loginUsuarioErp`). Sin él se usa el
+ * login de cliente de CloudLicense (email del cliente ICG), que es el que documenta el manual.
+ */
+export function hioposCustomerId(): string | null {
+  return process.env.HIOPOS_CUSTOMER_ID?.trim() || null
+}
+
+/**
+ * Cifrado que usa la web de HiOffice para mandar usuario y contraseña a /ErpCloud/session/login:
+ * AES-128-CBC (clave e IV fijos del cliente web), Base64 y reemplazo de "+" y "/" por marcas.
+ */
+export function cifrarParaErp(valor: string): string {
+  const clave = Buffer.from('B1B2B3B4B5B6B7B8', 'utf8')
+  const cipher = crypto.createCipheriv('aes-128-cbc', clave, clave)
+  const base64 = Buffer.concat([cipher.update(valor, 'utf8'), cipher.final()]).toString('base64')
+  return base64.split('+').join('-666666-').split('/').join('-999999-')
+}
+
+export interface ServidorCliente {
+  baseUrl: string
+  customerId: string
+  /** Si el cliente tiene licenciado el módulo de exportación por Bridge. */
+  bridgeExportation: boolean | null
+}
+
+/** Servidor ErpCloud asignado a un número de cliente (lo mismo que hace la web al elegir empresa). */
+export async function consultarServidorCliente(customerId: string): Promise<ServidorCliente> {
+  let ultimoError: HioposError | null = null
+  const urls = cloudLicenseUrls()
+  for (const url of urls) {
+    let response = await fetchConTimeout(
+      `${url}/services/cloud/getCustomerServer3?${new URLSearchParams({ email: customerId }).toString()}`,
+      { method: 'GET', headers: { Accept: 'application/xml, text/xml, */*' } },
+      TIMEOUT_LOGIN_MS,
+    )
+    if (response.status === 404) {
+      response = await fetchConTimeout(
+        `${url}/services/cloud/getCustomerServer?${new URLSearchParams({ email: customerId }).toString()}`,
+        { method: 'GET', headers: { Accept: 'application/xml, text/xml, */*' } },
+        TIMEOUT_LOGIN_MS,
+      )
+    }
+    const xml = await response.text()
+    if (!response.ok)
+      throw new HioposError(`CloudLicense respondió ${response.status} al buscar el cliente`, 'servidor')
+    const codigo = /<serverError/i.test(xml) ? valorXml(xml, 'code') : null
+    if (codigo) {
+      ultimoError = new HioposError(
+        codigo === '13'
+          ? `CloudLicense no encuentra la empresa ${customerId} (HIOPOS_CUSTOMER_ID)`
+          : `CloudLicense devolvió un error al buscar la empresa (código ${codigo})`,
+        'credenciales',
+      )
+      if (codigo === '13' && url !== urls[urls.length - 1]) continue
+      throw ultimoError
+    }
+    const address = valorXml(xml, 'address')
+    if (!address) throw new HioposError('CloudLicense no informó el servidor de la empresa', 'servidor')
+    const secure = (valorXml(xml, 'secure') ?? 'true').toLowerCase() !== 'false'
+    const port = valorXml(xml, 'port')
+    const host = address.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+    const conPuerto = port && port !== (secure ? '443' : '80') && !host.includes(':') ? `${host}:${port}` : host
+    const bridge = valorXml(xml, 'bridgeExportation')
+    return {
+      baseUrl: `${secure ? 'https' : 'http'}://${conPuerto}`,
+      customerId: valorXml(xml, 'customerId') ?? customerId,
+      bridgeExportation: bridge === null ? null : bridge.toLowerCase() === 'true',
+    }
+  }
+  throw ultimoError ?? new HioposError('No se pudo ubicar la empresa en CloudLicense', 'servidor')
+}
+
 function cloudLicenseUrls(): string[] {
   const configurada = process.env.HIOPOS_CLOUDLICENSE_URL?.trim()
   return (configurada ? [configurada] : CLOUDLICENSE_URLS_DEFAULT).map(u => u.replace(/\/+$/, ''))
@@ -92,10 +168,12 @@ async function fetchConTimeout(url: string, init: RequestInit, timeoutMs: number
     return await fetch(url, { ...init, signal: controller.signal })
   } catch (err: unknown) {
     const abortado = err instanceof Error && err.name === 'AbortError'
+    const causa = (err as { cause?: { code?: string; message?: string } })?.cause
+    const detalle = causa?.code ?? causa?.message ?? (err instanceof Error ? err.message : 'error de red')
     throw new HioposError(
       abortado
-        ? 'Hiopos no respondió a tiempo'
-        : `No se pudo conectar con Hiopos (${err instanceof Error ? err.message : 'error de red'})`,
+        ? `Hiopos no respondió a tiempo (${new URL(url).host})`
+        : `No se pudo conectar con ${new URL(url).host} (${detalle})`,
       'red',
     )
   } finally {
@@ -164,7 +242,63 @@ export class HioposSesion {
     return this.datos?.baseUrl ?? null
   }
 
+  /** Datos del servidor del cliente (solo en el modo usuario + empresa). */
+  servidorCliente: ServidorCliente | null = null
+
   async login(): Promise<DatosLogin> {
+    return hioposCustomerId() ? this.loginUsuarioErp(hioposCustomerId() as string) : this.loginCliente()
+  }
+
+  /**
+   * Login como usuario de HiOffice (el mismo de la web): se ubica el servidor de la empresa
+   * y se abre sesión en /ErpCloud/session/login, que devuelve el x-auth-token en un header.
+   */
+  private async loginUsuarioErp(customerId: string): Promise<DatosLogin> {
+    if (!hioposConfigurado()) {
+      throw new HioposError(
+        'Faltan las credenciales de Hiopos en el servidor (HIOPOS_EMAIL / HIOPOS_PASSWORD)',
+        'credenciales',
+      )
+    }
+    this.servidorCliente = await consultarServidorCliente(customerId)
+    const params = new URLSearchParams({
+      user: cifrarParaErp(process.env.HIOPOS_EMAIL ?? ''),
+      password: cifrarParaErp(process.env.HIOPOS_PASSWORD ?? ''),
+      customerId: this.servidorCliente.customerId,
+      languageIsoCode: 'es',
+      specType: '2',
+      isErp: 'true',
+      canAddUserToCompany: 'false',
+      ipWS: '',
+      dbName: '',
+      encrypted: 'true',
+    })
+    const response = await fetchConTimeout(
+      `${this.servidorCliente.baseUrl}/ErpCloud/session/login?${params.toString()}`,
+      { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+      TIMEOUT_LOGIN_MS,
+    )
+    const token = response.headers.get('x-auth-token')
+    if (!response.ok || !token) {
+      const cuerpo = await response.text().catch(() => '')
+      let mensaje = ''
+      try {
+        mensaje = String((JSON.parse(cuerpo) as { message?: unknown }).message ?? '')
+      } catch {
+        mensaje = cuerpo.slice(0, 200)
+      }
+      throw new HioposError(
+        `HiOffice rechazó el usuario o la contraseña para la empresa ${customerId}${mensaje ? ` (${mensaje})` : ''} [HTTP ${response.status}]`,
+        response.status >= 500 ? 'servidor' : 'credenciales',
+        response.status,
+      )
+    }
+    this.datos = { baseUrl: this.servidorCliente.baseUrl, token, customerId: this.servidorCliente.customerId }
+    return this.datos
+  }
+
+  /** Login de cliente de CloudLicense (email del cliente ICG), como lo documenta el manual del Bridge. */
+  private async loginCliente(): Promise<DatosLogin> {
     if (!hioposConfigurado()) {
       throw new HioposError(
         'Faltan las credenciales de Hiopos en el servidor (HIOPOS_EMAIL / HIOPOS_PASSWORD)',

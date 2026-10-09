@@ -17,7 +17,8 @@ const { sanitizarMiles, parsearJsonExport, aFilas, parsearCsv, decodificarDocume
   'services/ventas/hioposDecoder',
 )
 const { normalizarFilasHiopos, numero, fechaYHora, aEpochMs } = src('services/ventas/hioposNormalizer')
-const { HioposSesion, HioposError, interpretarLogin } = src('services/ventas/hioposClient')
+const { HioposSesion, HioposError, interpretarLogin, cifrarParaErp } = src('services/ventas/hioposClient')
+const crypto = require('node:crypto')
 const { detectarMapeo, validarMapeo, detectarFiltroFechaModificado } = src('services/ventas/hioposMapeo')
 
 // ─── Bridge simulado ──────────────────────────────────────────────────────────
@@ -101,6 +102,42 @@ before(async () => {
     req.on('data', c => (body += c))
     req.on('end', () => {
       llamadas.push(`${req.method} ${url.pathname}`)
+      if (url.pathname === '/services/cloud/getCustomerServer3') {
+        const { port } = servidor.address()
+        res.end(
+          url.searchParams.get('email') === '95368'
+            ? `<response><customerFTPResponse><address>127.0.0.1</address><bridgeExportation>false</bridgeExportation><customerId>95368</customerId><port>${port}</port><secure>false</secure></customerFTPResponse></response>`
+            : '<response><serverError><code>13</code><message>Not found</message></serverError></response>',
+        )
+        return
+      }
+      if (url.pathname === '/ErpCloud/session/login') {
+        const descifrar = v => {
+          const d = crypto.createDecipheriv(
+            'aes-128-cbc',
+            Buffer.from('B1B2B3B4B5B6B7B8'),
+            Buffer.from('B1B2B3B4B5B6B7B8'),
+          )
+          return Buffer.concat([
+            d.update(Buffer.from(v.split('-666666-').join('+').split('-999999-').join('/'), 'base64')),
+            d.final(),
+          ]).toString()
+        }
+        if (
+          url.searchParams.get('encrypted') !== 'true' ||
+          descifrar(url.searchParams.get('password')) !== 'correcta' ||
+          url.searchParams.get('customerId') !== '95368'
+        ) {
+          res.statusCode = 401
+          res.end('{"message":"Usuario o contraseña incorrectos"}')
+          return
+        }
+        const token = `erp-${Date.now()}`
+        tokensVivos.add(token)
+        res.setHeader('x-auth-token', token)
+        res.end('{}')
+        return
+      }
       if (url.pathname === '/services/cloud/getCustomerWithAuthToken') {
         res.setHeader('Content-Type', 'application/xml')
         if (url.searchParams.get('password') !== 'correcta') {
@@ -377,6 +414,27 @@ test('exportationId inexistente → error de configuración', async () => {
       e => e.tipo === 'configuracion',
     )
   } finally {
+    await sesion.cerrar()
+  }
+})
+
+test('login como usuario de HiOffice + empresa (como la web) y aviso de licencia de Bridge', async () => {
+  assert.ok(!cifrarParaErp('a+b/c?').includes('+') && !cifrarParaErp('a+b/c?').includes('/'))
+  process.env.HIOPOS_CUSTOMER_ID = '95368'
+  const sesion = new HioposSesion()
+  try {
+    const datos = await sesion.login()
+    assert.ok(datos.token.startsWith('erp-'))
+    assert.equal(sesion.servidorCliente.bridgeExportation, false)
+    const r = await sesion.launch({ exportationId: EXPORT_ID, startDate: '2026-10-07', endDate: '2026-10-08' })
+    assert.equal(decodificarDocumentos(r.documentos).filas.length, 3)
+    process.env.HIOPOS_PASSWORD = 'mala'
+    await assert.rejects(new HioposSesion().login(), e => e.tipo === 'credenciales')
+    process.env.HIOPOS_CUSTOMER_ID = '1'
+    process.env.HIOPOS_PASSWORD = 'correcta'
+    await assert.rejects(new HioposSesion().login(), e => /no encuentra la empresa/.test(e.message))
+  } finally {
+    delete process.env.HIOPOS_CUSTOMER_ID
     await sesion.cerrar()
   }
 })
