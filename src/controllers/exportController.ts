@@ -2,6 +2,14 @@ import { Request, Response } from 'express'
 import ExcelJS from 'exceljs'
 import { query } from '../config/database'
 import { verificarAccesoSucursal } from '../utils/movimientosHelpers'
+import { esSuperadmin, getSucursalesDeUsuario } from '../services/authCacheService'
+import {
+  agruparDeudas,
+  esPrestamo,
+  obtenerDeudasPendientes,
+  situacionDeuda,
+  sucursalRelacionada,
+} from '../utils/deudasHelpers'
 
 type AlcanceCaja = 'efectivo' | 'banco' | 'ambas'
 
@@ -250,6 +258,138 @@ export const exportBancoToExcel = async (req: Request, res: Response) => {
     await generarExcelMovimientos(req, res, 'banco')
   } catch (error) {
     console.error('Error en exportBancoToExcel:', error)
+    if (!res.headersSent) res.status(500).json({ success: false, message: 'Error al generar el Excel' })
+  }
+}
+
+// GET /api/movimientos/deudas/export
+// Deudas y préstamos pendientes de todas las sucursales a las que el usuario tiene acceso, sin filtro de fecha.
+// Solo deudas entre sucursales (sin terceros); cada una aparece una vez por cada lado, como la ve cada sucursal.
+export const exportDeudasToExcel = async (req: Request, res: Response) => {
+  try {
+    const user = req.user!
+    const sucursalIds = (await esSuperadmin(user.rol_id))
+      ? undefined
+      : Array.from(await getSucursalesDeUsuario(user.id))
+
+    const deudas = (await obtenerDeudasPendientes({ sucursalIds })).filter(deuda => sucursalRelacionada(deuda))
+
+    const porSucursal = new Map<string, typeof deudas>()
+    for (const deuda of deudas) {
+      const lista = porSucursal.get(deuda.sucursal_nombre) ?? []
+      lista.push(deuda)
+      porSucursal.set(deuda.sucursal_nombre, lista)
+    }
+    const sucursales = Array.from(porSucursal.keys()).sort((a, b) => a.localeCompare(b, 'es'))
+
+    const workbook = new ExcelJS.Workbook()
+    workbook.creator = 'Heroica'
+    workbook.created = new Date()
+
+    // El orden de creación define el orden de las solapas: Resumen simplificado, Resumen, Detalle.
+    const simplificado = workbook.addWorksheet('Resumen simplificado')
+    simplificado.columns = [
+      { header: 'Sucursal', key: 'sucursal', width: 24 },
+      { header: 'Moneda', key: 'moneda', width: 10 },
+      { header: 'A cobrar', key: 'aCobrar', width: 16 },
+      { header: 'A pagar', key: 'aPagar', width: 16 },
+      { header: 'Neto', key: 'balance', width: 16 },
+    ]
+
+    const resumen = workbook.addWorksheet('Resumen')
+    resumen.columns = [
+      { header: 'Sucursal', key: 'sucursal', width: 24 },
+      { header: 'Relacionada con', key: 'relacionada', width: 28 },
+      { header: 'Moneda', key: 'moneda', width: 10 },
+      { header: 'A cobrar', key: 'aCobrar', width: 16 },
+      { header: 'A pagar', key: 'aPagar', width: 16 },
+      { header: 'Neto', key: 'balance', width: 16 },
+    ]
+
+    const detalle = workbook.addWorksheet('Detalle')
+    detalle.columns = [
+      { header: 'Sucursal', key: 'sucursal', width: 24 },
+      { header: 'Fecha', key: 'fecha', width: 14 },
+      { header: 'Relacionada con', key: 'relacionada', width: 28 },
+      { header: 'Moneda', key: 'moneda', width: 10 },
+      { header: 'Descripción', key: 'descripcion', width: 32 },
+      { header: 'Observaciones', key: 'comentarios', width: 50 },
+      { header: 'Situación', key: 'situacion', width: 22 },
+      { header: 'Monto', key: 'monto', width: 16 },
+    ]
+
+    const totalesPorSucursal = new Map<string, { sucursal: string; moneda: string; aCobrar: number; aPagar: number }>()
+
+    for (const sucursal of sucursales) {
+      for (const grupo of agruparDeudas(porSucursal.get(sucursal)!)) {
+        const claveTotal = `${sucursal}-${grupo.moneda}`
+        const total = totalesPorSucursal.get(claveTotal) ?? {
+          sucursal,
+          moneda: grupo.moneda,
+          aCobrar: 0,
+          aPagar: 0,
+        }
+        total.aCobrar += grupo.aCobrar
+        total.aPagar += grupo.aPagar
+        totalesPorSucursal.set(claveTotal, total)
+
+        const filaResumen = resumen.addRow({
+          sucursal,
+          relacionada: grupo.sucursal,
+          moneda: grupo.moneda,
+          aCobrar: grupo.aCobrar,
+          aPagar: grupo.aPagar,
+          balance: grupo.balance,
+        })
+        for (const key of ['aCobrar', 'aPagar', 'balance']) filaResumen.getCell(key).numFmt = '#,##0.00'
+        filaResumen.getCell('balance').font = {
+          bold: true,
+          color: { argb: grupo.balance >= 0 ? 'FF16a34a' : 'FFdc2626' },
+        }
+
+        for (const deuda of grupo.movimientos) {
+          const filaDetalle = detalle.addRow({
+            sucursal,
+            fecha: deuda.fecha ?? '',
+            relacionada: grupo.sucursal,
+            moneda: grupo.moneda,
+            descripcion: deuda.descripcion || 'Sin descripción',
+            comentarios: deuda.comentarios || '',
+            situacion: situacionDeuda(deuda, grupo.esTercero),
+            monto: Math.abs(Number(deuda.monto)),
+          })
+          const montoCell = filaDetalle.getCell('monto')
+          montoCell.numFmt = '#,##0.00'
+          montoCell.font = { color: { argb: esPrestamo(deuda) ? 'FF16a34a' : 'FFdc2626' } }
+          filaDetalle.getCell('comentarios').alignment = { wrapText: true, vertical: 'top' }
+        }
+      }
+    }
+
+    const totales = Array.from(totalesPorSucursal.values()).sort(
+      (a, b) => a.sucursal.localeCompare(b.sucursal, 'es') || a.moneda.localeCompare(b.moneda),
+    )
+    for (const total of totales) {
+      const balance = total.aCobrar - total.aPagar
+      const fila = simplificado.addRow({ ...total, balance })
+      for (const key of ['aCobrar', 'aPagar', 'balance']) fila.getCell(key).numFmt = '#,##0.00'
+      fila.getCell('balance').font = { bold: true, color: { argb: balance >= 0 ? 'FF16a34a' : 'FFdc2626' } }
+    }
+
+    for (const sheet of [simplificado, resumen, detalle]) {
+      estiloCabecera(sheet)
+      sheet.views = [{ state: 'frozen', ySplit: 1 }]
+      sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columnCount } }
+    }
+
+    const hoy = formatearFechaExcel(new Date())
+    const filename = `Deudas y prestamos - Todas las sucursales ${hoy}.xlsx`
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
+    await workbook.xlsx.write(res)
+    res.end()
+  } catch (error) {
+    console.error('Error en exportDeudasToExcel:', error)
     if (!res.headersSent) res.status(500).json({ success: false, message: 'Error al generar el Excel' })
   }
 }
