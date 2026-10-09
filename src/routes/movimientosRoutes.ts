@@ -16,7 +16,11 @@ import {
   updateComentarioEfectivo,
   updateOrdenMovimiento,
 } from '../controllers/movimientosController'
-import { exportDeudasToExcel, exportEfectivoToExcel } from '../controllers/exportController'
+import {
+  exportDeudasSucursalToExcel,
+  exportDeudasToExcel,
+  exportEfectivoToExcel,
+} from '../controllers/exportController'
 import {
   getDocumentos,
   uploadDocumento,
@@ -38,6 +42,7 @@ router.use(requireModule('tesoreria'))
 // Deudas inter-sucursal
 router.get('/deudas', requirePermission('ver_movimientos'), getDeudasInterSucursal)
 router.get('/deudas/export', requirePermission('ver_movimientos'), exportDeudasToExcel)
+router.get('/deudas/:sucursalId/export', requirePermission('ver_movimientos'), exportDeudasSucursalToExcel)
 router.get('/resumen-diario', requirePermission('ver_movimientos'), getResumenTesoreria)
 router.post('/resumen-diario/email', requirePermission('ver_movimientos'), emailResumenTesoreria)
 
