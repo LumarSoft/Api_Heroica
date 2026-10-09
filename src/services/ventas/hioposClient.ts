@@ -19,7 +19,12 @@
  *   - En los endpoints /bridge-back/ el fallo de auth viene como 500 "Authentication failed".
  */
 
-const DEFAULT_CLOUDLICENSE_URL = 'https://cloudlicense.icg.eu'
+/**
+ * Los clientes de Hiopos (distribución Argentina) están en el CloudLicense de Hiopos, no en
+ * el global de ICG: el mismo email da "código 13, cliente no encontrado" en el otro. Sin
+ * HIOPOS_CLOUDLICENSE_URL se prueba primero el de Hiopos y, si no conoce al cliente, el de ICG.
+ */
+const CLOUDLICENSE_URLS_DEFAULT = ['https://cloudlicense.hiopos.com', 'https://cloudlicense.icg.eu']
 const TIMEOUT_LOGIN_MS = 20_000
 const TIMEOUT_LAUNCH_MS = 45_000
 const INTERVALO_MIN_MS = 500
@@ -73,8 +78,9 @@ export function hioposConfigurado(): boolean {
   return Boolean(process.env.HIOPOS_EMAIL && process.env.HIOPOS_PASSWORD)
 }
 
-function cloudLicenseUrl(): string {
-  return (process.env.HIOPOS_CLOUDLICENSE_URL || DEFAULT_CLOUDLICENSE_URL).replace(/\/+$/, '')
+function cloudLicenseUrls(): string[] {
+  const configurada = process.env.HIOPOS_CLOUDLICENSE_URL?.trim()
+  return (configurada ? [configurada] : CLOUDLICENSE_URLS_DEFAULT).map(u => u.replace(/\/+$/, ''))
 }
 
 const esperar = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -171,17 +177,35 @@ export class HioposSesion {
       isoCode: 'ES',
     })
     // Sí: es un GET con la contraseña en la query. Así lo define ICG.
-    const response = await fetchConTimeout(
-      `${cloudLicenseUrl()}/services/cloud/getCustomerWithAuthToken?${params.toString()}`,
-      { method: 'GET', headers: { Accept: 'application/xml, text/xml, */*' } },
-      TIMEOUT_LOGIN_MS,
-    )
-    const xml = await response.text()
-    if (!response.ok) {
-      throw new HioposError(`CloudLicense respondió ${response.status} al iniciar sesión`, 'servidor', response.status)
+    const urls = cloudLicenseUrls()
+    let ultimoError: HioposError | null = null
+    for (const url of urls) {
+      const response = await fetchConTimeout(
+        `${url}/services/cloud/getCustomerWithAuthToken?${params.toString()}`,
+        { method: 'GET', headers: { Accept: 'application/xml, text/xml, */*' } },
+        TIMEOUT_LOGIN_MS,
+      )
+      const xml = await response.text()
+      if (!response.ok) {
+        throw new HioposError(
+          `CloudLicense respondió ${response.status} al iniciar sesión`,
+          'servidor',
+          response.status,
+        )
+      }
+      try {
+        this.datos = interpretarLogin(xml)
+        return this.datos
+      } catch (err: unknown) {
+        // Cliente inexistente en este CloudLicense (código 13): probar el siguiente.
+        if (err instanceof HioposError && /<code>\s*13\s*<\/code>/.test(xml) && url !== urls[urls.length - 1]) {
+          ultimoError = err
+          continue
+        }
+        throw err
+      }
     }
-    this.datos = interpretarLogin(xml)
-    return this.datos
+    throw ultimoError ?? new HioposError('No se pudo iniciar sesión en CloudLicense', 'servidor')
   }
 
   private async turno(): Promise<void> {
