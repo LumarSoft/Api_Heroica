@@ -21,6 +21,11 @@ export interface DeudaPendiente {
 
 export const ETIQUETA_TERCEROS = 'Terceros'
 
+// Mismos valores que los filtros del modal de deudas (front/lib/deudas.ts).
+export type FiltroTipoDeuda = 'todos' | 'deudas' | 'prestamos'
+export const FILTRO_SUCURSAL_TODAS = '__todas__'
+export const FILTRO_SUCURSAL_TERCEROS = '__terceros__'
+
 interface FiltroDeudas {
   /** Sucursales a incluir; sin definir = todas las activas. */
   sucursalIds?: (number | string)[]
@@ -102,6 +107,25 @@ export function sucursalRelacionada(deuda: DeudaPendiente): string | undefined {
 /** Préstamo: crédito que esta sucursal otorgó (nos deben). Deuda: lo que esta sucursal debe. */
 export function esPrestamo(deuda: DeudaPendiente): boolean {
   return deuda.tipo === 'ingreso'
+}
+
+export function esFiltroTipoDeuda(value: unknown): value is FiltroTipoDeuda {
+  return value === 'todos' || value === 'deudas' || value === 'prestamos'
+}
+
+export function filtrarDeudas(
+  deudas: DeudaPendiente[],
+  filtros: { tipo: FiltroTipoDeuda; sucursal: string },
+): DeudaPendiente[] {
+  return deudas.filter(deuda => {
+    if (filtros.tipo === 'prestamos' && !esPrestamo(deuda)) return false
+    if (filtros.tipo === 'deudas' && esPrestamo(deuda)) return false
+
+    if (filtros.sucursal === FILTRO_SUCURSAL_TODAS) return true
+    const sucursal = sucursalRelacionada(deuda)
+    if (filtros.sucursal === FILTRO_SUCURSAL_TERCEROS) return !sucursal
+    return sucursal === filtros.sucursal
+  })
 }
 
 export interface DeudaAgrupada {

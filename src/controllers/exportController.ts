@@ -5,10 +5,13 @@ import { verificarAccesoSucursal } from '../utils/movimientosHelpers'
 import { esSuperadmin, getSucursalesDeUsuario } from '../services/authCacheService'
 import {
   agruparDeudas,
+  esFiltroTipoDeuda,
   esPrestamo,
+  filtrarDeudas,
   obtenerDeudasPendientes,
   situacionDeuda,
   sucursalRelacionada,
+  FILTRO_SUCURSAL_TODAS,
 } from '../utils/deudasHelpers'
 
 type AlcanceCaja = 'efectivo' | 'banco' | 'ambas'
@@ -390,6 +393,105 @@ export const exportDeudasToExcel = async (req: Request, res: Response) => {
     res.end()
   } catch (error) {
     console.error('Error en exportDeudasToExcel:', error)
+    if (!res.headersSent) res.status(500).json({ success: false, message: 'Error al generar el Excel' })
+  }
+}
+
+// GET /api/movimientos/deudas/:sucursalId/export?fechaInicio=&fechaFin=&tipo=&sucursal=
+// Exporta lo que muestra el modal de deudas de una sucursal, con sus filtros aplicados (incluye terceros).
+export const exportDeudasSucursalToExcel = async (req: Request, res: Response) => {
+  try {
+    const { sucursalId } = req.params
+    const {
+      fechaInicio,
+      fechaFin,
+      tipo: tipoParam,
+      sucursal: sucursalParam,
+    } = req.query as Record<string, string | undefined>
+
+    if (!(await verificarAccesoSucursal(req.user!, sucursalId))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
+    }
+
+    const [sucursal] = (await query('SELECT nombre FROM sucursales WHERE id = ?', [sucursalId])) as any[]
+    if (!sucursal) {
+      return res.status(404).json({ success: false, message: 'Sucursal no encontrada' })
+    }
+
+    const tipo = esFiltroTipoDeuda(tipoParam) ? tipoParam : 'todos'
+    const deudas = await obtenerDeudasPendientes({ sucursalIds: [sucursalId], fechaInicio, fechaFin })
+    const grupos = agruparDeudas(filtrarDeudas(deudas, { tipo, sucursal: sucursalParam || FILTRO_SUCURSAL_TODAS }))
+
+    const workbook = new ExcelJS.Workbook()
+    workbook.creator = 'Heroica'
+    workbook.created = new Date()
+
+    // Igual que el modal: "Solo deudas" oculta lo a cobrar, "Solo préstamos" lo a pagar, y el neto solo con ambos.
+    const columnasMonto = [
+      ...(tipo !== 'deudas' ? [{ header: 'A cobrar', key: 'aCobrar', width: 16 }] : []),
+      ...(tipo !== 'prestamos' ? [{ header: 'A pagar', key: 'aPagar', width: 16 }] : []),
+      ...(tipo === 'todos' ? [{ header: 'Neto', key: 'balance', width: 16 }] : []),
+    ]
+    const resumen = workbook.addWorksheet('Resumen')
+    resumen.columns = [
+      { header: 'Relacionada con', key: 'sucursal', width: 28 },
+      { header: 'Moneda', key: 'moneda', width: 10 },
+      ...columnasMonto,
+      { header: 'Movimientos', key: 'cantidad', width: 14 },
+    ]
+    for (const grupo of grupos) {
+      const row = resumen.addRow({
+        sucursal: grupo.sucursal,
+        moneda: grupo.moneda,
+        aCobrar: grupo.aCobrar,
+        aPagar: grupo.aPagar,
+        balance: grupo.balance,
+        cantidad: grupo.movimientos.length,
+      })
+      for (const { key } of columnasMonto) row.getCell(key).numFmt = '#,##0.00'
+      if (tipo === 'todos') {
+        row.getCell('balance').font = { bold: true, color: { argb: grupo.balance >= 0 ? 'FF16a34a' : 'FFdc2626' } }
+      }
+    }
+    estiloCabecera(resumen)
+
+    const detalle = workbook.addWorksheet('Detalle')
+    detalle.columns = [
+      { header: 'Fecha', key: 'fecha', width: 14 },
+      { header: 'Relacionada con', key: 'sucursal', width: 28 },
+      { header: 'Moneda', key: 'moneda', width: 10 },
+      { header: 'Descripción', key: 'descripcion', width: 32 },
+      { header: 'Observaciones', key: 'comentarios', width: 50 },
+      { header: 'Situación', key: 'situacion', width: 22 },
+      { header: 'Monto', key: 'monto', width: 16 },
+    ]
+    for (const grupo of grupos) {
+      for (const deuda of grupo.movimientos) {
+        const row = detalle.addRow({
+          fecha: deuda.fecha ?? '',
+          sucursal: grupo.sucursal,
+          moneda: grupo.moneda,
+          descripcion: deuda.descripcion || 'Sin descripción',
+          comentarios: deuda.comentarios || '',
+          situacion: situacionDeuda(deuda, grupo.esTercero),
+          monto: Math.abs(Number(deuda.monto)),
+        })
+        const montoCell = row.getCell('monto')
+        montoCell.numFmt = '#,##0.00'
+        montoCell.font = { color: { argb: esPrestamo(deuda) ? 'FF16a34a' : 'FFdc2626' } }
+        row.getCell('comentarios').alignment = { wrapText: true, vertical: 'top' }
+      }
+    }
+    estiloCabecera(detalle)
+
+    const periodo = [fechaInicio, fechaFin].filter(Boolean).join(' a ')
+    const filename = `${sanitizarNombre(sucursal.nombre)} - Deudas y prestamos${periodo ? ` ${periodo}` : ''}.xlsx`
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
+    await workbook.xlsx.write(res)
+    res.end()
+  } catch (error) {
+    console.error('Error en exportDeudasSucursalToExcel:', error)
     if (!res.headersSent) res.status(500).json({ success: false, message: 'Error al generar el Excel' })
   }
 }
