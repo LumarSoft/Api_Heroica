@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import type { ResumenTesoreria } from '../controllers/resumenTesoreriaController'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.EMAIL_FROM ?? 'noreply@adminheroica.com'
@@ -547,22 +548,7 @@ export async function sendNuevoPagoPendienteEmail(data: NuevoPagoEmailData): Pro
   }
 }
 
-interface ResumenTesoreriaEmailData {
-  sucursal: string
-  moneda: string
-  dias: Array<{
-    fecha: string
-    ingresos: number
-    egresos: number
-    saldoFinal: number
-    movimientos: Array<{
-      descripcion: string | null
-      monto: number
-      tipo: 'ingreso' | 'egreso'
-      tipo_movimiento: 'efectivo' | 'banco'
-    }>
-  }>
-}
+// ── Resumen diario de tesorería ───────────────────────────────────────────────
 
 const escaparHtml = (valor: string) =>
   valor.replace(
@@ -570,41 +556,156 @@ const escaparHtml = (valor: string) =>
     caracter => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[caracter]!,
   )
 
-export async function sendResumenTesoreriaEmail(destinatario: string, data: ResumenTesoreriaEmailData): Promise<void> {
-  const nombres = ['Ayer', 'Hoy', 'Mañana']
-  const columnas = data.dias
-    .map((dia, indice) => {
-      const movimientos = dia.movimientos.length
-        ? dia.movimientos
-            .map(
-              movimiento =>
-                `<tr><td style="padding:6px 8px 6px 0;color:#374151;font-size:12px;"><span style="display:block;font-weight:600;">${escaparHtml(movimiento.descripcion || 'Sin descripción')}</span><span style="display:block;margin-top:2px;color:#6b7280;font-size:10px;">${movimiento.tipo_movimiento === 'efectivo' ? 'Efectivo' : 'Banco'}</span></td><td align="right" valign="top" style="padding:6px 0;color:${movimiento.tipo === 'egreso' ? '#be123c' : '#047857'};font-size:12px;font-weight:600;white-space:nowrap;">${movimiento.tipo === 'egreso' ? '−' : '+'}${formatMonto(movimiento.monto, data.moneda)}</td></tr>`,
-            )
-            .join('')
-        : '<tr><td colspan="2" style="padding:12px 0;color:#9ca3af;font-size:12px;">Sin movimientos</td></tr>'
-      return `<td width="33%" valign="top" style="padding:12px;border:1px solid #e5e7eb;">
-        <p style="margin:0;color:#002868;font-size:15px;font-weight:700;">${nombres[indice]}</p>
-        <p style="margin:3px 0 10px;color:#6b7280;font-size:11px;">${dia.fecha}</p>
-        <table width="100%" cellpadding="0" cellspacing="0">${movimientos}</table>
-        <div style="margin-top:12px;padding-top:10px;border-top:1px solid #e5e7eb;font-size:11px;color:#6b7280;">
-          Ingresos: ${formatMonto(dia.ingresos, data.moneda)} · Egresos: ${formatMonto(dia.egresos, data.moneda)}
-          <p style="margin:6px 0 0;color:#111827;font-size:13px;font-weight:700;">Saldo final: ${formatMonto(dia.saldoFinal, data.moneda)}</p>
-        </div>
-      </td>`
-    })
-    .join('')
-  const html = baseLayout(
-    `Resumen de tesorería — ${data.sucursal}`,
-    `<h2 style="margin:0 0 6px;color:#111827;font-size:20px;">Resumen de tesorería</h2>
-     <p style="margin:0 0 20px;color:#6b7280;font-size:14px;">${escaparHtml(data.sucursal)} · ${data.moneda}</p>
-     <table width="100%" cellpadding="0" cellspacing="8"><tr>${columnas}</tr></table>`,
-    760,
+/** Monto con signo (los saldos pueden ser negativos). */
+function montoConSigno(monto: number, moneda: string): string {
+  return `${monto < 0 ? '−' : ''}${formatMonto(monto, moneda)}`
+}
+
+function fechaLarga(fecha: string): string {
+  const [anio, mes, dia] = fecha.split('-').map(Number)
+  const texto = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(
+    new Date(anio, mes - 1, dia, 12),
   )
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+
+const COLOR_POSITIVO = '#047857'
+const COLOR_NEGATIVO = '#be123c'
+const colorMonto = (monto: number) => (monto < 0 ? COLOR_NEGATIVO : '#111827')
+
+function tablaSaldos(
+  saldos: ResumenTesoreria['totales'],
+  moneda: string,
+  bancos: Array<{ banco: string; real: number; necesario: number }> = [],
+): string {
+  const celda = 'padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;'
+  const fila = (nombre: string, valores: { real: number; necesario: number }, destacado = false) =>
+    `<tr style="${destacado ? 'background:#f3f4f6;' : ''}">
+      <td style="${celda}color:#111827;font-weight:${destacado ? 700 : 600};">${nombre}</td>
+      <td align="right" style="${celda}color:${colorMonto(valores.real)};font-weight:700;white-space:nowrap;">${montoConSigno(valores.real, moneda)}</td>
+      <td align="right" style="${celda}color:${colorMonto(valores.necesario)};font-weight:${destacado ? 700 : 500};white-space:nowrap;">${montoConSigno(valores.necesario, moneda)}</td>
+    </tr>`
+  const filasBancos = bancos
+    .filter(banco => banco.real !== 0 || banco.necesario !== 0)
+    .map(
+      banco => `<tr>
+        <td style="padding:6px 12px 6px 28px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;">${escaparHtml(banco.banco)}</td>
+        <td align="right" style="padding:6px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;white-space:nowrap;">${montoConSigno(banco.real, moneda)}</td>
+        <td align="right" style="padding:6px 12px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#6b7280;white-space:nowrap;">${montoConSigno(banco.necesario, moneda)}</td>
+      </tr>`,
+    )
+    .join('')
+  return `<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;border-collapse:separate;overflow:hidden;">
+    <tr style="background:#002868;">
+      <th align="left" style="padding:10px 12px;color:#fff;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Caja</th>
+      <th align="right" style="padding:10px 12px;color:#fff;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Saldo real</th>
+      <th align="right" style="padding:10px 12px;color:#fff;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Saldo necesario</th>
+    </tr>
+    ${fila('Caja efectivo', saldos.efectivo)}
+    ${fila('Caja banco', saldos.banco)}
+    ${filasBancos}
+    ${fila('Total', saldos.total, true)}
+  </table>`
+}
+
+function bloqueDia(
+  dia: ResumenTesoreria['sucursales'][number]['dias'][number],
+  etiqueta: string,
+  moneda: string,
+): string {
+  const filas = dia.movimientos.length
+    ? dia.movimientos
+        .map(movimiento => {
+          const caja =
+            movimiento.tipo_movimiento === 'efectivo'
+              ? 'Efectivo'
+              : `Banco${movimiento.banco ? ` · ${escaparHtml(movimiento.banco)}` : ''}`
+          const estado =
+            movimiento.estado === 'completado'
+              ? '<span style="color:#047857;">Realizado</span>'
+              : '<span style="color:#b45309;">Programado</span>'
+          return `<tr>
+            <td style="padding:9px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top;">
+              <div style="color:#111827;font-size:14px;font-weight:600;">${escaparHtml(movimiento.descripcion || 'Sin descripción')}</div>
+              <div style="margin-top:3px;color:#6b7280;font-size:12px;">${caja} · ${estado}</div>
+            </td>
+            <td align="right" style="padding:9px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top;color:${movimiento.monto < 0 ? COLOR_NEGATIVO : COLOR_POSITIVO};font-size:14px;font-weight:700;white-space:nowrap;">${movimiento.monto < 0 ? '−' : '+'}${formatMonto(movimiento.monto, moneda)}</td>
+          </tr>`
+        })
+        .join('')
+    : '<tr><td colspan="2" style="padding:12px;color:#9ca3af;font-size:13px;">Sin movimientos</td></tr>'
+  const neto = dia.ingresos - dia.egresos
+  return `<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;border:1px solid #e5e7eb;border-radius:8px;border-collapse:separate;overflow:hidden;">
+    <tr><td colspan="2" style="padding:10px 12px;background:#eef2ff;border-bottom:1px solid #e5e7eb;">
+      <span style="color:#002868;font-size:15px;font-weight:700;">${etiqueta}</span>
+      <span style="color:#6b7280;font-size:13px;"> · ${fechaLarga(dia.fecha)}</span>
+    </td></tr>
+    ${filas}
+    <tr><td colspan="2" style="padding:10px 12px;background:#f9fafb;font-size:13px;color:#374151;">
+      Ingresos <b style="color:${COLOR_POSITIVO};">${formatMonto(dia.ingresos, moneda)}</b>
+      &nbsp;·&nbsp; Egresos <b style="color:${COLOR_NEGATIVO};">${formatMonto(dia.egresos, moneda)}</b>
+      &nbsp;·&nbsp; Neto del día <b style="color:${colorMonto(neto)};">${montoConSigno(neto, moneda)}</b>
+    </td></tr>
+  </table>`
+}
+
+function bloqueSucursal(
+  sucursal: ResumenTesoreria['sucursales'][number],
+  moneda: string,
+  conSeparador: boolean,
+): string {
+  const etiquetas = ['Ayer', 'Hoy', 'Mañana']
+  return `<div style="${conSeparador ? 'margin-top:36px;padding-top:28px;border-top:3px solid #002868;' : ''}">
+    <h3 style="margin:0 0 12px;color:#002868;font-size:20px;">${escaparHtml(sucursal.sucursal)}</h3>
+    ${tablaSaldos(sucursal.saldos, moneda, sucursal.bancos)}
+    ${sucursal.dias.map((dia, indice) => bloqueDia(dia, etiquetas[indice], moneda)).join('')}
+  </div>`
+}
+
+function tituloResumen(data: ResumenTesoreria): string {
+  return data.alcance === 'todas'
+    ? 'Resumen diario — Todas las sucursales'
+    : `Resumen diario — ${data.sucursales[0]?.sucursal ?? ''}`
+}
+
+export function resumenTesoreriaHtml(data: ResumenTesoreria, comentario = ''): string {
+  const titulo = tituloResumen(data)
+  const comentarioHtml = comentario
+    ? `<div style="margin:0 0 24px;padding:14px 16px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:6px;color:#111827;font-size:15px;line-height:1.5;">${escaparHtml(comentario).replace(/\n/g, '<br />')}</div>`
+    : ''
+  const consolidado =
+    data.alcance === 'todas' && data.sucursales.length > 1
+      ? `<h3 style="margin:0 0 12px;color:#111827;font-size:17px;">Consolidado (${data.sucursales.length} sucursales)</h3>
+         ${tablaSaldos(data.totales, data.moneda)}
+         <div style="height:12px;"></div>`
+      : ''
+  const sucursales = data.sucursales.length
+    ? data.sucursales
+        .map((sucursal, indice) => bloqueSucursal(sucursal, data.moneda, indice > 0 || consolidado !== ''))
+        .join('')
+    : '<p style="color:#6b7280;font-size:14px;">No hay sucursales para mostrar.</p>'
+  return baseLayout(
+    titulo,
+    `${comentarioHtml}
+     <h2 style="margin:0 0 4px;color:#111827;font-size:22px;">${escaparHtml(titulo)}</h2>
+     <p style="margin:0 0 6px;color:#6b7280;font-size:14px;">${fechaLarga(data.fecha)} · Moneda ${data.moneda}</p>
+     <p style="margin:0 0 22px;color:#9ca3af;font-size:12px;line-height:1.5;">Saldo real: movimientos realizados. Saldo necesario: saldo real más los movimientos programados (sin deudas), igual que en Caja efectivo y Caja banco.</p>
+     ${consolidado}
+     ${sucursales}`,
+    680,
+  )
+}
+
+export async function sendResumenTesoreriaEmail(
+  destinatarios: string[],
+  data: ResumenTesoreria,
+  comentario = '',
+): Promise<void> {
   const { error } = await resend.emails.send({
     from: FROM,
-    to: destinatario,
-    subject: `Resumen de tesorería — ${data.sucursal}`,
-    html,
+    to: destinatarios,
+    subject: `${tituloResumen(data)} (${data.fecha.split('-').reverse().join('/')})`,
+    html: resumenTesoreriaHtml(data, comentario),
   })
   if (error) throw new Error(error.message)
 }
