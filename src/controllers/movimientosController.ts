@@ -34,6 +34,7 @@ export const getDeudasInterSucursal = async (req: Request, res: Response) => {
       LEFT JOIN movimientos contraparte ON contraparte.id = m.movimiento_contraparte_id
       LEFT JOIN sucursales contraparte_suc ON contraparte_suc.id = contraparte.sucursal_id
       WHERE m.es_deuda = 1
+        AND m.estado != 'completado'
         AND m.sucursal_id = ?
         AND m.deleted_at IS NULL
         AND suc.activo = 1
