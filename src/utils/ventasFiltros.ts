@@ -17,6 +17,8 @@ export interface FiltrosVentas {
   medioPago: string | null
   canal: string | null
   producto: string | null
+  vendedor: string | null
+  caja: string | null
   /** null = todas las sucursales (superadmin). Array = alcance del usuario. */
   alcance: number[] | null
 }
@@ -36,12 +38,17 @@ function texto(valor: unknown): string | null {
 
 export class FiltroInvalidoError extends Error {}
 
+/**
+ * Lee los filtros de la query (GET) o de `origen` (body de un POST, ej. el constructor
+ * de reportes). Siempre aplica el alcance de sucursales del usuario.
+ */
 export async function parsearFiltrosVentas(
   req: Request,
   rangoFijo?: { desde: string; hasta: string },
+  origen: Record<string, unknown> = req.query as Record<string, unknown>,
 ): Promise<FiltrosVentas> {
-  const desde = rangoFijo?.desde ?? texto(req.query.desde)
-  const hasta = rangoFijo?.hasta ?? texto(req.query.hasta)
+  const desde = rangoFijo?.desde ?? texto(origen.desde)
+  const hasta = rangoFijo?.hasta ?? texto(origen.hasta)
   if (!desde || !hasta || !FECHA_RE.test(desde) || !FECHA_RE.test(hasta)) {
     throw new FiltroInvalidoError('Las fechas desde y hasta son obligatorias (YYYY-MM-DD)')
   }
@@ -49,7 +56,10 @@ export async function parsearFiltrosVentas(
   const dias = (Date.parse(hasta) - Date.parse(desde)) / 86_400_000
   if (dias > MAX_DIAS_CONSULTA) throw new FiltroInvalidoError('El rango de fechas es demasiado amplio')
 
-  const sucursalIds = (texto(req.query.sucursal_ids) ?? '')
+  const sucursalIdsCrudo = Array.isArray(origen.sucursal_ids) ? origen.sucursal_ids.join(',') : origen.sucursal_ids
+  const sucursalIds = (
+    typeof sucursalIdsCrudo === 'number' ? String(sucursalIdsCrudo) : (texto(sucursalIdsCrudo) ?? '')
+  )
     .split(',')
     .map(Number)
     .filter(n => Number.isInteger(n) && n > 0)
@@ -61,10 +71,12 @@ export async function parsearFiltrosVentas(
     desde,
     hasta,
     sucursalIds,
-    categoria: texto(req.query.categoria),
-    medioPago: texto(req.query.medio_pago),
-    canal: texto(req.query.canal),
-    producto: texto(req.query.producto),
+    categoria: texto(origen.categoria),
+    medioPago: texto(origen.medio_pago),
+    canal: texto(origen.canal),
+    producto: texto(origen.producto),
+    vendedor: texto(origen.vendedor),
+    caja: texto(origen.caja),
     alcance,
   }
 }
@@ -116,6 +128,15 @@ export function construirWhereVentas(
   if (filtros.canal) {
     condiciones.push('l.canal = ?')
     params.push(filtros.canal)
+  }
+  // Vendedor y caja se repiten en todas las líneas del documento (incluido el encabezado).
+  if (filtros.vendedor) {
+    condiciones.push('l.vendedor = ?')
+    params.push(filtros.vendedor)
+  }
+  if (filtros.caja) {
+    condiciones.push('l.caja = ?')
+    params.push(filtros.caja)
   }
 
   const filtroProducto: string[] = []

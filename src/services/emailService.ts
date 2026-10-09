@@ -608,3 +608,25 @@ export async function sendResumenTesoreriaEmail(destinatario: string, data: Resu
   })
   if (error) throw new Error(error.message)
 }
+
+// ─── Ventas: reportes por mail ────────────────────────────────────────────────
+
+export interface ReporteVentasEmailData {
+  destinatarios: string[]
+  asunto: string
+  titulo: string
+  /** HTML del cuerpo (ya escapado por quien lo arma). */
+  contenido: string
+  adjuntos?: Array<{ nombre: string; contenido: Buffer }>
+}
+
+export async function sendReporteVentasEmail(data: ReporteVentasEmailData): Promise<void> {
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: data.destinatarios,
+    subject: data.asunto,
+    html: baseLayout(data.titulo, data.contenido, 760),
+    attachments: data.adjuntos?.map(a => ({ filename: a.nombre, content: a.contenido })),
+  })
+  if (error) throw new Error(error.message)
+}

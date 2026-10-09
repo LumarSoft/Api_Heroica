@@ -45,7 +45,7 @@ function tramosFaltantes(importados: Set<string>, desde: string, hasta: string):
 export const getCoberturaVentas = async (req: Request, res: Response) => {
   const desde = typeof req.query.desde === 'string' && FECHA_RE.test(req.query.desde) ? req.query.desde : null
   const hasta = typeof req.query.hasta === 'string' && FECHA_RE.test(req.query.hasta) ? req.query.hasta : null
-  const fuente: FuenteVentas = 'bistrosoft'
+  const fuente: FuenteVentas = 'hiopos'
 
   try {
     const [filas, [ultima]] = (await Promise.all([

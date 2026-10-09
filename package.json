@@ -12,7 +12,8 @@
     "verificar:import-galicia": "tsx scripts/verificarImportacionGalicia.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "hiopos:probar": "tsx scripts/probarHiopos.ts"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm lint-staged"

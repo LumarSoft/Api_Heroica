@@ -3,14 +3,33 @@ import { getOpcionesFiltros, getPanelVentas } from '../controllers/ventasPanelCo
 import { getCoberturaVentas } from '../controllers/ventasCoberturaController'
 import { exportarVentasExcel, getDetalleOperacion, getOperaciones } from '../controllers/ventasOperacionesController'
 import {
+  getConfigHiopos,
   getEstadoIntegraciones,
   getLocalesExternos,
-  getMuestraBistrosoft,
   getSincronizaciones,
+  postDiagnosticoHiopos,
   postProcesarPendientes,
   postSincronizar,
+  putConfigHiopos,
   putLocalExterno,
 } from '../controllers/ventasIntegracionesController'
+import {
+  deleteProgramado,
+  deleteReporteGuardado,
+  getAnalisisProductos,
+  getDefinicionesReportes,
+  getMapaCalor,
+  getProgramados,
+  getReportesGuardados,
+  getVendedores,
+  postConsultaReporte,
+  postEnviarProgramado,
+  postExportarReporte,
+  postProgramado,
+  postReporteGuardado,
+  putProgramado,
+  putReporteGuardado,
+} from '../controllers/ventasReportesController'
 import { requireAnyPermission, requireAuth, requireModule, requirePermission } from '../middlewares/authMiddleware'
 
 const router = Router()
@@ -30,7 +49,28 @@ router.get(
   getCoberturaVentas,
 )
 
-// Integraciones (Bistrosoft / Hiopos)
+// Análisis y constructor de reportes
+const verVentas = requirePermission('ver_ventas')
+router.get('/productos', verVentas, getAnalisisProductos)
+router.get('/mapa-calor', verVentas, getMapaCalor)
+router.get('/vendedores', verVentas, getVendedores)
+router.get('/reportes/definiciones', verVentas, getDefinicionesReportes)
+router.post('/reportes/consulta', verVentas, postConsultaReporte)
+router.post('/reportes/exportar', requirePermission('exportar_ventas'), postExportarReporte)
+router.get('/reportes/guardados', verVentas, getReportesGuardados)
+router.post('/reportes/guardados', verVentas, postReporteGuardado)
+router.put('/reportes/guardados/:id', verVentas, putReporteGuardado)
+router.delete('/reportes/guardados/:id', verVentas, deleteReporteGuardado)
+
+// Envíos programados por mail
+const gestionarReportes = requirePermission('gestionar_reportes_ventas')
+router.get('/reportes/programados', gestionarReportes, getProgramados)
+router.post('/reportes/programados', gestionarReportes, postProgramado)
+router.put('/reportes/programados/:id', gestionarReportes, putProgramado)
+router.delete('/reportes/programados/:id', gestionarReportes, deleteProgramado)
+router.post('/reportes/programados/:id/enviar', gestionarReportes, postEnviarProgramado)
+
+// Integración con Hiopos
 const verIntegraciones = requireAnyPermission(['sincronizar_ventas', 'configurar_ventas'])
 router.get('/integraciones/estado', verIntegraciones, getEstadoIntegraciones)
 router.get('/integraciones/sincronizaciones', verIntegraciones, getSincronizaciones)
@@ -42,6 +82,8 @@ router.post(
 )
 router.get('/integraciones/locales', verIntegraciones, getLocalesExternos)
 router.put('/integraciones/locales/:id', requirePermission('configurar_ventas'), putLocalExterno)
-router.get('/integraciones/bistrosoft/muestra', requirePermission('configurar_ventas'), getMuestraBistrosoft)
+router.get('/integraciones/hiopos/config', verIntegraciones, getConfigHiopos)
+router.put('/integraciones/hiopos/config', requirePermission('configurar_ventas'), putConfigHiopos)
+router.post('/integraciones/hiopos/diagnostico', requirePermission('configurar_ventas'), postDiagnosticoHiopos)
 
 export default router

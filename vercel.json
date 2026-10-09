@@ -18,7 +18,7 @@
   "crons": [
     {
       "path": "/api/ventas/cron",
-      "schedule": "30 7 * * *"
+      "schedule": "0 11 * * *"
     }
   ]
 }

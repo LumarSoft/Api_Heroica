@@ -32,6 +32,7 @@ import { startDbSyncCron } from './services/dbSyncService'
 import { startPeriodoPruebaAlertCron } from './services/rrhhPeriodoPruebaAlertService'
 import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertService'
 import { startEscalasAlertCron } from './services/escalasAlertService'
+import { startVentasCron } from './services/ventas/ventasCron'
 import rrhhSueldosRoutes from './routes/rrhhSueldosRoutes'
 import rrhhAnaliticoRoutes from './routes/rrhhAnaliticoRoutes'
 import ventasRoutes from './routes/ventasRoutes'
@@ -194,6 +195,7 @@ app.listen(PORT, async () => {
   startPeriodoPruebaAlertCron()
   startSolicitudesRrhhAlertCron()
   startEscalasAlertCron()
+  startVentasCron()
 })
 
 export default app

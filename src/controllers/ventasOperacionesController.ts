@@ -19,6 +19,10 @@ interface FilaOperacion {
   unidades: string | number
   medios_pago: string | null
   canal: string | null
+  documento: string | null
+  tipo_documento: string | null
+  vendedor: string | null
+  caja: string | null
   anulada: number
   observada: number
 }
@@ -35,7 +39,9 @@ function sqlOperaciones(filtros: FiltrosVentas) {
            SUM(CASE WHEN l.tipo_linea = 'producto' THEN l.cantidad ELSE 0 END) AS unidades,
            GROUP_CONCAT(DISTINCT CASE WHEN l.tipo_linea = 'pago' THEN l.medio_pago END
                         ORDER BY l.medio_pago SEPARATOR ', ') AS medios_pago,
-           MAX(l.canal) AS canal, MAX(l.anulada) AS anulada, MAX(l.observada) AS observada
+           MAX(l.canal) AS canal, MAX(l.documento) AS documento, MAX(l.tipo_documento) AS tipo_documento,
+           MAX(l.vendedor) AS vendedor, MAX(l.caja) AS caja,
+           MAX(l.anulada) AS anulada, MAX(l.observada) AS observada
     FROM ventas_lineas l
     LEFT JOIN sucursales s ON s.id = l.sucursal_id
     LEFT JOIN ventas_locales_externos le ON le.id = l.local_externo_id
@@ -58,6 +64,10 @@ function mapearOperacion(f: FilaOperacion) {
     unidades: Number(f.unidades),
     mediosPago: f.medios_pago,
     canal: f.canal,
+    documento: f.documento,
+    tipoDocumento: f.tipo_documento,
+    vendedor: f.vendedor,
+    caja: f.caja,
     anulada: Boolean(f.anulada),
     observada: Boolean(f.observada),
   }
@@ -97,7 +107,7 @@ export const getDetalleOperacion = async (req: Request, res: Response) => {
     const fuente = String(req.query.fuente ?? '')
     const fecha = String(req.query.fecha ?? '')
     const transaccionId = String(req.query.transaccion_id ?? '')
-    if (!['bistrosoft', 'hiopos'].includes(fuente) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !transaccionId) {
+    if (fuente !== 'hiopos' || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !transaccionId) {
       res.status(400).json({ success: false, message: 'Operación inválida' })
       return
     }
@@ -106,7 +116,7 @@ export const getDetalleOperacion = async (req: Request, res: Response) => {
     const { where, params } = construirWhereVentas(filtros, 'todas', { incluirAnuladas: true })
     const lineas = (await query(
       `SELECT l.id, l.tipo_linea, l.producto_codigo, l.producto_nombre, l.categoria, l.cantidad, l.precio_unitario,
-              l.importe, l.descuento, l.medio_pago, l.canal, l.estado_origen, l.anulada,
+              l.importe, l.descuento, l.medio_pago, l.canal, l.vendedor, l.caja, l.estado_origen, l.anulada,
               DATE_FORMAT(l.fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora
        FROM ventas_lineas l
        WHERE ${where} AND l.fuente = ? AND l.transaccion_id = ?
@@ -133,6 +143,8 @@ export const getDetalleOperacion = async (req: Request, res: Response) => {
         descuento: Number(l.descuento),
         medioPago: l.medio_pago,
         canal: l.canal,
+        vendedor: l.vendedor,
+        caja: l.caja,
         estadoOrigen: l.estado_origen,
         anulada: Boolean(l.anulada),
         fechaHora: l.fecha_hora,
@@ -165,8 +177,9 @@ export const exportarVentasExcel = async (req: Request, res: Response) => {
       query(`${ops.sql} ORDER BY l.fecha, fecha_hora LIMIT ${MAX_FILAS_EXCEL}`, ops.params),
       query(
         `SELECT DATE_FORMAT(l.fecha, '%Y-%m-%d') AS fecha, DATE_FORMAT(l.fecha_hora, '%Y-%m-%d %H:%i') AS fecha_hora,
-                COALESCE(s.nombre, 'Sin asignar') AS sucursal, l.transaccion_id, l.tipo_linea, l.producto_nombre,
-                l.categoria, l.cantidad, l.importe, l.descuento, l.medio_pago, l.canal, l.anulada
+                COALESCE(s.nombre, 'Sin asignar') AS sucursal, COALESCE(l.documento, l.transaccion_id) AS documento,
+                l.tipo_linea, l.producto_codigo, l.producto_nombre, l.categoria, l.cantidad, l.importe, l.descuento,
+                l.medio_pago, l.canal, l.vendedor, l.caja, l.anulada
          FROM ventas_lineas l LEFT JOIN sucursales s ON s.id = l.sucursal_id
          WHERE ${det.where} ORDER BY l.fecha, l.fecha_hora, l.transaccion_id LIMIT ${MAX_FILAS_EXCEL}`,
         det.params,
@@ -181,17 +194,21 @@ export const exportarVentasExcel = async (req: Request, res: Response) => {
       { header: 'Día operativo', key: 'fecha', width: 14 },
       { header: 'Hora', key: 'fechaHora', width: 18 },
       { header: 'Sucursal', key: 'sucursal', width: 24 },
-      { header: 'Operación', key: 'transaccionId', width: 18 },
+      { header: 'Documento', key: 'documento', width: 18 },
+      { header: 'Tipo', key: 'tipoDocumento', width: 14 },
       { header: 'Total', key: 'total', width: 14, style: { numFmt: '#,##0.00' } },
       { header: 'Cobrado', key: 'cobrado', width: 14, style: { numFmt: '#,##0.00' } },
       { header: 'Unidades', key: 'unidades', width: 10 },
       { header: 'Medios de pago', key: 'mediosPago', width: 28 },
       { header: 'Canal', key: 'canal', width: 16 },
+      { header: 'Vendedor', key: 'vendedor', width: 20 },
+      { header: 'Caja', key: 'caja', width: 12 },
       { header: 'Anulada', key: 'anulada', width: 10 },
     ]
     for (const op of (operaciones as FilaOperacion[]).map(mapearOperacion)) {
       hojaOps.addRow({
         ...op,
+        documento: op.documento ?? op.transaccionId,
         sucursal: op.sucursal ?? `Sin asignar (${op.localExterno ?? '—'})`,
         anulada: op.anulada ? 'Sí' : '',
       })
@@ -203,8 +220,9 @@ export const exportarVentasExcel = async (req: Request, res: Response) => {
       { header: 'Día operativo', key: 'fecha', width: 14 },
       { header: 'Hora', key: 'fecha_hora', width: 18 },
       { header: 'Sucursal', key: 'sucursal', width: 24 },
-      { header: 'Operación', key: 'transaccion_id', width: 18 },
+      { header: 'Documento', key: 'documento', width: 18 },
       { header: 'Tipo', key: 'tipo_linea', width: 10 },
+      { header: 'Código', key: 'producto_codigo', width: 14 },
       { header: 'Producto', key: 'producto_nombre', width: 32 },
       { header: 'Categoría', key: 'categoria', width: 20 },
       { header: 'Cantidad', key: 'cantidad', width: 10 },
@@ -212,6 +230,8 @@ export const exportarVentasExcel = async (req: Request, res: Response) => {
       { header: 'Descuento', key: 'descuento', width: 12, style: { numFmt: '#,##0.00' } },
       { header: 'Medio de pago', key: 'medio_pago', width: 20 },
       { header: 'Canal', key: 'canal', width: 16 },
+      { header: 'Vendedor', key: 'vendedor', width: 20 },
+      { header: 'Caja', key: 'caja', width: 12 },
       { header: 'Anulada', key: 'anulada', width: 10 },
     ]
     for (const l of lineas as Array<Record<string, unknown>>) {

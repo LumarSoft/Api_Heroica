@@ -327,7 +327,7 @@ export const getOpcionesFiltros = async (req: Request, res: Response) => {
     const baseProductos = construirWhereVentas(sinSucursal, 'producto', { incluirAnuladas: true })
     const basePagos = construirWhereVentas(sinSucursal, 'pago', { incluirAnuladas: true })
 
-    const [sucursales, categorias, medios, canales] = await Promise.all([
+    const [sucursales, categorias, medios, canales, vendedores, cajas] = await Promise.all([
       query(
         `SELECT DISTINCT s.id, s.nombre FROM ventas_locales_externos le
          JOIN sucursales s ON s.id = le.sucursal_id AND s.deleted_at IS NULL
@@ -349,6 +349,15 @@ export const getOpcionesFiltros = async (req: Request, res: Response) => {
         `SELECT DISTINCT l.canal AS valor FROM ventas_lineas l WHERE ${base.where} AND l.canal IS NOT NULL ORDER BY valor`,
         base.params,
       ),
+      query(
+        `SELECT DISTINCT l.vendedor AS valor FROM ventas_lineas l
+         WHERE ${basePagos.where} AND l.vendedor IS NOT NULL ORDER BY valor`,
+        basePagos.params,
+      ),
+      query(
+        `SELECT DISTINCT l.caja AS valor FROM ventas_lineas l WHERE ${basePagos.where} AND l.caja IS NOT NULL ORDER BY valor`,
+        basePagos.params,
+      ),
     ])
 
     const valores = (r: unknown) => (r as Array<{ valor: string }>).map(f => f.valor)
@@ -359,6 +368,8 @@ export const getOpcionesFiltros = async (req: Request, res: Response) => {
         categorias: valores(categorias),
         mediosPago: valores(medios),
         canales: valores(canales),
+        vendedores: valores(vendedores),
+        cajas: valores(cajas),
       },
     })
   } catch (err: unknown) {
