@@ -12,6 +12,8 @@ import { query } from '../config/database'
 
 export type TipoRegla = 'categoria' | 'subcategoria' | 'descripcion'
 export type MedioRegla = 'banco' | 'efectivo' | null
+/** Para el punto de equilibrio: los fijos no dependen del nivel de ventas. */
+export type TipoCosto = 'fijo' | 'variable'
 
 export interface ReglaPlantilla {
   tipo: TipoRegla
@@ -29,6 +31,7 @@ export interface SeccionPlantilla {
   id: string
   nombre: string
   detalle: string
+  tipoCosto: TipoCosto
   lineas: LineaPlantilla[]
 }
 
@@ -94,6 +97,7 @@ export function validarPlantilla(v: unknown): PlantillaCorteBalance {
       id: idUnico(s.id, `Sección ${i + 1}`),
       nombre: texto(s.nombre, LIMITES.nombre, `Sección ${i + 1}`),
       detalle: typeof s.detalle === 'string' ? texto(s.detalle, LIMITES.detalle, `Sección ${i + 1}`, false) : '',
+      tipoCosto: s.tipoCosto === 'variable' ? 'variable' : 'fijo',
       lineas: s.lineas.map((l, j): LineaPlantilla => {
         const campo = `Sección ${i + 1}, línea ${j + 1}`
         if (!esObjeto(l)) throw new Error(`${campo}: inválida`)
@@ -133,13 +137,14 @@ const normalizar = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').tri
 // subcategoría a una categoría. Los nombres repetidos en el catálogo (p. ej.
 // dos "Internet") generan una regla por cada id.
 type LineaPorDefecto = [string, string[]]
-type SeccionPorDefecto = { nombre: string; detalle?: string; lineas: LineaPorDefecto[] }
+type SeccionPorDefecto = { nombre: string; detalle?: string; tipoCosto: TipoCosto; lineas: LineaPorDefecto[] }
 
 const SUELDOS = ['sub:Sueldo colaboradores', 'sub:Sueldo gerente', 'sub:Sueldo Administración']
 
 const SECCIONES_POR_DEFECTO: SeccionPorDefecto[] = [
   {
     nombre: 'Gastos Fijos',
+    tipoCosto: 'fijo',
     lineas: [
       ['Alquiler', ['sub:Alquileres']],
       ['Expensas', ['desc:Expensas']],
@@ -160,6 +165,7 @@ const SECCIONES_POR_DEFECTO: SeccionPorDefecto[] = [
   },
   {
     nombre: 'Sueldos',
+    tipoCosto: 'fijo',
     lineas: [
       ['Sueldos Bancarios', SUELDOS.map(r => `${r}@banco`)],
       ['Sueldos Efectivo', SUELDOS.map(r => `${r}@efectivo`)],
@@ -171,6 +177,7 @@ const SECCIONES_POR_DEFECTO: SeccionPorDefecto[] = [
   },
   {
     nombre: 'Gastos Productivos',
+    tipoCosto: 'variable',
     detalle:
       'Compras de materias primas: se incluyen las compras a proveedores directos, que reparten la mercadería directamente en sucursal.\n' +
       'Compra de mercadería: se incluyen las compras realizadas al obrador.',
@@ -181,6 +188,7 @@ const SECCIONES_POR_DEFECTO: SeccionPorDefecto[] = [
   },
   {
     nombre: 'Gastos No Productivos',
+    tipoCosto: 'variable',
     detalle:
       'Limpieza: se incluyen todos los artículos de limpieza, tanto del sector de sitting como del sector productivo.\n' +
       'Papelería: se incluyen todos los artículos descartables para producción, vitrina, take away y operatividad diaria.',
@@ -191,15 +199,18 @@ const SECCIONES_POR_DEFECTO: SeccionPorDefecto[] = [
   },
   {
     nombre: 'Gastos Administrativos',
+    tipoCosto: 'fijo',
     lineas: [
       ['Gastos administrativos', ['sub:ADMINISTRACION VARIABLE/Administrativo']],
       ['Informe Eléctrico', ['desc:informe electrico']],
       ['Diferencias de caja', ['sub:Diferencia de caja efectivo']],
     ],
   },
-  { nombre: 'Gastos Franquicia', lineas: [['Royalty', ['sub:Royalty']]] },
+  // El royalty y las comisiones/impuestos se mueven con las ventas
+  { nombre: 'Gastos Franquicia', tipoCosto: 'variable', lineas: [['Royalty', ['sub:Royalty']]] },
   {
     nombre: 'Gastos Operativos',
+    tipoCosto: 'fijo',
     detalle:
       'Gastos de caja: corresponden a gastos efectuados diariamente desde caja, auditados en cada arqueo con su documento respaldatorio o autorizados por un responsable.',
     lineas: [
@@ -210,14 +221,20 @@ const SECCIONES_POR_DEFECTO: SeccionPorDefecto[] = [
   },
   {
     nombre: 'Gastos Marketing',
+    tipoCosto: 'fijo',
     lineas: [
       ['Agencia', ['sub:Marketing']],
       ['Insumos', ['desc:Dario Churin']],
     ],
   },
-  { nombre: 'Gastos Bancarios y Financieros', lineas: [['Comisiones bancarias', ['cat:FINANCIERO']]] },
+  {
+    nombre: 'Gastos Bancarios y Financieros',
+    tipoCosto: 'variable',
+    lineas: [['Comisiones bancarias', ['cat:FINANCIERO']]],
+  },
   {
     nombre: 'Gastos Impositivos',
+    tipoCosto: 'variable',
     lineas: [
       ['Ingresos Brutos', ['sub:IIBB/CM']],
       ['IVA', ['sub:IVA']],
@@ -280,6 +297,7 @@ export function construirPlantillaPorDefecto(catalogo: CatalogoEgresos): Plantil
       id: slug(s.nombre),
       nombre: s.nombre,
       detalle: s.detalle ?? '',
+      tipoCosto: s.tipoCosto,
       lineas: s.lineas.map(([nombre, reglas]) => ({
         id: `${slug(s.nombre)}--${slug(nombre)}`,
         nombre,
