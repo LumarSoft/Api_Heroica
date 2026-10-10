@@ -95,6 +95,11 @@ export const PERMISOS_DEL_SISTEMA: PermisoDefinicion[] = [
     descripcion: 'Acceder al módulo de reportes y analítica',
     categoria: 'Reportes',
   },
+  {
+    clave: 'editar_plantilla_reportes',
+    descripcion: 'Editar la plantilla global del Corte de balance mensual (agrupación de egresos)',
+    categoria: 'Reportes',
+  },
 
   // ── MÓDULO: CONFIGURACIÓN ────────────────────────────────────────────────
   {
