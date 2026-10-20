@@ -27,6 +27,15 @@ export async function verificarAccesoSucursal(user: any, sucursalId: string | nu
   return sucursales.has(Number(sucursalId))
 }
 
+// Para acciones en bloque: todos los movimientos deben pertenecer a sucursales del usuario
+export async function verificarAccesoMovimientos(user: any, ids: unknown[]): Promise<boolean> {
+  if (await esSuperadmin(user.rol_id)) return true
+  const placeholders = ids.map(() => '?').join(', ')
+  const filas: any = await query(`SELECT DISTINCT sucursal_id FROM movimientos WHERE id IN (${placeholders})`, ids)
+  const sucursales = await getSucursalesDeUsuario(user.id)
+  return filas.every((f: any) => sucursales.has(Number(f.sucursal_id)))
+}
+
 export async function completarContraparte(contraparteId: number): Promise<void> {
   await query(`UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`, [
     contraparteId,

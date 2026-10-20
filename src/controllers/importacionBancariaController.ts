@@ -316,22 +316,20 @@ async function insertarFilasEnLotes(connection: any, filas: unknown[][]): Promis
 // ─────────────────────────────────────────────────────────────
 //  POST /api/importacion-bancaria/confirmar
 // ─────────────────────────────────────────────────────────────
+// La conexión se libera solo en el `finally`: mysql2 no protege contra un release
+// doble y la misma conexión quedaría dos veces en el pool (dos requests compartiéndola).
 export const confirmarImportacion = async (req: Request, res: Response) => {
   const connection = await getConnection()
 
   try {
     const ctx = await prepararImportacion(req, res)
-    if (!ctx) {
-      connection.release()
-      return
-    }
+    if (!ctx) return
 
     const { preview, adapterClave, nombreArchivo, filasPorHash } = ctx
 
     // Garantía de que se confirma exactamente lo que se revisó.
     const hashEsperado = req.body.archivo_hash as string | undefined
     if (hashEsperado && hashEsperado !== preview.archivoHash) {
-      connection.release()
       return res.status(409).json({
         success: false,
         message: 'El archivo cambió respecto del que se previsualizó. Volvé a revisar antes de confirmar.',
@@ -339,7 +337,6 @@ export const confirmarImportacion = async (req: Request, res: Response) => {
     }
 
     if (preview.conceptosSinRegla.length > 0) {
-      connection.release()
       return res.status(422).json({
         success: false,
         message:
@@ -351,7 +348,6 @@ export const confirmarImportacion = async (req: Request, res: Response) => {
     }
 
     if (preview.movimientos.length === 0) {
-      connection.release()
       return res.status(200).json({
         success: true,
         message: 'No hay movimientos nuevos para importar: el archivo ya estaba cargado por completo.',
@@ -369,7 +365,6 @@ export const confirmarImportacion = async (req: Request, res: Response) => {
       [preview.sucursalId, preview.bancoId, preview.archivoHash],
     )
     if (yaConfirmada.length > 0) {
-      connection.release()
       return res.status(409).json({
         success: false,
         message:
@@ -604,17 +599,14 @@ export const revertirImportacion = async (req: Request, res: Response) => {
 
     const [imp]: any = await connection.query('SELECT * FROM importaciones_bancarias WHERE id = ?', [id])
     if (!imp.length) {
-      connection.release()
       return res.status(404).json({ success: false, message: 'No existe esa importación.' })
     }
     const importacion = imp[0]
 
     if (!(await verificarAccesoSucursal(req.user!, importacion.sucursal_id))) {
-      connection.release()
       return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal.' })
     }
     if (importacion.estado === 'revertida') {
-      connection.release()
       return res.status(409).json({ success: false, message: 'Esa importación ya fue revertida.' })
     }
 
