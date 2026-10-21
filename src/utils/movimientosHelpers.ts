@@ -21,6 +21,28 @@ export function formatearFechaRespuesta(fecha: any): string | null {
   return null
 }
 
+// Período contable: mes al que corresponde el movimiento, con formato 'YYYY-MM' hacia el front.
+// En la base, `periodo` NULL significa "el mes de la fecha": solo se guarda cuando el usuario
+// elige otro mes. Así los movimientos que se generan solos no necesitan cargarlo.
+const PERIODO_REGEX = /^(\d{4})-(0[1-9]|1[0-2])(-01)?$/
+
+export function esPeriodoValido(periodo: unknown): boolean {
+  return periodo === undefined || periodo === null || periodo === '' || PERIODO_REGEX.test(String(periodo))
+}
+
+/** Valor a guardar en `movimientos.periodo` ('YYYY-MM-01'), o null si coincide con el mes de la fecha. */
+export function normalizarPeriodo(periodo: unknown, fecha: string): string | null {
+  const match = periodo ? String(periodo).match(PERIODO_REGEX) : null
+  if (!match) return null
+  const mes = `${match[1]}-${match[2]}`
+  return String(fecha).slice(0, 7) === mes ? null : `${mes}-01`
+}
+
+/** Período efectivo ('YYYY-MM') a partir de las columnas crudas `periodo` y `fecha`. */
+export function formatearPeriodoRespuesta(periodo: any, fecha: any): string | null {
+  return formatearFechaRespuesta(periodo ?? fecha)?.slice(0, 7) ?? null
+}
+
 export async function verificarAccesoSucursal(user: any, sucursalId: string | number): Promise<boolean> {
   if (await esSuperadmin(user.rol_id)) return true
   const sucursales = await getSucursalesDeUsuario(user.id)

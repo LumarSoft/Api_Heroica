@@ -3,6 +3,9 @@ import { query } from '../../config/database'
 import {
   normalizarFecha,
   formatearFechaRespuesta,
+  formatearPeriodoRespuesta,
+  esPeriodoValido,
+  normalizarPeriodo,
   verificarAccesoSucursal,
   completarContraparte,
 } from '../../utils/movimientosHelpers'
@@ -31,7 +34,7 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
     const filtros = parseFiltros(req)
     const pag = parsePaginacion(req)
 
-    const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
+    const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.periodo, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
               m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu,
               m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id, m.banco_id, m.medio_pago_id,
               m.es_deuda, m.fecha_original_vencimiento,
@@ -54,6 +57,7 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
       rows.map((m: any) => ({
         ...m,
         fecha: formatearFechaRespuesta(m.fecha),
+        periodo: formatearPeriodoRespuesta(m.periodo, m.fecha),
         fecha_original_vencimiento: m.fecha_original_vencimiento
           ? formatearFechaRespuesta(m.fecha_original_vencimiento)
           : null,
@@ -101,6 +105,7 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       sucursal_id,
       user_id,
       fecha,
+      periodo,
       orden,
       concepto,
       comprobante,
@@ -152,6 +157,10 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
       })
     }
 
+    if (!esPeriodoValido(periodo)) {
+      return res.status(400).json({ success: false, message: 'El período debe tener el formato AAAA-MM' })
+    }
+
     const estadoFinal = estado || 'aprobado'
     const saldo = estadoFinal === 'completado' ? 'saldo_real' : 'saldo_necesario'
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto)
@@ -160,13 +169,14 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, orden, concepto, comprobante, comentarios, monto, tipo_movimiento, saldo, prioridad,
+       (sucursal_id, user_id, fecha, periodo, orden, concepto, comprobante, comentarios, monto, tipo_movimiento, saldo, prioridad,
         numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, banco_id, medio_pago_id, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
         normalizarFecha(fecha),
+        normalizarPeriodo(periodo, fecha),
         orden ?? null,
         concepto ?? '',
         comprobante || null,
@@ -206,6 +216,7 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
     const { id } = req.params
     const {
       fecha,
+      periodo,
       concepto,
       comprobante,
       monto,
@@ -228,6 +239,9 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
     if (!fecha || monto === undefined) {
       return res.status(400).json({ success: false, message: 'Fecha y monto son requeridos' })
     }
+    if (!esPeriodoValido(periodo)) {
+      return res.status(400).json({ success: false, message: 'El período debe tener el formato AAAA-MM' })
+    }
 
     const existingResult: any = await query("SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco'", [
       id,
@@ -239,12 +253,15 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto)
     await query(
       `UPDATE movimientos
-       SET fecha = ?, concepto = ?, comprobante = ?, monto = ?, comentarios = ?, prioridad = ?,
+       SET fecha = ?, periodo = IF(?, ?, periodo), concepto = ?, comprobante = ?, monto = ?, comentarios = ?, prioridad = ?,
            numero_cheque = ?, banco = ?, cuenta = ?, cbu = ?, tipo_operacion = ?, tipo = ?,
            categoria_id = ?, subcategoria_id = ?, descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?
        WHERE id = ? AND tipo_movimiento = 'banco'`,
       [
         normalizarFecha(fecha),
+        // Si el body no trae período (ej. edición en celda) se conserva el que tenía
+        periodo !== undefined ? 1 : 0,
+        normalizarPeriodo(periodo, fecha),
         concepto ?? '',
         comprobante || null,
         adjustedMonto,
