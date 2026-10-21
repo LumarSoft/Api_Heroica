@@ -357,7 +357,8 @@ export async function cancelarPrestamo(user: Usuario, id: number) {
       throw new PrestamoError(403, 'Solo quien hizo el pedido puede cancelarlo')
     }
     if (p.estado !== 'solicitado') throw new PrestamoError(409, 'Solo se puede cancelar un pedido sin resolver')
-    await conn.execute("UPDATE prestamos_sucursales SET estado = 'cancelado', resuelto_at = NOW() WHERE id = ?", [id])
+    // Un pedido retirado queda "anulado": "cancelado" es solo para el préstamo ya devuelto del todo
+    await conn.execute("UPDATE prestamos_sucursales SET estado = 'anulado', resuelto_at = NOW() WHERE id = ?", [id])
     return { id }
   })
 }
