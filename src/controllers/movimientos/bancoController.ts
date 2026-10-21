@@ -32,7 +32,8 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
     const pag = parsePaginacion(req)
 
     const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
-              m.saldo as tipo_movimiento, m.estado, m.numero_cheque, m.banco, m.cuenta, m.cbu,
+              m.saldo as tipo_movimiento, m.estado, m.numero_cheque,
+              m.cheque_rechazado, m.cheque_rechazado_at, m.cheque_rechazo_motivo, m.banco, m.cuenta, m.cbu,
               m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id, m.banco_id, m.medio_pago_id,
               m.es_deuda, m.fecha_original_vencimiento,
               m.moneda, m.tipo_cambio,
@@ -57,6 +58,8 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
         fecha_original_vencimiento: m.fecha_original_vencimiento
           ? formatearFechaRespuesta(m.fecha_original_vencimiento)
           : null,
+        cheque_rechazado: Boolean(m.cheque_rechazado),
+        cheque_rechazado_at: m.cheque_rechazado_at ? formatearFechaRespuesta(m.cheque_rechazado_at) : null,
       }))
 
     if (saldo === null) {
@@ -271,6 +274,63 @@ export const updateMovimientoBanco = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al actualizar movimiento banco:', error)
     res.status(500).json({ success: false, message: 'Error al actualizar movimiento banco' })
+  }
+}
+
+// PATCH /api/caja-banco/:id/cheque-rechazado — Body: { rechazado: boolean, motivo?: string }
+// Marca (o desmarca) el cheque / eCheq del movimiento como rechazado. Es solo una etiqueta:
+// no cambia estado ni saldo, porque un pago con un eCheq que rebotó sigue pendiente.
+export const marcarChequeRechazado = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { rechazado, motivo } = req.body
+
+    if (typeof rechazado !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'rechazado debe ser true o false' })
+    }
+
+    const movResult: any = await query(
+      `SELECT m.id, m.sucursal_id, mp.nombre AS medio_pago_nombre
+       FROM movimientos m
+       LEFT JOIN medios_pago mp ON m.medio_pago_id = mp.id
+       WHERE m.id = ? AND m.tipo_movimiento = 'banco' AND m.deleted_at IS NULL`,
+      [id],
+    )
+    if (!Array.isArray(movResult) || movResult.length === 0) {
+      return res.status(404).json({ success: false, message: 'Movimiento no encontrado' })
+    }
+    const mov = movResult[0]
+
+    if (!(await verificarAccesoSucursal(req.user!, mov.sucursal_id))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a esta sucursal' })
+    }
+    if (rechazado && !/cheque|echeq/i.test(mov.medio_pago_nombre ?? '')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Solo se puede marcar como rechazado un movimiento pagado con cheque o eCheq',
+      })
+    }
+
+    const motivoFinal = rechazado
+      ? String(motivo ?? '')
+          .trim()
+          .slice(0, 255) || null
+      : null
+    await query(
+      `UPDATE movimientos
+       SET cheque_rechazado = ?, cheque_rechazado_at = IF(?, NOW(), NULL), cheque_rechazo_motivo = ?
+       WHERE id = ?`,
+      [rechazado ? 1 : 0, rechazado ? 1 : 0, motivoFinal, id],
+    )
+
+    res.json({
+      success: true,
+      message: rechazado ? 'Cheque marcado como rechazado' : 'Se quitó la marca de rechazado',
+      data: { id: Number(id), cheque_rechazado: rechazado, cheque_rechazo_motivo: motivoFinal },
+    })
+  } catch (error) {
+    console.error('Error al marcar cheque rechazado:', error)
+    res.status(500).json({ success: false, message: 'Error al actualizar el cheque' })
   }
 }
 

@@ -13,6 +13,7 @@ import {
   transferenciaInternaBanco,
   updateComentarioBanco,
   updateOrdenMovimiento,
+  marcarChequeRechazado,
 } from '../controllers/movimientosController'
 import { exportBancoToExcel } from '../controllers/exportController'
 import {
@@ -60,6 +61,9 @@ router.put('/:id/estado', requirePermission('aprobar_movimientos'), updateEstado
 
 // Actualizar deuda de movimiento banco
 router.put('/:id/deuda', requirePermission('editar_movimientos'), toggleDeudaBanco)
+
+// Marcar / desmarcar el cheque o eCheq como rechazado
+router.patch('/:id/cheque-rechazado', requirePermission('editar_movimientos'), marcarChequeRechazado)
 
 // Actualizar posición manual (drag & drop / inserción)
 router.patch('/:id/orden', requirePermission('editar_movimientos'), updateOrdenMovimiento)
