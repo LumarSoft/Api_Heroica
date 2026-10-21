@@ -1,6 +1,12 @@
 import { Request, Response } from 'express'
 import { getConnection, query } from '../../config/database'
-import { normalizarFecha, formatearFechaRespuesta } from '../../utils/movimientosHelpers'
+import {
+  normalizarFecha,
+  formatearFechaRespuesta,
+  formatearPeriodoRespuesta,
+  esPeriodoValido,
+  normalizarPeriodo,
+} from '../../utils/movimientosHelpers'
 import { sendPagoAprobadoEmail, sendPagoRechazadoEmail, sendNuevoPagoPendienteEmail } from '../../services/emailService'
 import { getRolDeUsuario } from '../../services/authCacheService'
 import { estadoPagoAprobado } from '../../services/estadoPagoService'
@@ -9,6 +15,7 @@ const formatearPagos = (result: any[]) =>
   result.map((m: any) => ({
     ...m,
     fecha: formatearFechaRespuesta(m.fecha),
+    periodo: formatearPeriodoRespuesta(m.periodo, m.fecha),
     fecha_original_vencimiento: m.fecha_original_vencimiento
       ? formatearFechaRespuesta(m.fecha_original_vencimiento)
       : null,
@@ -172,6 +179,7 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
       sucursal_id,
       user_id,
       fecha,
+      periodo,
       concepto,
       comentarios,
       monto,
@@ -199,6 +207,9 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
         message: 'Faltan campos requeridos. Las observaciones son obligatorias',
       })
     }
+    if (!esPeriodoValido(periodo)) {
+      return res.status(400).json({ success: false, message: 'El período debe tener el formato AAAA-MM' })
+    }
 
     const destinoCaja = tipo_movimiento === 'banco' ? 'banco' : 'efectivo'
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto)
@@ -211,12 +222,13 @@ export const createPagoPendiente = async (req: Request, res: Response) => {
     // categoría, subcategoría, descripción, proveedor, etc.) sí se persiste acá.
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, concepto, comentarios, monto, tipo_movimiento, saldo, prioridad, estado, tipo, categoria_id, subcategoria_id, descripcion_id, proveedor_id, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?)`,
+       (sucursal_id, user_id, fecha, periodo, concepto, comentarios, monto, tipo_movimiento, saldo, prioridad, estado, tipo, categoria_id, subcategoria_id, descripcion_id, proveedor_id, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'saldo_necesario', ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
         normalizarFecha(fecha),
+        normalizarPeriodo(periodo, fecha),
         concepto ?? '',
         comentarios || null,
         adjustedMonto,
@@ -268,6 +280,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
       usuario_revisor_id,
       tipo_caja,
       fecha,
+      periodo,
       concepto,
       comentarios,
       monto,
@@ -283,6 +296,9 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
 
     if (!usuario_revisor_id) {
       return res.status(400).json({ success: false, message: 'ID de usuario revisor es requerido' })
+    }
+    if (!esPeriodoValido(periodo)) {
+      return res.status(400).json({ success: false, message: 'El período debe tener el formato AAAA-MM' })
     }
 
     if (!categoria_id || !subcategoria_id || !descripcion_id) {
@@ -335,7 +351,7 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
     await query(
       `UPDATE movimientos
        SET estado = ?, usuario_revisor_id = ?, fecha_revision = NOW(), tipo_movimiento = ?, saldo = ?,
-           fecha = COALESCE(?, fecha), concepto = COALESCE(?, concepto), comentarios = ?, monto = ?, 
+           fecha = COALESCE(?, fecha), periodo = IF(?, ?, periodo), concepto = COALESCE(?, concepto), comentarios = ?, monto = ?, 
            prioridad = COALESCE(?, prioridad), categoria_id = ?, subcategoria_id = ?, 
            descripcion_id = ?, proveedor_id = ?, banco_id = ?, medio_pago_id = ?,
            numero_cheque = COALESCE(?, numero_cheque)
@@ -346,6 +362,9 @@ export const aprobarPagoPendiente = async (req: Request, res: Response) => {
         newTipoMovimiento,
         estadoFinal === 'completado' ? 'saldo_real' : 'saldo_necesario',
         fecha ? normalizarFecha(fecha) : null,
+        // Si el body no trae período se conserva el que tenía el pago
+        periodo !== undefined ? 1 : 0,
+        normalizarPeriodo(periodo, fecha || formatearFechaRespuesta(pago.fecha) || ''),
         concepto || null,
         nuevaDescripcion,
         adjustedMonto,
