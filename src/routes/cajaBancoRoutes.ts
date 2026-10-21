@@ -27,13 +27,13 @@ import { requireAuth, requirePermission, requireModule } from '../middlewares/au
 
 const router = Router()
 
-// Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
-router.delete('/bulk', deleteBulkMovimientos)
-router.put('/bulk/mover', moverBulkMovimientos)
-
 // Todas las rutas requieren autenticación
 router.use(requireAuth)
 router.use(requireModule('tesoreria'))
+
+// Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
+router.delete('/bulk', requirePermission('eliminar_movimientos'), deleteBulkMovimientos)
+router.put('/bulk/mover', requirePermission('editar_movimientos'), moverBulkMovimientos)
 
 // Obtener movimientos banco de una sucursal
 router.get('/:sucursalId', requirePermission('ver_movimientos'), getMovimientosBancoBySucursal)

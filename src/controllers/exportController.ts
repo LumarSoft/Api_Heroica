@@ -173,6 +173,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
 
   const rows = (await query(
     `SELECT m.fecha, m.tipo, m.concepto, m.monto,
+            DATE_FORMAT(COALESCE(m.periodo, m.fecha), '%m/%y') AS periodo,
             m.estado,
             m.tipo_movimiento AS caja,
             c.nombre AS categoria,
@@ -203,6 +204,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
   const sheet = workbook.addWorksheet(NOMBRE_HOJA[alcance])
   sheet.columns = [
     { header: 'Fecha', key: 'fecha', width: 14 },
+    { header: 'Período', key: 'periodo', width: 10 },
     ...(alcance === 'ambas' ? [{ header: 'Caja', key: 'caja', width: 12 }] : []),
     { header: 'Tipo', key: 'tipo', width: 12 },
     { header: 'Concepto', key: 'concepto', width: 36 },
@@ -219,6 +221,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
     const esEfectivo = m.caja === 'efectivo'
     const row = sheet.addRow({
       fecha: formatearFechaExcel(m.fecha),
+      periodo: m.periodo || '',
       caja: esEfectivo ? 'Efectivo' : 'Banco',
       tipo: m.tipo,
       concepto: m.concepto || '',

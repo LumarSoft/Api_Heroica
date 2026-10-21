@@ -3,6 +3,9 @@ import { query } from '../../config/database'
 import {
   normalizarFecha,
   formatearFechaRespuesta,
+  formatearPeriodoRespuesta,
+  esPeriodoValido,
+  normalizarPeriodo,
   verificarAccesoSucursal,
   completarContraparte,
 } from '../../utils/movimientosHelpers'
@@ -31,7 +34,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
     const filtros = parseFiltros(req)
     const pag = parsePaginacion(req)
 
-    const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.orden, m.concepto, m.monto, m.comentarios, m.prioridad,
+    const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.periodo, m.orden, m.concepto, m.monto, m.comentarios, m.prioridad,
               m.saldo as tipo_movimiento, m.estado, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id,
               m.tipo, m.es_deuda, m.fecha_original_vencimiento,
               m.moneda, m.tipo_cambio,
@@ -51,6 +54,7 @@ export const getMovimientosBySucursal = async (req: Request, res: Response) => {
       rows.map((m: any) => ({
         ...m,
         fecha: formatearFechaRespuesta(m.fecha),
+        periodo: formatearPeriodoRespuesta(m.periodo, m.fecha),
         fecha_original_vencimiento: m.fecha_original_vencimiento
           ? formatearFechaRespuesta(m.fecha_original_vencimiento)
           : null,
@@ -98,6 +102,7 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       sucursal_id,
       user_id,
       fecha,
+      periodo,
       orden,
       concepto,
       comentarios,
@@ -134,6 +139,10 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
       })
     }
 
+    if (!esPeriodoValido(periodo)) {
+      return res.status(400).json({ success: false, message: 'El período debe tener el formato AAAA-MM' })
+    }
+
     const estadoFinal = estado || 'aprobado'
     const saldo = estadoFinal === 'completado' ? 'saldo_real' : 'saldo_necesario'
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto)
@@ -142,12 +151,13 @@ export const createMovimientoEfectivo = async (req: Request, res: Response) => {
 
     const result: any = await query(
       `INSERT INTO movimientos
-       (sucursal_id, user_id, fecha, orden, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (sucursal_id, user_id, fecha, periodo, orden, concepto, comentarios, monto, saldo, tipo_movimiento, prioridad, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, tipo, moneda, tipo_cambio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'efectivo', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         sucursal_id,
         user_id,
         normalizarFecha(fecha),
+        normalizarPeriodo(periodo, fecha),
         orden ?? null,
         concepto ?? '',
         comentarios || null,
@@ -202,6 +212,7 @@ export const updateMovimiento = async (req: Request, res: Response) => {
     const { id } = req.params
     const {
       fecha,
+      periodo,
       concepto,
       monto,
       comentarios,
@@ -216,6 +227,9 @@ export const updateMovimiento = async (req: Request, res: Response) => {
     if (!fecha || monto === undefined) {
       return res.status(400).json({ success: false, message: 'Fecha y monto son requeridos' })
     }
+    if (!esPeriodoValido(periodo)) {
+      return res.status(400).json({ success: false, message: 'El período debe tener el formato AAAA-MM' })
+    }
 
     const existingResult: any = await query(
       "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'efectivo' AND deleted_at IS NULL",
@@ -228,10 +242,13 @@ export const updateMovimiento = async (req: Request, res: Response) => {
     const adjustedMonto = tipo === 'egreso' ? -Math.abs(monto) : Math.abs(monto)
     await query(
       `UPDATE movimientos
-       SET fecha = ?, concepto = ?, monto = ?, comentarios = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, descripcion_id = ?, proveedor_id = ?, tipo = ?
+       SET fecha = ?, periodo = IF(?, ?, periodo), concepto = ?, monto = ?, comentarios = ?, prioridad = ?, categoria_id = ?, subcategoria_id = ?, descripcion_id = ?, proveedor_id = ?, tipo = ?
        WHERE id = ? AND tipo_movimiento = 'efectivo'`,
       [
         normalizarFecha(fecha),
+        // Si el body no trae período (ej. edición en celda) se conserva el que tenía
+        periodo !== undefined ? 1 : 0,
+        normalizarPeriodo(periodo, fecha),
         concepto ?? '',
         adjustedMonto,
         comentarios || null,
