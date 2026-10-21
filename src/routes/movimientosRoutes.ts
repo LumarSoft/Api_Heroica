@@ -47,8 +47,8 @@ router.get('/resumen-diario', requirePermission('ver_movimientos'), getResumenTe
 router.post('/resumen-diario/email', requirePermission('ver_movimientos'), emailResumenTesoreria)
 
 // Acciones en bloque (deben ir antes de rutas con parámetros dinámicos)
-router.delete('/bulk', deleteBulkMovimientos)
-router.put('/bulk/mover', moverBulkMovimientos)
+router.delete('/bulk', requirePermission('eliminar_movimientos'), deleteBulkMovimientos)
+router.put('/bulk/mover', requirePermission('editar_movimientos'), moverBulkMovimientos)
 
 // Crear movimiento efectivo (debe ir antes de /:sucursalId)
 router.post('/efectivo', requirePermission('crear_movimientos'), createMovimientoEfectivo)

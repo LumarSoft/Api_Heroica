@@ -1,6 +1,6 @@
 import { Request, Response } from 'express'
 import { getConnection, query } from '../config/database'
-import { normalizarFecha } from '../utils/movimientosHelpers'
+import { normalizarFecha, verificarAccesoMovimientos } from '../utils/movimientosHelpers'
 import { obtenerDeudasPendientes } from '../utils/deudasHelpers'
 
 // Re-exports para que las rutas no necesiten cambiar
@@ -38,6 +38,9 @@ export const deleteBulkMovimientos = async (req: Request, res: Response) => {
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Se requiere un array de ids no vacío.' })
     }
+    if (!(await verificarAccesoMovimientos(req.user!, ids))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a todos los movimientos seleccionados.' })
+    }
 
     const placeholders = ids.map(() => '?').join(', ')
     const result: any = await query(
@@ -73,6 +76,9 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
     }
     if (!destino_sucursal_id || !destino_tipo_movimiento || !destino_saldo) {
       return res.status(400).json({ success: false, message: 'Faltan datos de destino obligatorios.' })
+    }
+    if (!(await verificarAccesoMovimientos(req.user!, ids))) {
+      return res.status(403).json({ success: false, message: 'No tenés acceso a todos los movimientos seleccionados.' })
     }
 
     const nuevoEstado = destino_saldo === 'saldo_real' ? 'completado' : 'aprobado'
