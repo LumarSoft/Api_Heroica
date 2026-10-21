@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import ExcelJS from 'exceljs'
 import { query } from '../config/database'
 import { verificarAccesoSucursal } from '../utils/movimientosHelpers'
+import { parseFiltroCheques, sqlFiltroCheques, type FiltroCheques } from '../utils/movimientosFiltros'
 import { esSuperadmin, getSucursalesDeUsuario } from '../services/authCacheService'
 import {
   agruparDeudas,
@@ -47,7 +48,7 @@ interface Filtros {
   searchText?: string
   filtroDeuda?: string
   bancos?: string[]
-  filtroChequesPendientes?: boolean
+  filtroCheques?: FiltroCheques
   tipoMovimiento?: string
   tipoSaldo?: string
 }
@@ -90,13 +91,10 @@ function buildFiltrosClauses(f: Filtros): { clauses: string[]; params: (string |
     )
     params.push(...f.bancos)
   }
-  if (f.filtroChequesPendientes) {
-    clauses.push(
-      f.alcance === 'ambas'
-        ? "(m.tipo_movimiento = 'efectivo' OR (m.numero_cheque IS NOT NULL AND m.estado != ?))"
-        : 'm.numero_cheque IS NOT NULL AND m.estado != ?',
-    )
-    params.push('aprobado')
+  // Mismo criterio que la pantalla (antes "cheques pendientes" traía el conjunto opuesto)
+  const filtroCheques = f.filtroCheques ? sqlFiltroCheques(f.filtroCheques) : null
+  if (filtroCheques) {
+    clauses.push(f.alcance === 'ambas' ? `(m.tipo_movimiento = 'efectivo' OR ${filtroCheques})` : filtroCheques)
   }
   if (f.tipoMovimiento && f.tipoMovimiento !== 'todos') {
     clauses.push('m.tipo = ?')
@@ -140,6 +138,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
     searchText,
     filtroDeuda,
     bancos: bancosParam,
+    filtroCheques,
     filtroChequesPendientes,
     tipoMovimiento,
     tipoSaldo,
@@ -163,7 +162,7 @@ async function generarExcelMovimientos(req: Request, res: Response, cajaBase: 'e
     searchText,
     filtroDeuda,
     bancos,
-    filtroChequesPendientes: filtroChequesPendientes === 'true',
+    filtroCheques: parseFiltroCheques(filtroCheques, filtroChequesPendientes),
     tipoMovimiento,
     tipoSaldo,
   })

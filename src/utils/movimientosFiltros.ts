@@ -2,13 +2,37 @@ import { Request } from 'express'
 
 export type SaldoTipo = 'real' | 'necesario' | 'combinado'
 
+/**
+ * Estado del cheque / eCheq de un movimiento de banco (se reconoce por el nombre del medio de pago):
+ * pendiente = sin número, cargado = con número, rechazado = marcado a mano (tiene prioridad).
+ */
+export type FiltroCheques = 'todos' | 'pendientes' | 'cargados' | 'rechazados'
+
+const FILTROS_CHEQUES: FiltroCheques[] = ['todos', 'pendientes', 'cargados', 'rechazados']
+
+/** Acepta el parámetro nuevo (`cheques`) y el viejo booleano (`cheques_pendientes=true`). */
+export const parseFiltroCheques = (valor: unknown, pendientesLegacy?: unknown): FiltroCheques => {
+  if (typeof valor === 'string' && (FILTROS_CHEQUES as string[]).includes(valor)) return valor as FiltroCheques
+  return pendientesLegacy === 'true' ? 'pendientes' : 'todos'
+}
+
+/** Condición SQL del filtro de cheques. Requiere el JOIN a `medios_pago` con alias `mpAlias`. */
+export const sqlFiltroCheques = (filtro: FiltroCheques, alias = 'm', mpAlias = 'mp'): string | null => {
+  const esCheque = `${mpAlias}.nombre REGEXP 'cheque|echeq'`
+  const sinNumero = `(${alias}.numero_cheque IS NULL OR TRIM(${alias}.numero_cheque) = '')`
+  if (filtro === 'pendientes') return `(${esCheque} AND ${sinNumero} AND ${alias}.cheque_rechazado = 0)`
+  if (filtro === 'cargados') return `(${esCheque} AND NOT ${sinNumero} AND ${alias}.cheque_rechazado = 0)`
+  if (filtro === 'rechazados') return `(${esCheque} AND ${alias}.cheque_rechazado = 1)`
+  return null
+}
+
 export interface FiltrosMovimientos {
   desde: string | null
   hasta: string | null
   q: string | null
   bancoIds: number[]
   deuda: 'todos' | 'solo_deudas' | 'sin_deudas'
-  chequesPendientes: boolean
+  cheques: FiltroCheques
 }
 
 export interface Paginacion {
@@ -46,7 +70,7 @@ export const parseFiltros = (req: Request): FiltrosMovimientos => {
           .filter(n => Number.isInteger(n) && n > 0)
       : [],
     deuda: deudaRaw === 'solo_deudas' || deudaRaw === 'sin_deudas' ? deudaRaw : 'todos',
-    chequesPendientes: asString(req.query.cheques_pendientes) === 'true',
+    cheques: parseFiltroCheques(asString(req.query.cheques), asString(req.query.cheques_pendientes)),
   }
 }
 
@@ -101,11 +125,8 @@ export const sqlFiltros = (alias: string, f: FiltrosMovimientos): { sql: string;
   if (f.deuda === 'solo_deudas') partes.push(`${alias}.es_deuda = 1`)
   if (f.deuda === 'sin_deudas') partes.push(`(${alias}.es_deuda = 0 OR ${alias}.es_deuda IS NULL)`)
 
-  if (f.chequesPendientes) {
-    partes.push(
-      `(mp.nombre REGEXP 'cheque|echeq' AND (${alias}.numero_cheque IS NULL OR TRIM(${alias}.numero_cheque) = ''))`,
-    )
-  }
+  const filtroCheques = sqlFiltroCheques(f.cheques, alias)
+  if (filtroCheques) partes.push(filtroCheques)
 
   if (f.q) {
     if (f.q.startsWith('#')) {
