@@ -12,6 +12,7 @@ import movimientosRoutes from './routes/movimientosRoutes'
 import pagosPendientesRoutes from './routes/pagosPendientesRoutes'
 import cajaBancoRoutes from './routes/cajaBancoRoutes'
 import importacionBancariaRoutes from './routes/importacionBancariaRoutes'
+import prestamosRoutes from './routes/prestamosRoutes'
 import configuracionRoutes from './routes/configuracionRoutes'
 import reportesRoutes from './routes/reportesRoutes'
 import healthRoutes from './routes/healthRoutes'
@@ -121,6 +122,7 @@ app.use('/api/movimientos', movimientosRoutes)
 app.use('/api/pagos-pendientes', pagosPendientesRoutes)
 app.use('/api/caja-banco', cajaBancoRoutes)
 app.use('/api/importacion-bancaria', importacionBancariaRoutes)
+app.use('/api/prestamos', prestamosRoutes)
 app.use('/api/configuracion', configuracionRoutes)
 app.use('/api/reportes', reportesRoutes)
 app.use('/api/cuentas-bancarias', cuentasBancariasRoutes)
