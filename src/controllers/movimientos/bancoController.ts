@@ -8,6 +8,8 @@ import {
   normalizarPeriodo,
   verificarAccesoSucursal,
   completarContraparte,
+  esMovimientoDePrestamo,
+  MENSAJE_MOVIMIENTO_PRESTAMO,
 } from '../../utils/movimientosHelpers'
 import {
   parseSaldo,
@@ -34,7 +36,7 @@ export const getMovimientosBancoBySucursal = async (req: Request, res: Response)
     const filtros = parseFiltros(req)
     const pag = parsePaginacion(req)
 
-    const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.periodo, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
+    const SELECT = `SELECT m.id, m.sucursal_id, m.fecha, m.periodo, m.origen, m.orden, m.concepto, m.comprobante, m.monto, m.comentarios, m.prioridad,
               m.saldo as tipo_movimiento, m.estado, m.numero_cheque,
               m.cheque_rechazado, m.cheque_rechazado_at, m.cheque_rechazo_motivo, m.banco, m.cuenta, m.cbu,
               m.tipo_operacion, m.tipo, m.categoria_id, m.subcategoria_id, m.descripcion_id, m.proveedor_id, m.banco_id, m.medio_pago_id,
@@ -217,6 +219,9 @@ export const createMovimientoBanco = async (req: Request, res: Response) => {
 export const updateMovimientoBanco = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    if (await esMovimientoDePrestamo([id])) {
+      return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
+    }
     const {
       fecha,
       periodo,
@@ -355,6 +360,9 @@ export const marcarChequeRechazado = async (req: Request, res: Response) => {
 export const deleteMovimientoBanco = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    if (await esMovimientoDePrestamo([id])) {
+      return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
+    }
 
     const existingResult: any = await query(
       "SELECT id FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
@@ -458,6 +466,9 @@ export const transferenciaInternaBanco = async (req: Request, res: Response) => 
 export const moverARealBanco = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    if (await esMovimientoDePrestamo([id])) {
+      return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
+    }
 
     const movResult: any = await query(
       "SELECT *, saldo as tipo_movimiento FROM movimientos WHERE id = ? AND tipo_movimiento = 'banco' AND deleted_at IS NULL",
@@ -492,6 +503,9 @@ export const moverARealBanco = async (req: Request, res: Response) => {
 export const updateEstadoMovimientoBanco = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    if (await esMovimientoDePrestamo([id])) {
+      return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
+    }
     const { estado } = req.body
 
     const estadosValidos = ['pendiente', 'aprobado', 'rechazado', 'completado']
@@ -547,6 +561,9 @@ export const updateEstadoMovimientoBanco = async (req: Request, res: Response) =
 export const toggleDeudaBanco = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    if (await esMovimientoDePrestamo([id])) {
+      return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
+    }
     const { es_deuda, fecha_original_vencimiento } = req.body
 
     if (es_deuda === undefined || (es_deuda !== 0 && es_deuda !== 1)) {
@@ -569,8 +586,6 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
         [fecha_original_vencimiento ? normalizarFecha(fecha_original_vencimiento) : mov.fecha, id],
       )
     } else {
-      await query(`UPDATE movimientos SET estado = 'completado' WHERE id = ? AND tipo_movimiento = 'banco'`, [id])
-
       if (mov.movimiento_contraparte_id) {
         const contraparteResult: any = await query('SELECT * FROM movimientos WHERE id = ?', [
           mov.movimiento_contraparte_id,
@@ -583,45 +598,18 @@ export const toggleDeudaBanco = async (req: Request, res: Response) => {
       const fechaOriginal = mov.fecha_original_vencimiento || mov.fecha
       let nuevaDescripcion = mov.comentarios || ''
       if (fechaOriginal) {
-        const partes = fechaOriginal.toString().split('T')[0].split('-')
+        const partes = (formatearFechaRespuesta(fechaOriginal) ?? '').split('-')
         const fechaFormateada = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : fechaOriginal
         const nota = `[Pago de deuda original del: ${fechaFormateada}]`
         nuevaDescripcion = nuevaDescripcion ? `${nuevaDescripcion} ${nota}` : nota
       }
 
-      const fechaPago = new Date().toISOString().slice(0, 19).replace('T', ' ')
-      const adjustedMonto = -Math.abs(mov.monto)
-
+      // Quitar la deuda = darla por pagada. Antes además se insertaba un egreso de pago,
+      // y el gasto quedaba contado dos veces en el saldo real.
       await query(
-        `INSERT INTO movimientos
-         (sucursal_id, user_id, fecha, concepto, comprobante, comentarios, monto, tipo_movimiento, saldo, prioridad,
-          numero_cheque, banco, cuenta, cbu, tipo_operacion, estado, categoria_id, subcategoria_id, descripcion_id, proveedor_id, banco_id, medio_pago_id, tipo,
-          es_deuda, fecha_original_vencimiento, moneda, tipo_cambio)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'banco', ?, ?, ?, ?, ?, ?, ?, 'completado', ?, ?, ?, ?, ?, ?, 'egreso', 0, NULL, ?, ?)`,
-        [
-          mov.sucursal_id,
-          mov.user_id,
-          fechaPago,
-          mov.concepto,
-          mov.comprobante,
-          nuevaDescripcion,
-          adjustedMonto,
-          mov.saldo,
-          mov.prioridad,
-          mov.numero_cheque,
-          mov.banco,
-          mov.cuenta,
-          mov.cbu,
-          mov.tipo_operacion,
-          mov.categoria_id,
-          mov.subcategoria_id,
-          mov.descripcion_id,
-          mov.proveedor_id,
-          mov.banco_id,
-          mov.medio_pago_id,
-          mov.moneda || 'ARS',
-          mov.moneda === 'USD' ? mov.tipo_cambio || null : null,
-        ],
+        `UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', comentarios = ?
+         WHERE id = ? AND tipo_movimiento = 'banco'`,
+        [nuevaDescripcion || null, id],
       )
     }
 

@@ -20,7 +20,7 @@ const FILTRO_EGRESOS = `
   AND m.tipo = 'egreso'
   AND m.deleted_at IS NULL
   AND m.estado IN ('completado', 'aprobado')
-  AND NOT (m.tipo_movimiento = 'banco' AND m.categoria_id IS NULL)
+  AND NOT (m.tipo_movimiento = 'banco' AND m.categoria_id IS NULL) AND m.origen <> 'prestamo'
   AND (
     ((m.es_deuda = 0 OR m.es_deuda IS NULL) AND m.fecha >= ? AND m.fecha < ?)
     OR (m.es_deuda = 1 AND m.estado = 'completado' AND m.updated_at >= ? AND m.updated_at < ?)

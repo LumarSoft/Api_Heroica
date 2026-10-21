@@ -1,6 +1,11 @@
 import { Request, Response } from 'express'
 import { getConnection, query } from '../config/database'
-import { normalizarFecha, verificarAccesoMovimientos } from '../utils/movimientosHelpers'
+import {
+  normalizarFecha,
+  verificarAccesoMovimientos,
+  esMovimientoDePrestamo,
+  MENSAJE_MOVIMIENTO_PRESTAMO,
+} from '../utils/movimientosHelpers'
 import { obtenerDeudasPendientes } from '../utils/deudasHelpers'
 
 // Re-exports para que las rutas no necesiten cambiar
@@ -41,6 +46,9 @@ export const deleteBulkMovimientos = async (req: Request, res: Response) => {
     if (!(await verificarAccesoMovimientos(req.user!, ids))) {
       return res.status(403).json({ success: false, message: 'No tenés acceso a todos los movimientos seleccionados.' })
     }
+    if (await esMovimientoDePrestamo(ids)) {
+      return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
+    }
 
     const placeholders = ids.map(() => '?').join(', ')
     const result: any = await query(
@@ -79,6 +87,9 @@ export const moverBulkMovimientos = async (req: Request, res: Response) => {
     }
     if (!(await verificarAccesoMovimientos(req.user!, ids))) {
       return res.status(403).json({ success: false, message: 'No tenés acceso a todos los movimientos seleccionados.' })
+    }
+    if (await esMovimientoDePrestamo(ids)) {
+      return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
     }
 
     const nuevoEstado = destino_saldo === 'saldo_real' ? 'completado' : 'aprobado'
@@ -219,6 +230,9 @@ export const moverMovimiento = async (req: Request, res: Response) => {
 
   if (!destino_tipo_movimiento || !destino_saldo || !destino_sucursal_id) {
     return res.status(400).json({ success: false, message: 'Faltan datos de destino obligatorios.' })
+  }
+  if (await esMovimientoDePrestamo([id])) {
+    return res.status(409).json({ success: false, message: MENSAJE_MOVIMIENTO_PRESTAMO })
   }
 
   const connection = await getConnection()

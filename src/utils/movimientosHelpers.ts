@@ -58,6 +58,19 @@ export async function verificarAccesoMovimientos(user: any, ids: unknown[]): Pro
   return filas.every((f: any) => sucursales.has(Number(f.sucursal_id)))
 }
 
+export const MENSAJE_MOVIMIENTO_PRESTAMO =
+  'Este movimiento es de un préstamo entre sucursales: se anula desde Préstamos, no desde la caja'
+
+/** True si alguno de los movimientos lo generó un préstamo (no se editan, mueven ni borran desde la caja). */
+export async function esMovimientoDePrestamo(ids: unknown[]): Promise<boolean> {
+  if (ids.length === 0) return false
+  const filas: any = await query(
+    `SELECT 1 FROM movimientos WHERE id IN (${ids.map(() => '?').join(', ')}) AND origen = 'prestamo' LIMIT 1`,
+    ids,
+  )
+  return filas.length > 0
+}
+
 export async function completarContraparte(contraparteId: number): Promise<void> {
   await query(`UPDATE movimientos SET estado = 'completado', saldo = 'saldo_real', es_deuda = 0 WHERE id = ?`, [
     contraparteId,
