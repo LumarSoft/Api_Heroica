@@ -1,7 +1,31 @@
 import ExcelJS from 'exceljs'
-import { createHash } from 'crypto'
 import { query, getConnection } from '../config/database'
 import { cargarWorkbook } from './importacionBancaria/xlsxCompat'
+import {
+  ALIAS_UNIFICAR,
+  CambioCampo,
+  DataValidationsModel,
+  ENCABEZADO_UNIFICAR,
+  FilaNombre,
+  FilaUnificacion,
+  MensajeFila,
+  PedidoUnificar,
+  Unificacion,
+  agregarInstrucciones,
+  avisoNombreRepetido,
+  contarPorId,
+  estiloCabecera,
+  limpiar,
+  normalizar,
+  parsearActivo,
+  pintarColumnasEspeciales,
+  resolverUnificaciones,
+  sha256,
+  textoCelda,
+} from './catalogoExcel'
+
+export { limpiar, normalizar, sha256 }
+export type { CambioCampo, MensajeFila }
 
 /**
  * ============================================================
@@ -15,6 +39,7 @@ import { cargarWorkbook } from './importacionBancaria/xlsxCompat'
  *   - fila con ID existente → se actualiza si cambió algo
  *   - fila sin ID           → alta
  *   - ID que está en el sistema pero no en el archivo → baja (soft delete)
+ *   - fila con "Unificar con ID" → sus movimientos pasan a esa descripción y esta se da de baja
  *
  * Igual que la importación bancaria, va en dos pasos: preview (no escribe) y
  * confirmar (vuelve a parsear el mismo archivo y aplica en una transacción).
@@ -29,7 +54,6 @@ import { cargarWorkbook } from './importacionBancaria/xlsxCompat'
 export const HOJA_DESCRIPCIONES = 'Descripciones'
 const HOJA_CATEGORIAS = 'Categorías'
 const HOJA_LISTAS = 'Listas'
-const HOJA_INSTRUCCIONES = 'Instrucciones'
 
 /** Filas vacías extra con listas desplegables, para que puedan agregar altas. */
 const FILAS_EXTRA_VALIDACION = 500
@@ -44,6 +68,7 @@ const COLUMNAS = [
   { key: 'categoria', header: 'Categoría', width: 32 },
   { key: 'subcategoria', header: 'Subcategoría', width: 32 },
   { key: 'activo', header: 'Activo', width: 10 },
+  { key: 'unificar', header: ENCABEZADO_UNIFICAR, width: 16 },
 ] as const
 
 type ClaveColumna = (typeof COLUMNAS)[number]['key']
@@ -58,12 +83,14 @@ const ALIAS_COLUMNAS: Record<ClaveColumna, string[]> = {
   categoria: ['categoria', 'categoria sugerida'],
   subcategoria: ['subcategoria', 'subcategoria sugerida'],
   activo: ['activo', 'activa', 'estado'],
+  unificar: ALIAS_UNIFICAR,
 }
 
 export const INSTRUCCIONES = [
   'Editá nombre, tipo, categoría, subcategoría y activo directamente en la hoja "Descripciones".',
   'Para agregar una descripción nueva, agregá una fila y dejá la columna ID vacía.',
-  'Para eliminar una descripción, borrá la fila completa: al importar se da de baja.',
+  'Para eliminar una descripción, borrá la fila completa (no alcanza con borrar el contenido): al importar se da de baja. Los movimientos que la usan la siguen mostrando.',
+  'Para unificar una descripción repetida, no la borres: en "Unificar con ID" poné el ID de la que queda. Sus movimientos pasan a esa y la repetida se elimina. La categoría de cada movimiento no cambia.',
   'No modifiques la columna ID: es la que vincula cada fila con el sistema.',
   'La categoría y la subcategoría tienen que existir (ver hoja "Categorías") y la subcategoría tiene que pertenecer a esa categoría.',
   'Antes de aplicar, el sistema muestra una vista previa con altas, cambios, bajas y errores. Si hay errores no se aplica nada.',
@@ -80,6 +107,8 @@ interface DescripcionDB {
   categoria_id: number | null
   subcategoria_id: number | null
   activo: number | null
+  /** Movimientos que la usan */
+  movimientos: number
 }
 
 interface CategoriaDB {
@@ -112,11 +141,7 @@ export interface Operaciones {
   insertar: ValoresDescripcion[]
   actualizar: (ValoresDescripcion & { id: number })[]
   eliminar: number[]
-}
-
-export interface MensajeFila {
-  fila: number | null
-  mensaje: string
+  unificar: Unificacion[]
 }
 
 export interface FilaAlta {
@@ -126,12 +151,6 @@ export interface FilaAlta {
   categoria: string
   subcategoria: string
   activo: boolean
-}
-
-export interface CambioCampo {
-  campo: string
-  antes: string
-  despues: string
 }
 
 export interface FilaModificacion {
@@ -147,6 +166,7 @@ export interface FilaBaja {
   tipo: string
   categoria: string
   subcategoria: string
+  movimientos: number
 }
 
 export interface PreviewDescripciones {
@@ -157,6 +177,7 @@ export interface PreviewDescripciones {
     altas: number
     modificaciones: number
     bajas: number
+    unificaciones: number
     sin_cambios: number
     errores: number
     advertencias: number
@@ -164,13 +185,9 @@ export interface PreviewDescripciones {
   altas: FilaAlta[]
   modificaciones: FilaModificacion[]
   bajas: FilaBaja[]
+  unificaciones: FilaUnificacion[]
   errores: MensajeFila[]
   advertencias: MensajeFila[]
-}
-
-/** API de exceljs no tipada en index.d.ts (existe en lib/doc/data-validations.js). */
-interface DataValidationsModel {
-  add(address: string, validation: ExcelJS.DataValidation): void
 }
 
 /** Error del archivo en sí (no de una fila): se responde 400 con el mensaje. */
@@ -179,25 +196,6 @@ export class ErrorArchivoDescripciones extends Error {}
 // ─────────────────────────────────────────────────────────────
 //  Helpers
 // ─────────────────────────────────────────────────────────────
-
-/** Para comparar nombres: sin tildes, sin mayúsculas, espacios colapsados. */
-export function normalizar(texto: string): string {
-  return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
-}
-
-/** Para guardar: espacios colapsados y recortados, respetando mayúsculas y tildes. */
-export function limpiar(texto: string): string {
-  return texto.replace(/\s+/g, ' ').trim()
-}
-
-function textoCelda(cell: ExcelJS.Cell | undefined): string {
-  if (!cell || cell.value === null || cell.value === undefined) return ''
-  try {
-    return limpiar(cell.text ?? '')
-  } catch {
-    return limpiar(String(cell.value))
-  }
-}
 
 const TIPO_LABEL: Record<Tipo, string> = { ingreso: 'Ingreso', egreso: 'Egreso' }
 
@@ -213,27 +211,8 @@ function parsearTipo(texto: string): Tipo | null | 'invalido' {
   return 'invalido'
 }
 
-function parsearActivo(texto: string): 0 | 1 | null | 'invalido' {
-  const t = normalizar(texto)
-  if (!t) return null
-  if (['si', 's', '1', 'true', 'verdadero', 'x', 'activo', 'activa'].includes(t)) return 1
-  if (['no', 'n', '0', 'false', 'falso', 'inactivo', 'inactiva'].includes(t)) return 0
-  return 'invalido'
-}
-
-function estiloCabecera(sheet: ExcelJS.Worksheet) {
-  const headerRow = sheet.getRow(1)
-  headerRow.eachCell(cell => {
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF002868' } }
-    cell.alignment = { horizontal: 'center', vertical: 'middle' }
-  })
-  headerRow.height = 22
-  sheet.views = [{ state: 'frozen', ySplit: 1 }]
-}
-
 export async function cargarCatalogos(): Promise<Catalogos> {
-  const [descripciones, categorias, subcategorias]: any[] = await Promise.all([
+  const [descripciones, categorias, subcategorias, usos]: any[] = await Promise.all([
     query(
       `SELECT id, nombre, tipo, categoria_id, subcategoria_id, activo
        FROM descripciones
@@ -250,7 +229,14 @@ export async function cargarCatalogos(): Promise<Catalogos> {
        ORDER BY s.nombre ASC`,
       [],
     ),
+    query(
+      `SELECT descripcion_id AS id, COUNT(*) AS n FROM movimientos
+       WHERE descripcion_id IS NOT NULL AND deleted_at IS NULL
+       GROUP BY descripcion_id`,
+      [],
+    ),
   ])
+  const movimientosPorId = contarPorId(usos)
   return {
     descripciones: (descripciones as any[]).map(d => ({
       id: Number(d.id),
@@ -259,6 +245,7 @@ export async function cargarCatalogos(): Promise<Catalogos> {
       categoria_id: d.categoria_id === null ? null : Number(d.categoria_id),
       subcategoria_id: d.subcategoria_id === null ? null : Number(d.subcategoria_id),
       activo: d.activo === null ? null : Number(d.activo),
+      movimientos: movimientosPorId.get(Number(d.id)) ?? 0,
     })),
     categorias: (categorias as any[]).map(c => ({
       id: Number(c.id),
@@ -329,8 +316,10 @@ export function construirWorkbook({ descripciones, categorias, subcategorias }: 
   }
 
   estiloCabecera(sheet)
-  sheet.autoFilter = { from: 'A1', to: `F${Math.max(descripciones.length + 1, 1)}` }
+  sheet.autoFilter = { from: 'A1', to: `G${Math.max(descripciones.length + 1, 1)}` }
   sheet.getCell('A1').note = 'No modificar. Dejar vacío para agregar una descripción nueva.'
+  sheet.getCell('G1').note =
+    'Solo para repetidas: poné el ID de la descripción que queda. Sus movimientos pasan a esa y esta se elimina.'
 
   // ── Hoja de listas (oculta) para los desplegables ──────────
   const listas = workbook.addWorksheet(HOJA_LISTAS, { state: 'hidden' })
@@ -380,12 +369,7 @@ export function construirWorkbook({ descripciones, categorias, subcategorias }: 
   if (vCategoria) dataValidations.add(`D2:D${ultimaFila}`, vCategoria)
   if (vSubcategoria) dataValidations.add(`E2:E${ultimaFila}`, vSubcategoria)
 
-  for (let r = 2; r <= ultimaFila; r++) {
-    // La columna ID va en gris para que se note que no se edita.
-    const idCell = sheet.getCell(r, 1)
-    idCell.font = { color: { argb: 'FF8A8F9C' } }
-    idCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
-  }
+  pintarColumnasEspeciales(sheet, ultimaFila, COLUMNAS.length)
 
   // ── Hoja de referencia: categorías y sus subcategorías ─────
   const ref = workbook.addWorksheet(HOJA_CATEGORIAS)
@@ -402,16 +386,7 @@ export function construirWorkbook({ descripciones, categorias, subcategorias }: 
   }
   estiloCabecera(ref)
 
-  // ── Instrucciones ──────────────────────────────────────────
-  const inst = workbook.addWorksheet(HOJA_INSTRUCCIONES)
-  inst.getColumn(1).width = 110
-  inst.getCell('A1').value = 'Cómo editar este archivo'
-  inst.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FF002868' } }
-  INSTRUCCIONES.forEach((linea, i) => {
-    const cell = inst.getCell(i + 3, 1)
-    cell.value = `${i + 1}. ${linea}`
-    cell.alignment = { wrapText: true, vertical: 'top' }
-  })
+  agregarInstrucciones(workbook, INSTRUCCIONES)
 
   return workbook
 }
@@ -478,10 +453,11 @@ export function planificarConCatalogos(
   const advertencias: MensajeFila[] = []
   const altas: FilaAlta[] = []
   const modificaciones: FilaModificacion[] = []
-  const operaciones: Operaciones = { insertar: [], actualizar: [], eliminar: [] }
+  const operaciones: Operaciones = { insertar: [], actualizar: [], eliminar: [], unificar: [] }
+  const pedidosUnificar: PedidoUnificar[] = []
 
   const filaPorId = new Map<number, number>()
-  const filasPorNombre = new Map<string, number[]>()
+  const filasPorNombre = new Map<string, FilaNombre[]>()
   let filasConDatos = 0
   let sinCambios = 0
 
@@ -502,6 +478,7 @@ export function planificarConCatalogos(
       categoria: leer(row, 'categoria'),
       subcategoria: leer(row, 'subcategoria'),
       activo: leer(row, 'activo'),
+      unificar: leer(row, 'unificar'),
     }
     if (Object.values(crudo).every(v => v === '')) continue
 
@@ -530,6 +507,17 @@ export function planificarConCatalogos(
         }
       }
     }
+    // ── Unificar: el resto de la fila no se valida porque el registro se va a eliminar ──
+    if (crudo.unificar) {
+      if (!crudo.id) erroresFila.push('Solo se puede unificar una descripción que ya existe: falta el ID.')
+      if (erroresFila.length > 0) {
+        for (const mensaje of erroresFila) errores.push({ fila: r, mensaje })
+      } else if (existente) {
+        pedidosUnificar.push({ fila: r, id: existente.id, destinoCrudo: crudo.unificar })
+      }
+      continue
+    }
+
     const actual = existente ? valoresEfectivos(existente, categoriasPorId, subcategoriasPorId) : undefined
 
     // ── Nombre ──
@@ -599,7 +587,10 @@ export function planificarConCatalogos(
     }
 
     const claveNombre = `${normalizar(nombre)}|${tipo ?? ''}`
-    filasPorNombre.set(claveNombre, [...(filasPorNombre.get(claveNombre) ?? []), r])
+    filasPorNombre.set(claveNombre, [
+      ...(filasPorNombre.get(claveNombre) ?? []),
+      { fila: r, id: existente?.id ?? null },
+    ])
 
     const nuevo: ValoresDescripcion = {
       nombre,
@@ -655,13 +646,21 @@ export function planificarConCatalogos(
   }
 
   for (const [, filas] of filasPorNombre) {
-    if (filas.length > 1) {
-      advertencias.push({
-        fila: filas[0],
-        mensaje: `Nombre repetido con el mismo tipo en las filas ${filas.join(', ')}.`,
-      })
-    }
+    if (filas.length > 1) advertencias.push(avisoNombreRepetido(filas, ' con el mismo tipo'))
   }
+
+  // ── Unificaciones: el destino tiene que quedar en el archivo y ser del mismo tipo ──
+  const unificadas = resolverUnificaciones(
+    pedidosUnificar,
+    descripcionesPorId,
+    new Set(filaPorId.keys()),
+    (origen, destino) =>
+      origen.tipo && destino.tipo && origen.tipo !== destino.tipo
+        ? `No se puede unificar una descripción de ${origen.tipo} con una de ${destino.tipo} (ID ${destino.id}).`
+        : null,
+  )
+  errores.push(...unificadas.errores)
+  operaciones.unificar = unificadas.operaciones
 
   // ── Bajas: lo que está en el sistema y no vino en el archivo ──
   const bajas: FilaBaja[] = descripciones
@@ -674,9 +673,18 @@ export function planificarConCatalogos(
         tipo: tipoLabel(v.tipo),
         categoria: nombreCategoria(v.categoria_id),
         subcategoria: nombreSubcategoria(v.subcategoria_id),
+        movimientos: d.movimientos,
       }
     })
   operaciones.eliminar = bajas.map(b => b.id)
+
+  const bajasConMovimientos = bajas.filter(b => b.movimientos > 0)
+  if (bajasConMovimientos.length > 0) {
+    advertencias.push({
+      fila: null,
+      mensaje: `${bajasConMovimientos.length} de las descripciones que se eliminan tienen movimientos. Los movimientos las siguen mostrando, pero si son repetidas conviene unificarlas: volvé a poner la fila y completá "${ENCABEZADO_UNIFICAR}".`,
+    })
+  }
 
   const preview: PreviewDescripciones = {
     archivo_hash: sha256(buffer),
@@ -686,6 +694,7 @@ export function planificarConCatalogos(
       altas: altas.length,
       modificaciones: modificaciones.length,
       bajas: bajas.length,
+      unificaciones: unificadas.unificaciones.length,
       sin_cambios: sinCambios,
       errores: errores.length,
       advertencias: advertencias.length,
@@ -693,15 +702,12 @@ export function planificarConCatalogos(
     altas,
     modificaciones,
     bajas,
+    unificaciones: unificadas.unificaciones,
     errores,
     advertencias,
   }
 
   return { preview, operaciones }
-}
-
-export function sha256(buffer: Buffer): string {
-  return createHash('sha256').update(buffer).digest('hex')
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -712,6 +718,17 @@ export async function aplicarOperaciones(operaciones: Operaciones): Promise<void
   const connection = await getConnection()
   try {
     await connection.beginTransaction()
+
+    // Primero las unificaciones: los movimientos pasan a la que queda y la repetida se da de baja
+    for (const u of operaciones.unificar) {
+      await connection.query('UPDATE movimientos SET descripcion_id = ? WHERE descripcion_id = ?', [
+        u.destino,
+        u.origen,
+      ])
+      await connection.query('UPDATE descripciones SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL', [
+        u.origen,
+      ])
+    }
 
     if (operaciones.insertar.length > 0) {
       await connection.query(
