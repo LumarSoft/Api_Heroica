@@ -3,6 +3,7 @@ import { query } from '../config/database'
 import bcrypt from 'bcryptjs'
 import { invalidarRol, invalidarUsuario } from '../services/authCacheService'
 import { guardarLote } from '../services/descripcionesLoteService'
+import { validarDatosProveedor } from '../utils/proveedoresHelpers'
 
 // ========== CATEGORÍAS ==========
 
@@ -1107,49 +1108,14 @@ export const getProveedores = async (req: Request, res: Response) => {
 
 export const createProveedor = async (req: Request, res: Response) => {
   try {
-    const { nombre, razon_social, cuit, cbu_alias, telefono, email, direccion } = req.body
-    const nombreLimpio = String(nombre || '').trim()
-    const razonSocialLimpia = String(razon_social || '').trim()
-    const cuitLimpio = String(cuit || '').trim()
-    const cbuAliasLimpio = String(cbu_alias || '').trim()
-    const telefonoLimpio = String(telefono || '').trim()
-    const emailLimpio = String(email || '').trim()
-    const direccionLimpia = String(direccion || '').trim()
+    const { datos, error } = validarDatosProveedor(req.body)
+    if (!datos) return res.status(400).json({ success: false, message: error })
 
-    if (!nombreLimpio) {
-      return res.status(400).json({ success: false, message: 'El nombre es requerido' })
-    }
-    if (cuitLimpio && !/^\d+$/.test(cuitLimpio)) {
-      return res.status(400).json({
-        success: false,
-        message: 'El CUIT/CUIL debe contener solo números y sin guiones',
-      })
-    }
-    if (telefonoLimpio && !/^\d+$/.test(telefonoLimpio)) {
-      return res.status(400).json({
-        success: false,
-        message: 'El teléfono debe contener solo números',
-      })
-    }
-    if (emailLimpio && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio)) {
-      return res.status(400).json({
-        success: false,
-        message: 'El email no tiene un formato válido',
-      })
-    }
     const result: any = await query(
       `INSERT INTO proveedores
       (nombre, razon_social, cuit, cbu_alias, telefono, email, direccion)
       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        nombreLimpio,
-        razonSocialLimpia || null,
-        cuitLimpio || null,
-        cbuAliasLimpio || null,
-        telefonoLimpio || null,
-        emailLimpio || null,
-        direccionLimpia || null,
-      ],
+      [datos.nombre, datos.razon_social, datos.cuit, datos.cbu_alias, datos.telefono, datos.email, datos.direccion],
     )
     const created: any = await query('SELECT * FROM proveedores WHERE id = ?', [result.insertId])
     res.status(201).json({ success: true, message: 'Proveedor creado', data: created[0] })
@@ -1163,49 +1129,22 @@ export const createProveedor = async (req: Request, res: Response) => {
 export const updateProveedor = async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { nombre, razon_social, cuit, cbu_alias, telefono, email, direccion, activo } = req.body
-    const nombreLimpio = String(nombre || '').trim()
-    const razonSocialLimpia = String(razon_social || '').trim()
-    const cuitLimpio = String(cuit || '').trim()
-    const cbuAliasLimpio = String(cbu_alias || '').trim()
-    const telefonoLimpio = String(telefono || '').trim()
-    const emailLimpio = String(email || '').trim()
-    const direccionLimpia = String(direccion || '').trim()
-
-    if (!nombreLimpio) {
-      return res.status(400).json({ success: false, message: 'El nombre es requerido' })
-    }
-    if (cuitLimpio && !/^\d+$/.test(cuitLimpio)) {
-      return res.status(400).json({
-        success: false,
-        message: 'El CUIT/CUIL debe contener solo números y sin guiones',
-      })
-    }
-    if (telefonoLimpio && !/^\d+$/.test(telefonoLimpio)) {
-      return res.status(400).json({
-        success: false,
-        message: 'El teléfono debe contener solo números',
-      })
-    }
-    if (emailLimpio && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio)) {
-      return res.status(400).json({
-        success: false,
-        message: 'El email no tiene un formato válido',
-      })
-    }
+    const { activo } = req.body
+    const { datos, error } = validarDatosProveedor(req.body)
+    if (!datos) return res.status(400).json({ success: false, message: error })
 
     await query(
       `UPDATE proveedores
       SET nombre = ?, razon_social = ?, cuit = ?, cbu_alias = ?, telefono = ?, email = ?, direccion = ?, activo = ?
       WHERE id = ?`,
       [
-        nombreLimpio,
-        razonSocialLimpia || null,
-        cuitLimpio || null,
-        cbuAliasLimpio || null,
-        telefonoLimpio || null,
-        emailLimpio || null,
-        direccionLimpia || null,
+        datos.nombre,
+        datos.razon_social,
+        datos.cuit,
+        datos.cbu_alias,
+        datos.telefono,
+        datos.email,
+        datos.direccion,
         activo !== undefined ? activo : true,
         id,
       ],
