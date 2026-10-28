@@ -135,6 +135,6 @@ export function validarLote(
 export async function guardarLote(items: unknown): Promise<{ errores: ErrorLote[]; actualizadas: number }> {
   const { errores, actualizar } = validarLote(items, await cargarCatalogos())
   if (errores.length > 0) return { errores, actualizadas: 0 }
-  await aplicarOperaciones({ insertar: [], actualizar, eliminar: [] })
+  await aplicarOperaciones({ insertar: [], actualizar, eliminar: [], unificar: [] })
   return { errores: [], actualizadas: actualizar.length }
 }

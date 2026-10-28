@@ -55,8 +55,13 @@ import {
   exportarDescripciones,
   previewImportacionDescripciones,
   confirmarImportacionDescripciones,
-  subirExcelDescripciones,
 } from '../controllers/descripcionesExcelController'
+import {
+  exportarProveedores,
+  previewImportacionProveedores,
+  confirmarImportacionProveedores,
+} from '../controllers/proveedoresExcelController'
+import { subirExcelCatalogo } from '../controllers/catalogoExcelController'
 import { requireAuth, requirePermission, requireAnyPermission } from '../middlewares/authMiddleware'
 
 const router = Router()
@@ -111,13 +116,13 @@ router.get('/descripciones/exportar', requirePermission('gestionar_roles'), expo
 router.post(
   '/descripciones/importar/preview',
   requirePermission('gestionar_roles'),
-  subirExcelDescripciones,
+  subirExcelCatalogo,
   previewImportacionDescripciones,
 )
 router.post(
   '/descripciones/importar/confirmar',
   requirePermission('gestionar_roles'),
-  subirExcelDescripciones,
+  subirExcelCatalogo,
   confirmarImportacionDescripciones,
 )
 router.post('/descripciones', requirePermission('gestionar_roles'), createDescripcion)
@@ -128,6 +133,20 @@ router.delete('/descripciones/:id', requirePermission('gestionar_roles'), delete
 
 // ========== PROVEEDORES ==========
 router.get('/proveedores', requireAnyPermission(CATALOGOS_READ_PERMISOS), getProveedores)
+// Exportar / importar Excel, igual que descripciones: altas, cambios, unificaciones y bajas.
+router.get('/proveedores/exportar', requirePermission('gestionar_roles'), exportarProveedores)
+router.post(
+  '/proveedores/importar/preview',
+  requirePermission('gestionar_roles'),
+  subirExcelCatalogo,
+  previewImportacionProveedores,
+)
+router.post(
+  '/proveedores/importar/confirmar',
+  requirePermission('gestionar_roles'),
+  subirExcelCatalogo,
+  confirmarImportacionProveedores,
+)
 router.post('/proveedores', requirePermission('gestionar_roles'), createProveedor)
 router.put('/proveedores/:id', requirePermission('gestionar_roles'), updateProveedor)
 router.delete('/proveedores/:id', requirePermission('gestionar_roles'), deleteProveedor)
