@@ -35,6 +35,7 @@ import { startSolicitudesRrhhAlertCron } from './services/rrhhSolicitudesAlertSe
 import { startEscalasAlertCron } from './services/escalasAlertService'
 import rrhhSueldosRoutes from './routes/rrhhSueldosRoutes'
 import rrhhAnaliticoRoutes from './routes/rrhhAnaliticoRoutes'
+import { createOps } from '@lumarsoft/ops'
 // Cargar variables de entorno
 dotenv.config()
 
@@ -44,15 +45,45 @@ if (!process.env.JWT_SECRET) {
   process.exit(1)
 }
 
+// Lumarsoft Console: latidos, errores y acciones rápidas
+const ops = createOps().start()
+
+ops
+  .action('sync-permisos', {
+    label: 'Sincronizar permisos',
+    description: 'Vuelve a cargar en la base los permisos definidos en el código.',
+    run: async () => {
+      await syncPermisos()
+      return 'Permisos sincronizados'
+    },
+  })
+  .action('sync-modulos', {
+    label: 'Sincronizar módulos',
+    description: 'Vuelve a cargar en la base los módulos definidos en el código.',
+    run: async () => {
+      await syncModulos()
+      return 'Módulos sincronizados'
+    },
+  })
+
 // Crear aplicación Express
 const app: Application = express()
 const PORT = process.env.PORT || 3001
+
+// Detrás de un proxy inverso (nginx) hay que indicar cuántos saltos confiar para que req.ip
+// y los rate limiters vean la IP real del cliente y no la del proxy. En el VPS: TRUST_PROXY=1.
+const saltosProxy = Number(process.env.TRUST_PROXY)
+if (process.env.TRUST_PROXY && Number.isInteger(saltosProxy) && saltosProxy > 0) {
+  app.set('trust proxy', saltosProxy)
+}
 const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
 
-// Rate limiting: máximo 10 intentos de login por IP cada 15 minutos
+// Rate limiting: máximo 10 intentos fallidos de login por IP cada 15 minutos.
+// Los ingresos correctos no cuentan: varias personas de una misma oficina comparten IP.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -61,10 +92,11 @@ const loginLimiter = rateLimit({
   },
 })
 
-// Rate limiting para verificación 2FA: máximo 10 intentos por IP cada 10 minutos
+// Rate limiting para verificación 2FA: máximo 10 intentos fallidos por IP cada 10 minutos
 const verify2FALimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 10,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -73,6 +105,11 @@ const verify2FALimiter = rateLimit({
   },
 })
 
+const origenesPermitidos = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map(origen => origen.trim())
+  .filter(Boolean)
+
 // Middlewares
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }))
 app.use(compression())
@@ -80,13 +117,15 @@ app.use(
   cors({
     // Permite credenciales (cookies) solo desde el origen del frontend.
     // En producción configurar CORS_ORIGIN con el dominio real.
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    // Admite varios orígenes separados por coma (p. ej. el front real y uno de pruebas).
+    origin: origenesPermitidos.length === 1 ? origenesPermitidos[0] : origenesPermitidos,
     credentials: true,
   }),
 )
 app.use(cookieParser()) // Parsear cookies (necesario para device_token)
 app.use(express.json()) // Parsear JSON
 app.use(express.urlencoded({ extended: true })) // Parsear URL-encoded
+app.use(ops.actionsHandler()) // Acciones rápidas de Lumarsoft Console
 if (!isProduction) {
   app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
 }
@@ -169,7 +208,7 @@ process.on('unhandledRejection', (reason: unknown) => {
 })
 
 // Iniciar servidor
-app.listen(PORT, async () => {
+const alIniciar = async () => {
   console.log(`
   ╔═══════════════════════════════════════╗
   ║                                       ║
@@ -187,11 +226,24 @@ app.listen(PORT, async () => {
   // Sincronizar módulos del sistema con la base de datos
   await syncModulos()
 
-  // Iniciar tareas programadas
+  // Iniciar tareas programadas.
+  // CRONS_DISABLED=true las apaga: sirve mientras conviven dos instancias de la API contra la misma base,
+  // para que la sincronización y las alertas por email no corran dos veces.
+  if (process.env.CRONS_DISABLED === 'true') {
+    console.log('⏸️  Tareas programadas desactivadas (CRONS_DISABLED=true).')
+    return
+  }
   startDbSyncCron()
   startPeriodoPruebaAlertCron()
   startSolicitudesRrhhAlertCron()
   startEscalasAlertCron()
-})
+}
+
+// HOST=127.0.0.1 hace que la API solo acepte conexiones locales (las que le pasa nginx).
+if (process.env.HOST) {
+  app.listen(Number(PORT), process.env.HOST, alIniciar)
+} else {
+  app.listen(PORT, alIniciar)
+}
 
 export default app
