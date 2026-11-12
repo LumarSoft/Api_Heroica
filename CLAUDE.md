@@ -71,7 +71,22 @@ All queries use the `query(sql, params)` helper from `src/config/database.ts`. F
 
 ### File uploads
 
-Multer handles multipart uploads; files are stored in **Vercel Blob** (`@vercel/blob`). The `personalArchivosService.ts` and `rrhhSolicitudesArchivosController.ts` handle the upload/delete lifecycle.
+Multer handles multipart uploads. Where files are stored is decided by `src/config/storage.ts`:
+
+- `STORAGE_DRIVER=local` — the server's `uploads/` folder. **This is what production uses.** The DB stores relative paths like `uploads/solicitudes/solic-….pdf`.
+- `STORAGE_DRIVER=blob` — Vercel Blob (`@vercel/blob`). The DB stores the full Blob URL.
+- Unset — legacy behavior: Blob when `NODE_ENV=production`/`VERCEL=1`, disk otherwise.
+
+Reads and deletes dispatch on the stored value (`esArchivoRemoto` / `resolverArchivoLocal`), so both kinds can coexist. Files are never served statically in production: they are streamed through authenticated endpoints (`archivoPrivadoService.ts` and the document controllers). `personalArchivosService.ts` and `rrhhSolicitudesArchivosController.ts` handle the upload/delete lifecycle.
+
+### Production deployment (Lumarsoft VPS)
+
+Production runs on the Lumarsoft VPS, **not on Vercel**: PM2 app `heroica_api` in `/root/api-heroica`, behind nginx at `https://api.adminheroica.com`. Merging to `main` does **not** deploy by itself — run `pnpm deploy:vps` from an up-to-date `main` (see `scripts/deploy-vps.sh`; it refuses to deploy if your copy differs from `origin/main`).
+
+- Non-secret runtime settings live in `ecosystem.config.cjs` (`PORT`, `HOST`, `TZ=UTC`, `STORAGE_DRIVER=local`, `TRUST_PROXY=1`, `CRONS_DISABLED`). Secrets live in `/root/api-heroica/.env` on the server.
+- `uploads/` on the server is a symlink to `/var/lib/heroica/uploads`, outside the deploy folder.
+- `CORS_ORIGIN` accepts a comma-separated list of origins.
+- Cron schedules use the Argentina timezone (`OPCIONES_CRON` in `src/config/constants.ts`). `CRONS_DISABLED=true` turns all scheduled jobs off.
 
 ### Email
 

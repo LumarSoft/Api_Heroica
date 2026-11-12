@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "deploy:vps": "bash scripts/deploy-vps.sh",
     "hash": "tsx src/utils/generateHash.ts",
     "verificar:import-galicia": "tsx scripts/verificarImportacionGalicia.ts",
     "format": "prettier --write .",
