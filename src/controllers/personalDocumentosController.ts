@@ -5,6 +5,7 @@ import fs from 'fs'
 import { put } from '@vercel/blob'
 import { sendArchivoPrivado } from '../services/archivoPrivadoService'
 import { query } from '../config/database'
+import { usaBlob } from '../config/storage'
 import { isPeriodoRecibo } from '../services/recibosSueldoService'
 import { isTipoDocumentoLegajo, labelForTipoDoc, listArchivosByPersonal } from '../services/personalArchivosService'
 import {
@@ -16,9 +17,7 @@ import {
   type DestinoArchivoPersonal,
 } from '../services/personalArchivoUploadService'
 
-const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
-
-const storage = isProduction
+const storage = usaBlob
   ? multer.memoryStorage()
   : multer.diskStorage({
       destination: (_req, _file, cb) => {
@@ -51,7 +50,7 @@ async function existePersonal(personalId: number): Promise<boolean> {
 // POST /api/personal/:id/uploads/token
 export const createPersonalArchivoUploadToken = async (req: Request, res: Response) => {
   try {
-    if (!isProduction) return res.json({ success: true, data: { modo: 'servidor' } })
+    if (!usaBlob) return res.json({ success: true, data: { modo: 'servidor' } })
 
     const personalId = Number(req.params.id)
     const destino = req.body.destino as DestinoArchivoPersonal
@@ -163,7 +162,7 @@ export const createReciboSueldo = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Datos de recibo inválidos' })
     let url: string
     let nombreOriginal: string
-    if (req.file && isProduction) {
+    if (req.file && usaBlob) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) throw new Error('BLOB_READ_WRITE_TOKEN no configurado')
       const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
       const blob = await put(
@@ -265,7 +264,7 @@ export const createPersonalDocumento = async (req: Request, res: Response) => {
     let url: string
     let nombreOriginal: string
 
-    if (req.file && isProduction) {
+    if (req.file && usaBlob) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) throw new Error('BLOB_READ_WRITE_TOKEN no configurado')
       const suffix = Date.now() + '-' + Math.round(Math.random() * 1e9)
       const ext = path.extname(req.file.originalname)
@@ -309,7 +308,7 @@ export const createPersonalDocumento = async (req: Request, res: Response) => {
     })
   } catch (error) {
     console.error('Error al subir documento de personal:', error)
-    if (!isProduction && req.file?.path) {
+    if (!usaBlob && req.file?.path) {
       try {
         fs.unlinkSync(req.file.path)
       } catch {

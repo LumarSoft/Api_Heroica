@@ -5,12 +5,11 @@ import fs from 'fs'
 import { put } from '@vercel/blob'
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client'
 import { query } from '../config/database'
+import { usaBlob } from '../config/storage'
 import { getSolicitudArchivosConLegacy, verificarAccesoSucursal } from '../services/rrhhSolicitudesService'
 import { sendArchivoPrivado } from '../services/archivoPrivadoService'
 
-const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
-
-const storage = isProduction
+const storage = usaBlob
   ? multer.memoryStorage()
   : multer.diskStorage({
       destination: (req, file, cb) => {
@@ -50,7 +49,7 @@ export const uploadSolicitudArchivo = async (req: Request, res: Response) => {
 
     let url: string
 
-    if (isProduction) {
+    if (usaBlob) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) throw new Error('BLOB_READ_WRITE_TOKEN no configurado')
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9)
       const ext = path.extname(req.file.originalname)
@@ -72,7 +71,7 @@ export const uploadSolicitudArchivo = async (req: Request, res: Response) => {
       },
     })
   } catch {
-    if (!isProduction && req.file?.path) {
+    if (!usaBlob && req.file?.path) {
       try {
         fs.unlinkSync(req.file.path)
       } catch {
@@ -89,7 +88,7 @@ export const uploadSolicitudArchivo = async (req: Request, res: Response) => {
 // pathname, a los tipos permitidos y a 10 MB. En local no hay límite: se usa el upload por multer.
 export const createSolicitudArchivoUploadToken = async (req: Request, res: Response) => {
   try {
-    if (!isProduction) return res.json({ success: true, data: { modo: 'servidor' } })
+    if (!usaBlob) return res.json({ success: true, data: { modo: 'servidor' } })
 
     const contentType = typeof req.body.content_type === 'string' ? req.body.content_type : ''
     const tamano = Number(req.body.tamano_bytes)

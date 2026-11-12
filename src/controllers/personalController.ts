@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import path from 'path'
 import { put } from '@vercel/blob'
 import { getConnection, query } from '../config/database'
+import { usaBlob } from '../config/storage'
 import {
   computeAdjuntosFaltantesByPersonal,
   computeVencimientosProximosByPersonal,
@@ -46,8 +47,7 @@ function isValidDate(value: string): boolean {
 }
 
 async function persistCarnetFile(personalId: number, file: Express.Multer.File): Promise<string> {
-  const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
-  if (!isProduction) {
+  if (!usaBlob) {
     const diskFile = file as Express.Multer.File & { filename?: string }
     if (!diskFile.filename) throw new Error('No se pudo guardar el archivo del carnet')
     return `uploads/personal/${diskFile.filename}`

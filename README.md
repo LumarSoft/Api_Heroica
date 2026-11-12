@@ -55,6 +55,34 @@ pnpm build
 pnpm start
 ```
 
+### Despliegue en producción (VPS de Lumarsoft)
+
+Producción corre en el VPS de Lumarsoft con PM2 (`heroica_api`), detrás de nginx en
+`https://api.adminheroica.com`. Un merge a `main` no despliega solo: hay que correr el despliegue
+desde una copia de `main` al día.
+
+```bash
+git switch main && git pull
+pnpm deploy:vps
+```
+
+El script compila, sube el resultado, instala dependencias en el servidor, reinicia la API y
+comprueba que responda. Se niega a desplegar si hay cambios sin commitear o si tu copia no coincide
+con `origin/main`. La versión anterior queda en `dist.anterior` para volver atrás (ver
+`scripts/deploy-vps.sh`).
+
+Variables propias del servidor (definidas en `ecosystem.config.cjs`, salvo los secretos, que van en
+el `.env` del servidor):
+
+| Variable         | Para qué sirve                                                                 |
+| ---------------- | ------------------------------------------------------------------------------ |
+| `STORAGE_DRIVER` | `local` guarda los archivos en `uploads/`; `blob` en Vercel Blob               |
+| `TRUST_PROXY`    | Saltos de proxy a confiar (1 detrás de nginx), para ver la IP real del cliente |
+| `HOST`           | `127.0.0.1` para aceptar solo conexiones locales                               |
+| `CRONS_DISABLED` | `true` apaga las tareas programadas (sincronización y alertas por email)       |
+| `CORS_ORIGIN`    | Uno o varios orígenes permitidos, separados por coma                           |
+| `TZ`             | `UTC`, para que las fechas se comporten igual que antes en Vercel              |
+
 ## 📡 Endpoints
 
 ### Autenticación

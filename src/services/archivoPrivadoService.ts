@@ -1,7 +1,7 @@
 import type { Response } from 'express'
-import path from 'path'
 import { get } from '@vercel/blob'
 import { Readable } from 'stream'
+import { esArchivoRemoto, resolverArchivoLocal } from '../config/storage'
 
 function contentDisposition(nombre: string | null): string {
   const safeName = encodeURIComponent(nombre || 'documento')
@@ -10,13 +10,9 @@ function contentDisposition(nombre: string | null): string {
 
 export async function sendArchivoPrivado(res: Response, url: string, nombre: string | null): Promise<void> {
   res.setHeader('Content-Disposition', contentDisposition(nombre))
-  if (!/^https?:\/\//i.test(url)) {
-    const relativePath = url.replace(/^\/+/, '')
-    const uploadsDir = path.resolve(__dirname, '../../uploads')
-    const filePath = path.resolve(__dirname, '../..', relativePath)
-    if (!relativePath.startsWith('uploads/') || !filePath.startsWith(`${uploadsDir}${path.sep}`)) {
-      throw new Error('Ruta de archivo inválida')
-    }
+  if (!esArchivoRemoto(url)) {
+    const filePath = resolverArchivoLocal(url)
+    if (!filePath) throw new Error('Ruta de archivo inválida')
     await new Promise<void>((resolve, reject) => {
       res.sendFile(filePath, error => (error ? reject(error) : resolve()))
     })

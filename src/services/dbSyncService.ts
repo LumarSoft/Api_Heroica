@@ -1,4 +1,5 @@
 import cron from 'node-cron'
+import { OPCIONES_CRON } from '../config/constants'
 import pool from '../config/database'
 
 // Esta función realiza la sincronización mediante consultas SQL directas.
@@ -40,9 +41,13 @@ const syncDatabase = async () => {
 // Programar la tarea para que se ejecute a las 06:00 AM y 18:00 PM todos los días.
 // Formato cron: "0 6,18 * * *" => A las 06:00 y 18:00 todos los días.
 export const startDbSyncCron = () => {
-  cron.schedule('0 6,18 * * *', () => {
-    syncDatabase()
-  })
+  cron.schedule(
+    '0 6,18 * * *',
+    () => {
+      syncDatabase()
+    },
+    OPCIONES_CRON,
+  )
   console.log('📅 Tarea programada (CRON): Sincronización de BD diaria (06:00 y 18:00).')
 
   // Ejecutar al levantar la API por primera vez

@@ -5,14 +5,12 @@ import path from 'path'
 import fs from 'fs'
 import { put, del, get } from '@vercel/blob'
 import { Readable } from 'stream'
-
-// Detectar si estamos en producción (Vercel)
-const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
+import { esArchivoRemoto, resolverArchivoLocal, usaBlob } from '../config/storage'
 
 // Configurar multer para subir archivos
-// En producción usamos memoria, en local usamos disco
-const storage = isProduction
-  ? multer.memoryStorage() // En producción guardamos en memoria temporalmente
+// Con Blob usamos memoria; con guardado local, disco
+const storage = usaBlob
+  ? multer.memoryStorage() // Con Blob guardamos en memoria temporalmente
   : multer.diskStorage({
       destination: (req, file, cb) => {
         const uploadDir = path.join(__dirname, '../../uploads/documentacion')
@@ -92,7 +90,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
       // Eliminar el archivo subido si la sucursal no existe
-      if (!isProduction && req.file.path) {
+      if (!usaBlob && req.file.path) {
         fs.unlinkSync(req.file.path)
       }
       return res.status(404).json({
@@ -104,8 +102,8 @@ export const uploadDocumento = async (req: Request, res: Response) => {
     let relativePath: string
     let fileUrl: string | undefined
 
-    if (isProduction) {
-      // PRODUCCIÓN: Subir a Vercel Blob
+    if (usaBlob) {
+      // Subir a Vercel Blob
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         throw new Error('BLOB_READ_WRITE_TOKEN no está configurado')
       }
@@ -161,7 +159,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
     console.error('Error al subir documento:', error)
 
     // Eliminar el archivo si hubo error (solo en local)
-    if (!isProduction && req.file && (req.file as any).path) {
+    if (!usaBlob && req.file && (req.file as any).path) {
       fs.unlinkSync((req.file as any).path)
     }
 
@@ -193,22 +191,19 @@ export const deleteDocumento = async (req: Request, res: Response) => {
 
     const documento = result[0]
 
-    if (isProduction) {
-      // PRODUCCIÓN: Eliminar de Vercel Blob
-      if (documento.ruta_archivo.startsWith('https://')) {
-        try {
-          await del(documento.ruta_archivo, {
-            token: process.env.BLOB_READ_WRITE_TOKEN!,
-          })
-        } catch (error) {
-          console.error('Error al eliminar archivo de Blob:', error)
-          // Continuar aunque falle el borrado del blob
-        }
+    // El archivo se borra de donde esté guardado: los de Blob tienen URL completa, los locales "uploads/..."
+    if (esArchivoRemoto(documento.ruta_archivo)) {
+      try {
+        await del(documento.ruta_archivo, {
+          token: process.env.BLOB_READ_WRITE_TOKEN!,
+        })
+      } catch (error) {
+        console.error('Error al eliminar archivo de Blob:', error)
+        // Continuar aunque falle el borrado del blob
       }
     } else {
-      // LOCAL: Eliminar archivo físico
-      const filePath = path.join(__dirname, '../../', documento.ruta_archivo)
-      if (fs.existsSync(filePath)) {
+      const filePath = resolverArchivoLocal(documento.ruta_archivo)
+      if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath)
       }
     }
@@ -248,52 +243,45 @@ export const downloadDocumento = async (req: Request, res: Response) => {
 
     const documento = result[0]
 
-    if (isProduction) {
-      // PRODUCCIÓN: Descargar de Vercel Blob (privado) usando get()
-      if (documento.ruta_archivo.startsWith('https://')) {
-        try {
-          // Usar get() del SDK para obtener blobs privados
-          const blobResult = await get(documento.ruta_archivo, {
-            access: 'private',
-            token: process.env.BLOB_READ_WRITE_TOKEN,
-          })
+    // El archivo se sirve desde donde esté guardado: los de Blob tienen URL completa, los locales "uploads/..."
+    if (esArchivoRemoto(documento.ruta_archivo)) {
+      try {
+        // Usar get() del SDK para obtener blobs privados
+        const blobResult = await get(documento.ruta_archivo, {
+          access: 'private',
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+        })
 
-          if (!blobResult || blobResult.statusCode !== 200) {
-            return res.status(404).json({
-              success: false,
-              message: 'Archivo no encontrado en el almacenamiento',
-            })
-          }
-
-          // Configurar headers para la descarga
-          res.setHeader('Content-Type', documento.tipo_archivo || 'application/octet-stream')
-          res.setHeader('Content-Disposition', `attachment; filename="${documento.nombre_archivo}"`)
-          res.setHeader('X-Content-Type-Options', 'nosniff')
-
-          // Convertir el stream web a stream de Node.js y enviarlo
-          if (blobResult.stream) {
-            Readable.fromWeb(blobResult.stream as any).pipe(res)
-          } else {
-            throw new Error('No se pudo obtener el stream del archivo')
-          }
-        } catch (error) {
-          console.error('Error al descargar desde Blob:', error)
-          return res.status(500).json({
+        if (!blobResult || blobResult.statusCode !== 200) {
+          return res.status(404).json({
             success: false,
-            message: 'Error al descargar archivo desde el almacenamiento',
+            message: 'Archivo no encontrado en el almacenamiento',
           })
         }
-      } else {
-        return res.status(404).json({
+
+        // Configurar headers para la descarga
+        res.setHeader('Content-Type', documento.tipo_archivo || 'application/octet-stream')
+        res.setHeader('Content-Disposition', `attachment; filename="${documento.nombre_archivo}"`)
+        res.setHeader('X-Content-Type-Options', 'nosniff')
+
+        // Convertir el stream web a stream de Node.js y enviarlo
+        if (blobResult.stream) {
+          Readable.fromWeb(blobResult.stream as any).pipe(res)
+        } else {
+          throw new Error('No se pudo obtener el stream del archivo')
+        }
+      } catch (error) {
+        console.error('Error al descargar desde Blob:', error)
+        return res.status(500).json({
           success: false,
-          message: 'URL del archivo no válida',
+          message: 'Error al descargar archivo desde el almacenamiento',
         })
       }
     } else {
-      // LOCAL: Servir desde sistema de archivos
-      const filePath = path.join(__dirname, '../../', documento.ruta_archivo)
+      // Servir desde el disco del servidor
+      const filePath = resolverArchivoLocal(documento.ruta_archivo)
 
-      if (!fs.existsSync(filePath)) {
+      if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({
           success: false,
           message: 'Archivo no encontrado',

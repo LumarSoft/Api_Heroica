@@ -5,12 +5,10 @@ import path from 'path'
 import fs from 'fs'
 import { put, del, get } from '@vercel/blob'
 import { Readable } from 'stream'
-
-// Detectar si estamos en producción (Vercel)
-const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production'
+import { esArchivoRemoto, resolverArchivoLocal, usaBlob } from '../config/storage'
 
 // Configurar multer para subir archivos
-const storage = isProduction
+const storage = usaBlob
   ? multer.memoryStorage()
   : multer.diskStorage({
       destination: (req, file, cb) => {
@@ -87,7 +85,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
     const existingResult: any = await query('SELECT id FROM movimientos WHERE id = ?', [id])
 
     if (!Array.isArray(existingResult) || existingResult.length === 0) {
-      if (!isProduction && req.file.path) {
+      if (!usaBlob && req.file.path) {
         fs.unlinkSync(req.file.path)
       }
       return res.status(404).json({
@@ -99,7 +97,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
     let relativePath: string
     let fileUrl: string | undefined
 
-    if (isProduction) {
+    if (usaBlob) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         throw new Error('BLOB_READ_WRITE_TOKEN no está configurado')
       }
@@ -142,7 +140,7 @@ export const uploadDocumento = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error al subir documento:', error)
 
-    if (!isProduction && req.file && (req.file as any).path) {
+    if (!usaBlob && req.file && (req.file as any).path) {
       fs.unlinkSync((req.file as any).path)
     }
 
@@ -173,19 +171,18 @@ export const deleteDocumento = async (req: Request, res: Response) => {
 
     const documento = result[0]
 
-    if (isProduction) {
-      if (documento.ruta_archivo.startsWith('https://')) {
-        try {
-          await del(documento.ruta_archivo, {
-            token: process.env.BLOB_READ_WRITE_TOKEN!,
-          })
-        } catch (error) {
-          console.error('Error al eliminar archivo de Blob:', error)
-        }
+    // El archivo se borra de donde esté guardado: los de Blob tienen URL completa, los locales "uploads/..."
+    if (esArchivoRemoto(documento.ruta_archivo)) {
+      try {
+        await del(documento.ruta_archivo, {
+          token: process.env.BLOB_READ_WRITE_TOKEN!,
+        })
+      } catch (error) {
+        console.error('Error al eliminar archivo de Blob:', error)
       }
     } else {
-      const filePath = path.join(__dirname, '../../', documento.ruta_archivo)
-      if (fs.existsSync(filePath)) {
+      const filePath = resolverArchivoLocal(documento.ruta_archivo)
+      if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath)
       }
     }
@@ -224,47 +221,41 @@ export const downloadDocumento = async (req: Request, res: Response) => {
 
     const documento = result[0]
 
-    if (isProduction) {
-      if (documento.ruta_archivo.startsWith('https://')) {
-        try {
-          const blobResult = await get(documento.ruta_archivo, {
-            access: 'private',
-            token: process.env.BLOB_READ_WRITE_TOKEN,
-          })
+    // El archivo se sirve desde donde esté guardado: los de Blob tienen URL completa, los locales "uploads/..."
+    if (esArchivoRemoto(documento.ruta_archivo)) {
+      try {
+        const blobResult = await get(documento.ruta_archivo, {
+          access: 'private',
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+        })
 
-          if (!blobResult || blobResult.statusCode !== 200) {
-            return res.status(404).json({
-              success: false,
-              message: 'Archivo no encontrado en el almacenamiento',
-            })
-          }
-
-          res.setHeader('Content-Type', documento.tipo_archivo || 'application/octet-stream')
-          res.setHeader('Content-Disposition', `attachment; filename="${documento.nombre_archivo}"`)
-          res.setHeader('X-Content-Type-Options', 'nosniff')
-
-          if (blobResult.stream) {
-            Readable.fromWeb(blobResult.stream as any).pipe(res)
-          } else {
-            throw new Error('No se pudo obtener el stream del archivo')
-          }
-        } catch (error) {
-          console.error('Error al descargar desde Blob:', error)
-          return res.status(500).json({
+        if (!blobResult || blobResult.statusCode !== 200) {
+          return res.status(404).json({
             success: false,
-            message: 'Error al descargar archivo desde el almacenamiento',
+            message: 'Archivo no encontrado en el almacenamiento',
           })
         }
-      } else {
-        return res.status(404).json({
+
+        res.setHeader('Content-Type', documento.tipo_archivo || 'application/octet-stream')
+        res.setHeader('Content-Disposition', `attachment; filename="${documento.nombre_archivo}"`)
+        res.setHeader('X-Content-Type-Options', 'nosniff')
+
+        if (blobResult.stream) {
+          Readable.fromWeb(blobResult.stream as any).pipe(res)
+        } else {
+          throw new Error('No se pudo obtener el stream del archivo')
+        }
+      } catch (error) {
+        console.error('Error al descargar desde Blob:', error)
+        return res.status(500).json({
           success: false,
-          message: 'URL del archivo no válida',
+          message: 'Error al descargar archivo desde el almacenamiento',
         })
       }
     } else {
-      const filePath = path.join(__dirname, '../../', documento.ruta_archivo)
+      const filePath = resolverArchivoLocal(documento.ruta_archivo)
 
-      if (!fs.existsSync(filePath)) {
+      if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({
           success: false,
           message: 'Archivo no encontrado',

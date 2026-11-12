@@ -1,4 +1,5 @@
 import cron from 'node-cron'
+import { OPCIONES_CRON } from '../config/constants'
 import { query } from '../config/database'
 import { sendSegundoApercibimientoEmail, sendVencimientoRrhhEmail } from './emailService'
 
@@ -294,11 +295,15 @@ export async function procesarAlertasSolicitudesRrhh(): Promise<void> {
 }
 
 export function startSolicitudesRrhhAlertCron(): void {
-  cron.schedule('10 8 * * *', () => {
-    procesarAlertasSolicitudesRrhh().catch(error => {
-      console.error('[rrhhSolicitudesAlertService] Error procesando alertas:', error)
-    })
-  })
+  cron.schedule(
+    '10 8 * * *',
+    () => {
+      procesarAlertasSolicitudesRrhh().catch(error => {
+        console.error('[rrhhSolicitudesAlertService] Error procesando alertas:', error)
+      })
+    },
+    OPCIONES_CRON,
+  )
 
   console.log('📅 Tarea programada (CRON): Alertas de solicitudes RRHH (08:10).')
 
